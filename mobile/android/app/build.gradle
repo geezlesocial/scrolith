@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 1.1.49 - call audio feedback hardening and message-detail overlay reliability.
-        versionCode 59
-        versionName "1.1.49"
+        // 1.1.50 - refreshed production launcher icon and latest bundled web updates.
+        versionCode 60
+        versionName "1.1.50"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]
