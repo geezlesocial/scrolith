@@ -1,0 +1,3 @@
+<en-US>
+This release adds caption support for Stories, photo and video posts, and Scroll videos. It includes a review-before-publish story flow, clearer media caption controls on mobile and desktop, live Scroll caption previews, and the latest production stability updates.
+</en-US>

@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 1.1.51 - story navigation, mobile media upload stability, and video playback smoothing.
-        versionCode 61
-        versionName "1.1.51"
+        // 1.1.52 - story, video post, and Scroll caption support with production stability updates.
+        versionCode 62
+        versionName "1.1.52"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]
