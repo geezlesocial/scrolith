@@ -526,6 +526,7 @@ const CommunityHome = () => {
   const storyCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const storyDeviceInputRef = useRef<HTMLInputElement | null>(null);
   const storyCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const storyRailSectionRef = useRef<HTMLDivElement | null>(null);
   const storyRecorderRef = useRef<MediaRecorder | null>(null);
   const storyChunksRef = useRef<Blob[]>([]);
   const [storyRecording, setStoryRecording] = useState(false);
@@ -572,6 +573,19 @@ const CommunityHome = () => {
   useEffect(() => {
     postsRef.current = posts;
   }, [posts]);
+
+  useEffect(() => {
+    const query = new URLSearchParams(location.search);
+    const tab = String(query.get('tab') || query.get('focus') || '').toLowerCase();
+    const hash = String(location.hash || '').toLowerCase();
+    const wantsStories = tab === 'stories' || tab === 'story' || hash === '#stories' || hash === '#story';
+    if (!wantsStories) return;
+    setStoryRailTab('stories');
+    const timer = window.setTimeout(() => {
+      storyRailSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, loading ? 250 : 80);
+    return () => window.clearTimeout(timer);
+  }, [loading, location.hash, location.search]);
 
   const findPrimaryVideoAttachment = useCallback((post: any) => {
     const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
@@ -3060,7 +3074,11 @@ const CommunityHome = () => {
 
             {/* Stories Strip */}
             {showStories && (
-              <div className="rounded-xl bg-white p-3 shadow-sm sm:p-4">
+              <div
+                id="stories"
+                ref={storyRailSectionRef}
+                className="scroll-mt-24 rounded-xl bg-white p-3 shadow-sm sm:p-4"
+              >
                 <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                   <div className="inline-flex items-center rounded-full border border-gray-200 bg-gray-100 p-1">
                     <button

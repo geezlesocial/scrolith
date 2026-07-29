@@ -359,6 +359,29 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({
           mediaPlaceholder: 'generic' as const
         };
       }
+      case 'story': {
+        const title = SafeText(
+          data.title || data.name || data.content || data.text || data.caption,
+          'Recommended for you'
+        ).slice(0, 120);
+        const storyId = String(data.id || data.sourceId || entry.raw?.sourceId || '').trim();
+        const baseHref = /community/i.test(sourceSurface) ? '/community' : '/member-home';
+        const search = new URLSearchParams({ tab: 'stories' });
+        if (storyId) search.set('story', storyId);
+        return {
+          kind: 'story',
+          eyebrow: 'Story',
+          title,
+          subtitle: SafeText(data.subtitle || data.description || data.status, 'Active story'),
+          meta: ['Active story'],
+          href: `${baseHref}?${search.toString()}#stories`,
+          cta: 'Open',
+          mediaCandidates: [resolveMediaUrl(data.media || data.mediaUrl || data.image || data.thumbnailUrl)].filter(
+            Boolean
+          ) as string[],
+          mediaPlaceholder: 'generic' as const
+        };
+      }
       default: {
         // Phase 22.1B — never send Scroll-like unknowns to /home; use safe discovery sinks.
         const title = SafeText(data.title || data.name || data.content, 'Recommended for you').slice(
@@ -381,7 +404,7 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({
         };
       }
     }
-  }, [entry, data, why]);
+  }, [entry, data, sourceSurface, why]);
 
   if (!card) return null;
 

@@ -1734,6 +1734,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const storyCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const storyDeviceInputRef = useRef<HTMLInputElement | null>(null);
   const storyCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const storyRailSectionRef = useRef<HTMLDivElement | null>(null);
   const storyRecorderRef = useRef<MediaRecorder | null>(null);
   const storyChunksRef = useRef<Blob[]>([]);
   const [storyRecording, setStoryRecording] = useState(false);
@@ -2047,6 +2048,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     }
     return 'for_you';
   })();
+
+  useEffect(() => {
+    const query = new URLSearchParams(location.search);
+    const tab = String(query.get('tab') || query.get('focus') || '').toLowerCase();
+    const hash = String(location.hash || '').toLowerCase();
+    const wantsStories = tab === 'stories' || tab === 'story' || hash === '#stories' || hash === '#story';
+    if (!wantsStories || !showStories) return;
+    setStoryRailTab('stories');
+    const timer = window.setTimeout(() => {
+      storyRailSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [location.hash, location.search, showStories]);
 
   const defaultFeedTab: FeedTab = (() => {
     const explicit = normalizeFeedTabValue(memberHomeFeed.defaultTab);
@@ -8908,7 +8922,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             data-testid="scrolith-member-home-feed"
           >
             {showSlider && sliderItems.length > 0 && (
-              <div className="rounded-3xl border border-white/70 bg-white p-3 sm:p-4 shadow-sm rise-fade-delay-1">
+              <div
+                id="stories"
+                ref={storyRailSectionRef}
+                className="scroll-mt-24 rounded-3xl border border-white/70 bg-white p-3 sm:p-4 shadow-sm rise-fade-delay-1"
+              >
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-semibold text-slate-900">{sliderTitle}</div>
                   <span className="text-sm text-slate-400">{sliderItems.length} highlight{sliderItems.length === 1 ? '' : 's'}</span>
