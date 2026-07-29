@@ -49,6 +49,9 @@ import { buildPublicAppUrl } from '../../../utils/siteUrl';
 import StoryUploadStatusCard from '../../../components/stories/StoryUploadStatusCard';
 import StoryReplySheet from '../../../components/stories/StoryReplySheet';
 import StoryAuthorAvatar from '../../../components/stories/StoryAuthorAvatar';
+import CaptionEnhancementToolbar from '../../../components/composer/CaptionEnhancementToolbar';
+import MentionHashtagTextarea from '../../../community/components/MentionHashtagTextarea';
+import RichCaptionText from '../../../community/components/RichCaptionText';
 import {
   MOBILE_MODAL_CARD_CLASS,
   MOBILE_PAGE_CONTAINER_CLASS,
@@ -2048,14 +2051,22 @@ export default function MobileStoriesStrip({
                       }
                     />
                   ) : null}
-                  <textarea
+                  <MentionHashtagTextarea
                     value={draftContent}
-                    onChange={(e) => setDraftContent(e.target.value)}
-                  placeholder="Add a caption..."
-                  className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400"
-                  rows={3}
-                  disabled={publishing}
-                />
+                    onChange={setDraftContent}
+                    placeholder="Optional caption. Add @mentions, #tags, emojis, or a polished highlight..."
+                    className="min-h-[92px] w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400"
+                    disabled={publishing}
+                  />
+                  <div className="mt-3">
+                    <CaptionEnhancementToolbar value={draftContent} onChange={setDraftContent} disabled={publishing} />
+                  </div>
+                  {draftContent.trim() ? (
+                    <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-950 px-3 py-2 text-xs leading-5 text-white">
+                      <span className="font-semibold text-cyan-100">Caption preview:</span>{' '}
+                      <RichCaptionText text={draftContent.trim()} preserveWhitespace={false} />
+                    </div>
+                  ) : null}
               </div>
             )}
 

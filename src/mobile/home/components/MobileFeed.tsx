@@ -1654,7 +1654,7 @@ export default function MobileFeed({
         mediaUrl,
         thumbnailUrl: String(media?.thumbnailUrl || resolvePostAttachmentPosterUrl(media) || '').trim() || null,
         title: String(post?.title || '').trim() || null,
-        description: resolveVideoCaption(post, media, post?.content) || null,
+        description: resolveVideoCaption(post, media) || null,
         location: String(post?.location || '').trim() || null,
         authorName: String(post?.author?.displayName || post?.authorName || '').trim() || null,
         authorAvatar: String(post?.author?.avatarUrl || post?.authorAvatar || '').trim() || null,
@@ -3348,7 +3348,7 @@ export default function MobileFeed({
                           const mediaUrl = mediaPair.url || resolvePostAttachmentMediaUrl(file);
                           const fallbackUrl = mediaPair.fallbackUrl || '';
                           const posterUrl = resolvePostAttachmentPosterUrl(file);
-                          const caption = resolveVideoCaption(post, file, post?.content);
+                          const caption = resolveVideoCaption(post, file);
                           return (
                             <div
                               key={`${postId}_att_${file.id || file.url}`}

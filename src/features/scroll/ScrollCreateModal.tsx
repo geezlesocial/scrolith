@@ -17,6 +17,9 @@ import { ScrollService, type ScrollConfig, type ScrollSeriesDetail, type ScrollV
 import { useNotification } from '../../context/NotificationContext';
 import { useUser } from '../../context/UserContext';
 import OfferTagSelector from '../../components/commerce/OfferTagSelector';
+import CaptionEnhancementToolbar from '../../components/composer/CaptionEnhancementToolbar';
+import MentionHashtagTextarea from '../../community/components/MentionHashtagTextarea';
+import RichCaptionText from '../../community/components/RichCaptionText';
 import type { OfferTagSelection } from '../../utils/contentOffers';
 import type { PendingPostVideoScrollSource } from '../../utils/postVideoScrollBridge';
 import { LocationService } from '../../services/location';
@@ -759,17 +762,24 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
               <span className="block text-xs font-semibold uppercase tracking-wide text-white/70">Caption</span>
               <span className="text-[11px] font-medium text-white/45">{description.trim().length} characters</span>
             </div>
-            <textarea
+            <MentionHashtagTextarea
               value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              rows={4}
-              placeholder="Add a caption that tells viewers what this Scroll is about..."
-              className="w-full rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm outline-none focus:border-cyan-300"
+              onChange={setDescription}
+              placeholder="Optional caption. Add @mentions, #tags, emojis, or a polished highlight..."
+              className="min-h-[112px] w-full resize-none rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm outline-none focus:border-cyan-300"
             />
+            <div className="mt-3">
+              <CaptionEnhancementToolbar
+                value={description}
+                onChange={setDescription}
+                disabled={uploading || aiRewriting !== null}
+                variant="dark"
+              />
+            </div>
             {description.trim() ? (
               <div className="mt-2 rounded-2xl border border-white/10 bg-black/25 px-3 py-2 text-xs leading-5 text-white/70">
                 <span className="font-semibold text-cyan-100">Live caption preview:</span>{' '}
-                <span className="whitespace-pre-wrap break-words">{description.trim()}</span>
+                <RichCaptionText text={description.trim()} preserveWhitespace={false} />
               </div>
             ) : (
               <div className="mt-2 text-xs leading-5 text-white/50">

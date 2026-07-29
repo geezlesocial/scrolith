@@ -522,7 +522,7 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({
                 attachments.length === 1 ? FEED_SINGLE_MEDIA_HEIGHT_CLASS : FEED_MULTI_MEDIA_HEIGHT_CLASS;
 
               if (type === 'video') {
-                const caption = resolveVideoCaption(post, media, post.content);
+                const caption = resolveVideoCaption(post, media);
                 return (
                   <div
                     key={media.id || media.url}
@@ -1526,11 +1526,11 @@ export default function PostDetailView() {
                           loadingLabel="Video loading"
                           overlay={(videoElement) => (
                             <div className="w-full space-y-2 px-2 sm:px-3">
-                              <VideoCaptionOverlay text={resolveVideoCaption(post, selectedMedia, post.content)} />
+                              <VideoCaptionOverlay text={resolveVideoCaption(post, selectedMedia)} />
                               <PostVideoActionBar
                                 postId={post.id}
                                 postTitle={post.title}
-                                postContent={resolveVideoCaption(post, selectedMedia, post.content) || post.content}
+                                postContent={resolveVideoCaption(post, selectedMedia) || post.content}
                                 postLocation={post.location}
                                 media={selectedMedia}
                                 videoElement={videoElement}

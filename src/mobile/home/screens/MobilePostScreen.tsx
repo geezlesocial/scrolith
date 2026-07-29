@@ -6,6 +6,7 @@ import { useNotification } from '../../../context/NotificationContext';
 import { useUser } from '../../../context/UserContext';
 import type { UploadedFile } from '../../../types';
 import MentionHashtagTextarea from '../../../community/components/MentionHashtagTextarea';
+import RichCaptionText from '../../../community/components/RichCaptionText';
 import { AIService, type PostEnhanceMode } from '../../../services/ai/ai.service';
 import { FileService } from '../../../services/files';
 import { Camera, Download, Loader2, Paperclip } from 'lucide-react';
@@ -30,6 +31,7 @@ import {
   type ComposerAttachmentPreview
 } from '../../../components/composer/composerAttachments';
 import ComposerMediaPreviewGrid from '../../../components/composer/ComposerMediaPreviewGrid';
+import CaptionEnhancementToolbar from '../../../components/composer/CaptionEnhancementToolbar';
 import AIComposerAssist from '../../../components/ai/AIComposerAssist';
 import PostTextBackgroundPicker from '../../../components/composer/PostTextBackgroundPicker';
 import { composerEditorTextBackground } from '../../../components/composer/composerClasses';
@@ -39,6 +41,7 @@ import {
   isComposerTextBackgroundActive,
   POST_TEXT_BG_NONE_ID
 } from '../../../utils/postTextBackgrounds';
+import { buildAttachmentCaptionMap, resolveFirstAttachmentCaption } from '../../../utils/videoCaption';
 
 const postAiActions: Array<{ mode: PostEnhanceMode; label: string }> = [
   { mode: 'grammar', label: 'Improve Grammar' },
@@ -62,6 +65,7 @@ export default function MobilePostScreen({
   const { showNotification } = useNotification();
   const { user } = useUser();
   const [content, setContent] = useState('');
+  const [mediaCaption, setMediaCaption] = useState('');
   const [textBackgroundId, setTextBackgroundId] = useState(POST_TEXT_BG_NONE_ID);
   const [media, setMedia] = useState<ComposerAttachmentPreview[]>([]);
   const mediaRef = useRef(media);
@@ -397,6 +401,7 @@ export default function MobilePostScreen({
     mediaCountRef.current = normalized.length;
     mediaVideoCountRef.current = hasComposerVideoAttachment(normalized) ? 1 : 0;
     setMedia(normalized);
+    setMediaCaption(resolveFirstAttachmentCaption(post, postAttachments));
   };
 
   useEffect(() => {
@@ -517,6 +522,7 @@ export default function MobilePostScreen({
           content: content.trim(),
           attachmentFileIds: attachmentIds,
           attachments: attachmentIds,
+          attachmentCaptions: buildAttachmentCaptionMap(media, mediaCaption),
           visibility: visibilityEnabled ? visibility : defaultVisibility,
           graphicWarning: graphicWarningEnabled ? graphicWarning : false,
           isAIEnhanced,
@@ -540,6 +546,7 @@ export default function MobilePostScreen({
         content: content.trim(),
         attachmentFileIds: attachmentIds,
         attachments: attachmentIds,
+        attachmentCaptions: buildAttachmentCaptionMap(media, mediaCaption),
         visibility: visibilityEnabled ? visibility : defaultVisibility,
         graphicWarning: graphicWarningEnabled ? graphicWarning : false,
         isAIEnhanced,
@@ -558,6 +565,7 @@ export default function MobilePostScreen({
       setContent('');
       setTextBackgroundId(POST_TEXT_BG_NONE_ID);
       setMedia([]);
+      setMediaCaption('');
       setGraphicWarning(false);
       setIsAIEnhanced(false);
       setAiInsightPreference('auto');
@@ -733,10 +741,10 @@ export default function MobilePostScreen({
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <div>
                     <div className="text-xs font-semibold text-slate-600">Media caption</div>
-                    <div className="text-[11px] text-slate-500">Shown with your photo or video after publishing.</div>
+                    <div className="text-[11px] text-slate-500">Optional. Captions appear only when you add one.</div>
                   </div>
                   <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-500">
-                    {content.trim().length}
+                    {mediaCaption.trim().length}
                   </span>
                 </div>
               ) : null}
@@ -775,6 +783,32 @@ export default function MobilePostScreen({
                   }
                 />
               </div>
+              {hasMedia ? (
+                <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                  <MentionHashtagTextarea
+                    value={mediaCaption}
+                    onChange={setMediaCaption}
+                    placeholder="Optional media caption. Add @mentions, #tags, emojis, or a polished highlight..."
+                    mentionsEnabled={mentionsEnabled}
+                    hashtagsEnabled={hashtagsEnabled}
+                    disabled={busy || loadingPost}
+                    className="min-h-[92px] w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
+                  />
+                  <div className="mt-3">
+                    <CaptionEnhancementToolbar
+                      value={mediaCaption}
+                      onChange={setMediaCaption}
+                      disabled={busy || loadingPost}
+                    />
+                  </div>
+                  {mediaCaption.trim() ? (
+                    <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-950 px-3 py-2 text-xs leading-5 text-white">
+                      <span className="font-semibold text-cyan-100">Caption preview:</span>{' '}
+                      <RichCaptionText text={mediaCaption.trim()} preserveWhitespace={false} />
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               </>
             );
           })()}

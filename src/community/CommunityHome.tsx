@@ -625,7 +625,7 @@ const CommunityHome = () => {
         mediaUrl,
         thumbnailUrl: String(resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl || '').trim() || null,
         title: String(post?.title || '').trim() || null,
-        description: resolveVideoCaption(post, media, post?.content) || null,
+        description: resolveVideoCaption(post, media) || null,
         location: String(post?.location || '').trim() || null,
         authorName: String(post?.author?.displayName || post?.authorName || '').trim() || null,
         authorAvatar: String(resolveUserAvatarUrl(post?.author || post) || post?.authorAvatar || '').trim() || null,
@@ -3961,7 +3961,7 @@ const CommunityHome = () => {
                                       ? FEED_SINGLE_MEDIA_HEIGHT_CLASS
                                       : FEED_MULTI_MEDIA_HEIGHT_CLASS;
                                   if (type === 'video') {
-                                    const caption = resolveVideoCaption(post, media, post.content);
+                                    const caption = resolveVideoCaption(post, media);
                                     return (
                                       <div
                                         key={media.id || media.url}

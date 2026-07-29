@@ -20,7 +20,28 @@ const mediaIdentityKeys = (media: any) =>
     .map((value) => String(value || '').trim())
     .filter(Boolean);
 
-export const resolveVideoCaption = (container: any, media?: any, fallback?: unknown) => {
+export const buildAttachmentCaptionMap = (media: any[] | undefined | null, caption: unknown) => {
+  const normalized = normalizeCaption(caption);
+  if (!normalized) return {};
+  const map: Record<string, string> = {};
+  for (const item of Array.isArray(media) ? media : []) {
+    const ids = mediaIdentityKeys(item);
+    const primaryId = ids[0];
+    if (primaryId) map[primaryId] = normalized;
+  }
+  return map;
+};
+
+export const resolveFirstAttachmentCaption = (container: any, media?: any[] | undefined | null) => {
+  const items = Array.isArray(media) ? media : Array.isArray(container?.attachments) ? container.attachments : [];
+  for (const item of items) {
+    const caption = resolveVideoCaption(container, item);
+    if (caption) return caption;
+  }
+  return '';
+};
+
+export const resolveVideoCaption = (container: any, media?: any) => {
   for (const key of captionKeys) {
     const candidate = normalizeCaption(media?.[key]);
     if (candidate) return candidate;
@@ -42,10 +63,5 @@ export const resolveVideoCaption = (container: any, media?: any, fallback?: unkn
     }
   }
 
-  for (const key of ['caption', 'content', 'body', 'description', 'title']) {
-    const candidate = normalizeCaption(container?.[key]);
-    if (candidate) return candidate;
-  }
-
-  return normalizeCaption(fallback);
+  return '';
 };

@@ -59,6 +59,7 @@ import PostEngagementBar from '../../community/components/PostEngagementBar';
 import ReactionBar from '../../community/components/ReactionBar';
 import MentionText from '../../community/components/MentionText';
 import MentionHashtagTextarea from '../../community/components/MentionHashtagTextarea';
+import RichCaptionText from '../../community/components/RichCaptionText';
 import FollowButton from '../../community/components/FollowButton';
 import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from '../../community/followState';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../../community/storyStyles';
@@ -158,7 +159,7 @@ import {
 import { DEFAULT_MEMBER_HOME_REGIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../../constants/defaultAudienceOptions';
 import { normalizeContentOfferTags, type OfferTagSelection } from '../../utils/contentOffers';
 import { buildPublicAppUrl } from '../../utils/siteUrl';
-import { resolveVideoCaption } from '../../utils/videoCaption';
+import { buildAttachmentCaptionMap, resolveFirstAttachmentCaption, resolveVideoCaption } from '../../utils/videoCaption';
 import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../utils/communityEventHighlights';
 import type { CommunityClub, StructuredLocationFields } from '../../types';
 import {
@@ -230,6 +231,7 @@ import {
 import { createPublishGuard } from '../composer/composerPublishGuard';
 import ComposerShell from '../composer/ComposerShell';
 import ComposerMediaPreviewGrid from '../composer/ComposerMediaPreviewGrid';
+import CaptionEnhancementToolbar from '../composer/CaptionEnhancementToolbar';
 import AIComposerAssist from '../ai/AIComposerAssist';
 
 const LocationPicker = React.lazy(() => import('../common/LocationPicker'));
@@ -462,6 +464,7 @@ type PostDraft = {
   aiInsightPreference: PostAiInsightPreference;
   offerTags: OfferTagSelection[];
   media: PostMediaItem[];
+  mediaCaption: string;
   /** Facebook-style text background theme id (`none` = default). */
   textBackgroundId: string;
 };
@@ -562,6 +565,7 @@ const createEmptyPostDraft = (): PostDraft => ({
   aiInsightPreference: 'auto',
   offerTags: [],
   media: [],
+  mediaCaption: '',
   textBackgroundId: 'none'
 });
 
@@ -1866,7 +1870,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         mediaUrl,
         thumbnailUrl: String(resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl || '').trim() || null,
         title: String(post?.title || '').trim() || null,
-        description: resolveVideoCaption(post, media, post?.content) || null,
+        description: resolveVideoCaption(post, media) || null,
         location: String(post?.location || '').trim() || null,
         authorName: String(post?.author?.displayName || post?.authorName || '').trim() || null,
         authorAvatar: String(resolveUserAvatarUrl(post?.author || post) || '').trim() || null,
@@ -5001,6 +5005,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         title: postDraft.title.trim(),
         content: postDraft.content,
         attachmentFileIds,
+        attachmentCaptions: buildAttachmentCaptionMap(postDraft.media, postDraft.mediaCaption),
         businessPageId: activePostBusinessPageId || undefined,
         topic: postDraft.topic || undefined,
         location: submitLocation || undefined,
@@ -5096,7 +5101,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         url: media.url,
         name: media.name,
         type: inferMediaType(media)
-      }))
+      })),
+      mediaCaption: resolveFirstAttachmentCaption(post, post.attachments)
     });
   }, []);
 
@@ -5253,6 +5259,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         content: editingDraft.content,
         attachmentFileIds,
         attachments: attachmentFileIds,
+        attachmentCaptions: buildAttachmentCaptionMap(editingDraft.media, editingDraft.mediaCaption),
         topic: editingDraft.topic || undefined,
         location: editingDraft.location || undefined,
         visibility: editingDraft.visibility,
@@ -7268,7 +7275,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 posterUrl && !/__video_fallback_thumbnail|video_fallback/i.test(posterUrl)
                   ? posterUrl
                   : undefined;
-              const caption = resolveVideoCaption(post, media, post?.content);
+              const caption = resolveVideoCaption(post, media);
               return (
                 <div
                   key={media.id || media.url}
@@ -7712,11 +7719,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 const textOnlyBackground = isComposerTextBackgroundActive(postDraft.textBackgroundId, {
                   hasMedia: hasComposerMedia
                 });
-                const captionPlaceholder = hasComposerMedia
-                  ? 'Add a caption for your photo or video...'
-                  : textOnlyBackground
-                    ? 'Say something...'
-                    : 'What do you want to talk about?';
                 const textareaStyle = textOnlyBackground
                   ? buildComposerTextBackgroundStyle(postDraft.textBackgroundId)
                   : undefined;
@@ -7726,10 +7728,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Media caption</p>
-                          <p className="text-[11px] text-slate-500">This caption appears with your photo or video post.</p>
+                          <p className="text-[11px] text-slate-500">Captions are optional and appear only when you add one.</p>
                         </div>
                         <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-500">
-                          {postDraft.content.trim().length} characters
+                          {postDraft.mediaCaption.trim().length} characters
                         </span>
                       </div>
                     ) : null}
@@ -7762,6 +7764,32 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                         style={textareaStyle}
                       />
                     </div>
+                    {hasComposerMedia ? (
+                      <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                        <MentionHashtagTextarea
+                          value={postDraft.mediaCaption}
+                          onChange={(nextValue) => setPostDraft((prev) => ({ ...prev, mediaCaption: nextValue }))}
+                          placeholder="Optional media caption. Add @mentions, #tags, emojis, or a polished highlight..."
+                          mentionsEnabled={mentionsEnabled}
+                          hashtagsEnabled={hashtagsEnabled}
+                          className="min-h-[88px] w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
+                          disabled={posting}
+                        />
+                        <div className="mt-3">
+                          <CaptionEnhancementToolbar
+                            value={postDraft.mediaCaption}
+                            onChange={(nextValue) => setPostDraft((prev) => ({ ...prev, mediaCaption: nextValue }))}
+                            disabled={posting}
+                          />
+                        </div>
+                        {postDraft.mediaCaption.trim() ? (
+                          <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-950 px-3 py-2 text-xs leading-5 text-white">
+                            <span className="font-semibold text-cyan-100">Caption preview:</span>{' '}
+                            <RichCaptionText text={postDraft.mediaCaption.trim()} preserveWhitespace={false} />
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div className="mt-3 space-y-3">
                       <PostTextBackgroundPicker
                         value={postDraft.textBackgroundId || POST_TEXT_BG_NONE_ID}
@@ -9890,6 +9918,37 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                 Add media
                               </button>
                             </div>
+                            {editingDraft?.media?.length ? (
+                              <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                                <div className="mb-2 flex items-center justify-between gap-2">
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                    Media caption
+                                  </p>
+                                  <span className="text-[11px] font-semibold text-slate-500">
+                                    {(editingDraft?.mediaCaption || '').trim().length} characters
+                                  </span>
+                                </div>
+                                <MentionHashtagTextarea
+                                  value={editingDraft?.mediaCaption || ''}
+                                  onChange={(nextValue) =>
+                                    setEditingDraft((prev) => (prev ? { ...prev, mediaCaption: nextValue } : prev))
+                                  }
+                                  mentionsEnabled={mentionsEnabled}
+                                  hashtagsEnabled={hashtagsEnabled}
+                                  placeholder="Optional media caption. Add @mentions, #tags, emojis, or a polished highlight..."
+                                  className="min-h-[88px] w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400"
+                                />
+                                <div className="mt-3">
+                                  <CaptionEnhancementToolbar
+                                    value={editingDraft?.mediaCaption || ''}
+                                    onChange={(nextValue) =>
+                                      setEditingDraft((prev) => (prev ? { ...prev, mediaCaption: nextValue } : prev))
+                                    }
+                                    disabled={postBusy}
+                                  />
+                                </div>
+                              </div>
+                            ) : null}
                             {editingDraft?.media?.length ? (
                               <div className="grid gap-3 md:grid-cols-2">
                                 {editingDraft.media.map((media) => {
