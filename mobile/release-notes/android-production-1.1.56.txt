@@ -1,0 +1,3 @@
+<en-US>
+This release adds company-linked profile experience editing. Users can connect existing Scrolith company pages to their work history, add working dates, mark current roles, and keep profile experience synchronized across web and mobile.
+</en-US>

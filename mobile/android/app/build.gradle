@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 1.1.55 - manual-only media captions; filenames never render as captions.
-        versionCode 65
-        versionName "1.1.55"
+        // 1.1.56 - company-linked profile experience with working dates.
+        versionCode 66
+        versionName "1.1.56"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]
