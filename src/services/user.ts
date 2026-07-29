@@ -245,6 +245,22 @@ const normalizeProfessionalIdentity = (value: any) => {
   };
 };
 
+const mapExperience = (entry: any) => ({
+  ...entry,
+  id: String(entry?.id || Math.random().toString(36).slice(2, 11)),
+  title: String(entry?.title || ''),
+  company: String(entry?.company || entry?.companyName || ''),
+  companyPageId: entry?.companyPageId ?? entry?.company_page_id ?? undefined,
+  companyPageSlug: entry?.companyPageSlug ?? entry?.company_page_slug ?? undefined,
+  companyPageHandle: entry?.companyPageHandle ?? entry?.company_page_handle ?? undefined,
+  companyPageUrl: entry?.companyPageUrl ?? entry?.company_page_url ?? undefined,
+  companyPageMatched: Boolean(entry?.companyPageMatched ?? entry?.company_page_matched ?? false),
+  start_date: String(entry?.start_date ?? entry?.startDate ?? ''),
+  end_date: String(entry?.end_date ?? entry?.endDate ?? ''),
+  current: Boolean(entry?.current ?? entry?.isCurrent ?? false),
+  description: String(entry?.description || '')
+});
+
 const mapProfile = (p: any): UserProfile => {
   const hourlyRate = Number(p.hourly_rate ?? p.hourlyRate ?? 0);
   const introVideoUrl = p.intro_video_url ?? p.introVideoUrl ?? '';
@@ -296,7 +312,7 @@ const mapProfile = (p: any): UserProfile => {
     hourly_rate: hourlyRate,
     hourlyRate,
     portfolio: toArray(p.portfolio ?? p.portfolioItems ?? p.portfolio_items),
-    experience: toArray(p.experience ?? p.experienceItems ?? p.experience_items),
+    experience: toArray(p.experience ?? p.experienceItems ?? p.experience_items).map(mapExperience),
     education: toArray(p.education ?? p.educationItems ?? p.education_items),
     certifications: toArray(p.certifications),
     intro_video_url: introVideoUrl,

@@ -418,6 +418,11 @@ export interface Experience {
   id: string;
   title: string;
   company: string;
+  companyPageId?: string;
+  companyPageSlug?: string;
+  companyPageHandle?: string;
+  companyPageUrl?: string;
+  companyPageMatched?: boolean;
   start_date: string;
   end_date: string;
   current: boolean;

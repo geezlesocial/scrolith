@@ -3,11 +3,12 @@ import React, { Suspense, useState, useEffect, useRef, useMemo } from 'react';
 import { useUser } from '../context/UserContext';
 import { useContent } from '../context/ContentContext';
 import { UserService } from '../services/user';
+import { SearchService } from '../services/search';
 import { UserProfile, PortfolioItem, Experience, Education, Certification, UploadedFile } from '../types';
 import { useNotification } from '../context/NotificationContext';
 import { 
     User, Briefcase, GraduationCap, Award, Layers, Video, Save, Plus, Trash2, 
-    Upload, Link as LinkIcon, CheckCircle, ArrowLeft, Camera, Loader2 
+    Upload, Link as LinkIcon, CheckCircle, ArrowLeft, Camera, Loader2, Building2, X
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import FilePickerModal from '../dashboard/shared/FilePickerModal';
@@ -21,6 +22,16 @@ const LocationPicker = React.lazy(() => import('../components/common/LocationPic
 interface EditProfileProps {
     isEmbedded?: boolean;
 }
+
+type CompanyPageSuggestion = {
+    id: string;
+    name: string;
+    title?: string;
+    username?: string;
+    subtitle?: string;
+    url?: string;
+    avatarUrl?: string;
+};
 
 const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
     const { user, updateUser } = useUser();
@@ -55,6 +66,10 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
     const introChunksRef = useRef<Blob[]>([]);
     const [introRecording, setIntroRecording] = useState(false);
     const [introUploading, setIntroUploading] = useState(false);
+    const [companyLookupExperienceId, setCompanyLookupExperienceId] = useState<string | null>(null);
+    const [companyLookupQuery, setCompanyLookupQuery] = useState('');
+    const [companyLookupResults, setCompanyLookupResults] = useState<CompanyPageSuggestion[]>([]);
+    const [companyLookupLoading, setCompanyLookupLoading] = useState(false);
     const usernameRegex = /^[a-z0-9][a-z0-9._-]{2,29}$/;
     const publicBaseUrl = getPublicAppOrigin();
     const cleanBaseUrl = publicBaseUrl.replace(/\/$/, '');
@@ -77,6 +92,47 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
             { key: 'female', label: 'Female' }
         ];
     }, [profileDemographics]);
+
+    useEffect(() => {
+        const query = companyLookupQuery.trim();
+        if (!companyLookupExperienceId || query.length < 2) {
+            setCompanyLookupResults([]);
+            setCompanyLookupLoading(false);
+            return;
+        }
+
+        let cancelled = false;
+        setCompanyLookupLoading(true);
+        const timer = window.setTimeout(async () => {
+            try {
+                const results = await SearchService.search(query, { type: 'pages', limit: 6 });
+                if (cancelled) return;
+                setCompanyLookupResults(
+                    (Array.isArray(results) ? results : [])
+                        .filter((entry: any) => String(entry?.id || '').trim())
+                        .map((entry: any) => ({
+                            id: String(entry.id),
+                            name: String(entry.name || entry.title || '').trim(),
+                            title: entry.title,
+                            username: entry.username,
+                            subtitle: entry.subtitle || entry.description,
+                            url: entry.url,
+                            avatarUrl: entry.avatarUrl || entry.image
+                        }))
+                        .filter((entry: CompanyPageSuggestion) => entry.name)
+                );
+            } catch (error) {
+                if (!cancelled) setCompanyLookupResults([]);
+            } finally {
+                if (!cancelled) setCompanyLookupLoading(false);
+            }
+        }, 250);
+
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
+    }, [companyLookupExperienceId, companyLookupQuery]);
 
     const notifyProfileUpdate = (updatedProfile?: UserProfile | null, updatedUser?: { name?: string; avatar?: string; username?: string }) => {
         if (typeof window === 'undefined') return;
@@ -521,6 +577,57 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
         setProfile(prev => prev ? { ...prev, experience: prev.experience.filter(e => e.id !== id) } : null);
     };
 
+    const updateExperienceCompany = (id: string, value: string) => {
+        updateExperience(id, 'company', value);
+        setProfile(prev => prev ? {
+            ...prev,
+            experience: prev.experience.map(e => e.id === id ? {
+                ...e,
+                company: value,
+                companyPageId: undefined,
+                companyPageSlug: undefined,
+                companyPageHandle: undefined,
+                companyPageUrl: undefined,
+                companyPageMatched: false
+            } : e)
+        } : null);
+        setCompanyLookupExperienceId(id);
+        setCompanyLookupQuery(value);
+    };
+
+    const selectExperienceCompanyPage = (id: string, page: CompanyPageSuggestion) => {
+        const url = page.url || `/company/${encodeURIComponent(page.username || page.id)}`;
+        setProfile(prev => prev ? {
+            ...prev,
+            experience: prev.experience.map(e => e.id === id ? {
+                ...e,
+                company: page.name,
+                companyPageId: page.id,
+                companyPageSlug: url.split('/company/')[1]?.split(/[?#]/)[0] || undefined,
+                companyPageHandle: page.username || undefined,
+                companyPageUrl: url,
+                companyPageMatched: true
+            } : e)
+        } : null);
+        setCompanyLookupExperienceId(null);
+        setCompanyLookupQuery('');
+        setCompanyLookupResults([]);
+    };
+
+    const clearExperienceCompanyPage = (id: string) => {
+        setProfile(prev => prev ? {
+            ...prev,
+            experience: prev.experience.map(e => e.id === id ? {
+                ...e,
+                companyPageId: undefined,
+                companyPageSlug: undefined,
+                companyPageHandle: undefined,
+                companyPageUrl: undefined,
+                companyPageMatched: false
+            } : e)
+        } : null);
+    };
+
     const addEducation = () => {
         setProfile(prev => prev ? { 
             ...prev, 
@@ -946,20 +1053,120 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                                         </button>
                                     </div>
                                     
-                                    {profile.experience.map((exp, idx) => (
+                                    {profile.experience.map((exp) => (
                                         <div key={exp.id} className="bg-gray-50 p-4 rounded-lg border border-gray-200 relative group">
                                             <button onClick={() => removeExperience(exp.id)} className="absolute top-2 right-2 text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
                                                 <Trash2 className="w-4 h-4" />
                                             </button>
-                                            <div className="grid grid-cols-2 gap-4 mb-3">
-                                                <input placeholder="Job Title" className="border-gray-300 rounded text-sm font-bold p-2" value={exp.title} onChange={e => updateExperience(exp.id, 'title', e.target.value)} />
-                                                <input placeholder="Company" className="border-gray-300 rounded text-sm p-2" value={exp.company} onChange={e => updateExperience(exp.id, 'company', e.target.value)} />
-                                                <div className="flex gap-2">
-                                                    <input type="text" placeholder="Start Date" className="border-gray-300 rounded text-xs w-full p-2" value={exp.start_date} onChange={e => updateExperience(exp.id, 'start_date', e.target.value)} />
-                                                    <input type="text" placeholder="End Date" className="border-gray-300 rounded text-xs w-full p-2" value={exp.end_date} onChange={e => updateExperience(exp.id, 'end_date', e.target.value)} />
+                                            <div className="grid grid-cols-1 gap-4 mb-3 md:grid-cols-2">
+                                                <div>
+                                                    <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Role</label>
+                                                    <input placeholder="Job title" className="w-full rounded-lg border border-gray-300 p-2 text-sm font-bold" value={exp.title} onChange={e => updateExperience(exp.id, 'title', e.target.value)} />
+                                                </div>
+                                                <div className="relative">
+                                                    <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Company</label>
+                                                    <div className="flex overflow-hidden rounded-lg border border-gray-300 bg-white focus-within:ring-2 focus-within:ring-blue-100">
+                                                        <span className="flex items-center px-2 text-gray-400">
+                                                            <Building2 className="h-4 w-4" />
+                                                        </span>
+                                                        <input
+                                                            placeholder="Company name or page"
+                                                            className="min-w-0 flex-1 p-2 text-sm outline-none"
+                                                            value={exp.company}
+                                                            onFocus={() => {
+                                                                setCompanyLookupExperienceId(exp.id);
+                                                                setCompanyLookupQuery(exp.company || '');
+                                                            }}
+                                                            onBlur={() => {
+                                                                window.setTimeout(() => {
+                                                                    setCompanyLookupExperienceId(current => current === exp.id ? null : current);
+                                                                }, 150);
+                                                            }}
+                                                            onChange={e => updateExperienceCompany(exp.id, e.target.value)}
+                                                        />
+                                                        {exp.companyPageMatched && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => clearExperienceCompanyPage(exp.id)}
+                                                                className="px-2 text-gray-400 hover:text-gray-700"
+                                                                title="Unlink company page"
+                                                            >
+                                                                <X className="h-4 w-4" />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                    {exp.companyPageMatched && exp.companyPageUrl && (
+                                                        <p className="mt-1 text-xs font-medium text-green-700">
+                                                            Linked to platform company page: {exp.companyPageUrl}
+                                                        </p>
+                                                    )}
+                                                    {companyLookupExperienceId === exp.id && (companyLookupLoading || companyLookupResults.length > 0) && (
+                                                        <div className="absolute z-30 mt-1 max-h-72 w-full overflow-auto rounded-xl border border-gray-200 bg-white shadow-lg">
+                                                            {companyLookupLoading && (
+                                                                <div className="flex items-center gap-2 px-3 py-2 text-sm text-gray-500">
+                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                    Searching company pages...
+                                                                </div>
+                                                            )}
+                                                            {!companyLookupLoading && companyLookupResults.map((page) => (
+                                                                <button
+                                                                    key={page.id}
+                                                                    type="button"
+                                                                    onMouseDown={(event) => event.preventDefault()}
+                                                                    onClick={() => selectExperienceCompanyPage(exp.id, page)}
+                                                                    className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-blue-50"
+                                                                >
+                                                                    {page.avatarUrl ? (
+                                                                        <img src={page.avatarUrl} alt="" className="h-8 w-8 rounded-lg object-cover" />
+                                                                    ) : (
+                                                                        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+                                                                            <Building2 className="h-4 w-4" />
+                                                                        </span>
+                                                                    )}
+                                                                    <span className="min-w-0">
+                                                                        <span className="block truncate text-sm font-semibold text-gray-900">{page.name}</span>
+                                                                        <span className="block truncate text-xs text-gray-500">{page.subtitle || page.url || 'Company page'}</span>
+                                                                    </span>
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div>
+                                                    <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Working from</label>
+                                                    <input
+                                                        type="date"
+                                                        className="w-full rounded-lg border border-gray-300 p-2 text-sm"
+                                                        value={exp.start_date}
+                                                        onChange={e => updateExperience(exp.id, 'start_date', e.target.value)}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <div className="mb-1 flex items-center justify-between gap-3">
+                                                        <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500">Working to</label>
+                                                        <label className="inline-flex items-center gap-2 text-xs font-medium text-gray-600">
+                                                            <input
+                                                                type="checkbox"
+                                                                className="rounded border-gray-300"
+                                                                checked={Boolean(exp.current)}
+                                                                onChange={e => {
+                                                                    updateExperience(exp.id, 'current', e.target.checked);
+                                                                    if (e.target.checked) updateExperience(exp.id, 'end_date', '');
+                                                                }}
+                                                            />
+                                                            Currently working
+                                                        </label>
+                                                    </div>
+                                                    <input
+                                                        type="date"
+                                                        className="w-full rounded-lg border border-gray-300 p-2 text-sm disabled:bg-gray-100 disabled:text-gray-400"
+                                                        value={exp.current ? '' : exp.end_date}
+                                                        disabled={Boolean(exp.current)}
+                                                        onChange={e => updateExperience(exp.id, 'end_date', e.target.value)}
+                                                    />
                                                 </div>
                                             </div>
-                                            <textarea placeholder="Description of role..." className="w-full border-gray-300 rounded text-sm h-20 p-2" value={exp.description} onChange={e => updateExperience(exp.id, 'description', e.target.value)} />
+                                            <textarea placeholder="Description of role..." className="h-20 w-full rounded-lg border border-gray-300 p-2 text-sm" value={exp.description} onChange={e => updateExperience(exp.id, 'description', e.target.value)} />
                                         </div>
                                     ))}
                                     {profile.experience.length === 0 && <p className="text-center text-gray-500 italic">No experience added yet.</p>}
