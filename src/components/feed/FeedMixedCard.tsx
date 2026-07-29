@@ -33,6 +33,12 @@ import {
   normalizeScrollVideoRecommendation,
   type ScrollVideoRecommendationTarget
 } from '../../utils/scrollVideoRoutes';
+import { resolveVideoRecommendationScrollSource } from '../../utils/feedVideoScrollDestination';
+import {
+  buildPostVideoScrollViewerPath,
+  stashPendingPostVideoScrollViewerSource,
+  type PendingPostVideoScrollViewerSource
+} from '../../utils/postVideoScrollBridge';
 import {
   trackScrollPreviewAttempt,
   trackScrollPreviewBlocked,
@@ -66,6 +72,7 @@ type CardModel = {
   badge?: string;
   /** Phase 22.1B */
   scrollTarget?: ScrollVideoRecommendationTarget | null;
+  postVideoSource?: PendingPostVideoScrollViewerSource | null;
   disabledNav?: boolean;
   creatorHref?: string;
 };
@@ -389,8 +396,8 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({
           120
         );
         const kind = entry.kind || 'unknown';
-        const safeHref =
-          kind === 'featured' || kind === 'trending' ? '/member-home' : '/member-home';
+        const postVideoSource = resolveVideoRecommendationScrollSource(entry);
+        const safeHref = postVideoSource ? buildPostVideoScrollViewerPath(postVideoSource) : '/member-home';
         return {
           kind,
           eyebrow: kind === 'unknown' ? 'For you' : SafeText(kind, 'For you'),
@@ -398,9 +405,11 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({
           subtitle: why || 'Curated for your professional graph',
           meta: [],
           href: safeHref,
-          cta: 'Open',
-          mediaCandidates: [],
-          mediaPlaceholder: 'generic' as const
+          cta: postVideoSource ? 'Open in Scroll' : 'Open',
+          mediaCandidates: [postVideoSource?.thumbnailUrl].filter(Boolean) as string[],
+          mediaPlaceholder: 'generic' as const,
+          postVideoSource,
+          badge: postVideoSource ? 'Video' : undefined
         };
       }
     }
@@ -410,9 +419,18 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({
 
   const isMarketplaceLike = card.kind === 'marketplace' || card.kind === 'gig';
   const isScroll = card.kind === 'scroll';
+  const isPostVideoScroll = Boolean(card.postVideoSource);
   const showHero =
-    isMarketplaceLike || card.kind === 'job' || card.kind === 'event' || card.kind === 'ad';
+    isMarketplaceLike ||
+    card.kind === 'job' ||
+    card.kind === 'event' ||
+    card.kind === 'ad' ||
+    Boolean(card.postVideoSource && card.mediaCandidates.length);
   const scrollTarget = card.scrollTarget;
+  const stashPostVideoSource = () => {
+    if (!card.postVideoSource) return;
+    stashPendingPostVideoScrollViewerSource(card.postVideoSource);
+  };
 
   const emitScrollClick = () => {
     if (!scrollTarget?.scrollVideoId) return;
@@ -432,7 +450,7 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({
       data-feed-kind={card.kind}
       data-phase={isScroll ? '22.1B' : '21.1.1'}
       data-scroll-video-id={scrollTarget?.scrollVideoId || undefined}
-      data-scroll-href={isScroll ? card.href : undefined}
+      data-scroll-href={isScroll || isPostVideoScroll ? card.href : undefined}
     >
       {isScroll ? (
         <ScrollVideoPreview
@@ -554,6 +572,7 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({
                   event.stopPropagation();
                   if (card.disabledNav || !card.href || card.href === '#') return;
                   if (isScroll) emitScrollClick();
+                  if (isPostVideoScroll) stashPostVideoSource();
                   if (card.external) {
                     window.open(card.href, '_blank', 'noopener,noreferrer');
                     return;
@@ -654,9 +673,10 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({
       to={card.href}
       onClick={() => {
         if (isScroll) emitScrollClick();
+        if (isPostVideoScroll) stashPostVideoSource();
       }}
       className="block focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
-      data-testid={isScroll ? 'feed-mixed-card-scroll-link' : undefined}
+      data-testid={isScroll || isPostVideoScroll ? 'feed-mixed-card-scroll-link' : undefined}
     >
       {body}
     </Link>
