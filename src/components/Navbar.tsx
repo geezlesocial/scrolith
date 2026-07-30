@@ -934,7 +934,13 @@ const Navbar = () => {
 
   const visibleActivityIcons = useMemo(() => {
     if (!isAuthenticated || !activityConfig || !Array.isArray(ac?.icons)) return [];
-    return (ac.icons as any[])
+    const rawIcons = ac.icons as any[];
+    const configuredActionTypes = new Set(
+      rawIcons
+        .map((icon: any) => String(icon.actionType || icon.type || "").toLowerCase())
+        .filter(Boolean)
+    );
+    const visibleIcons = rawIcons
       .filter((icon: any) => {
         if (!icon.isEnabled) return false;
         const roles = normalizeRoleList(icon.roles);
@@ -944,6 +950,17 @@ const Navbar = () => {
       })
       .filter((icon: any) => isActionEnabled(icon.actionType || icon.type))
       .sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0));
+
+    [
+      { id: "header-action-messages", type: "messages", actionType: "messages", label: "Messages", icon: "messages", displayType: "messages", sortOrder: 60 },
+      { id: "header-action-notifications", type: "notifications", actionType: "notifications", label: "Notifications", icon: "notifications", displayType: "notifications", sortOrder: 70 },
+    ].forEach((fallbackIcon) => {
+      if (configuredActionTypes.has(fallbackIcon.actionType)) return;
+      if (!isActionEnabled(fallbackIcon.actionType)) return;
+      visibleIcons.push(fallbackIcon);
+    });
+
+    return visibleIcons.sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0));
   }, [isAuthenticated, activityConfig, ac, normalizedUserRole, headerActions]);
 
   const centerActivityTypes = useMemo(
