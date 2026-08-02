@@ -10,6 +10,17 @@ import { executeRecaptcha } from '../services/recaptcha';
 import { useT } from '../i18n/useT';
 import ScrolithHumanVerification from '../components/human-verification/ScrolithHumanVerification';
 
+const BRAND_LOGO_FALLBACK = '/logo.png';
+
+const handleBrandLogoError = (event: React.SyntheticEvent<HTMLImageElement>) => {
+  const image = event.currentTarget;
+  if (image.src.endsWith(BRAND_LOGO_FALLBACK)) {
+    image.style.display = 'none';
+    return;
+  }
+  image.src = BRAND_LOGO_FALLBACK;
+};
+
 const Signup = () => {
   const t = useT();
   const { register } = useUser(); // Use 'register' from context, not 'signup'
@@ -174,7 +185,12 @@ const Signup = () => {
           <div className="relative">
             <Link to="/" className="inline-flex items-center gap-3">
               {branding.show_logo && branding.logo_url ? (
-                <img src={branding.logo_url} alt="Scrolith" className="h-10 w-10 rounded-xl object-contain" />
+                <img
+                  src={branding.logo_url}
+                  alt="Scrolith"
+                  className="h-10 w-10 rounded-xl object-contain"
+                  onError={handleBrandLogoError}
+                />
               ) : null}
               <span className="text-2xl font-bold tracking-tight">Scrolith</span>
             </Link>
@@ -203,7 +219,12 @@ const Signup = () => {
         <div className="flex justify-center">
           {branding.show_logo && branding.logo_url ? (
             <a href={branding.logo_link_url || '/'} className="inline-flex">
-              <img src={branding.logo_url} alt="Scrolith" className="h-12 w-12 rounded-xl object-contain" />
+              <img
+                src={branding.logo_url}
+                alt="Scrolith"
+                className="h-12 w-12 rounded-xl object-contain"
+                onError={handleBrandLogoError}
+              />
             </a>
           ) : (
             <div className="w-14 h-14 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center font-bold text-2xl text-white shadow-lg">

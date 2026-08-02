@@ -10,6 +10,16 @@ import { resolveAuthenticatedEntryPath } from '../utils/authRedirect';
 import ScrolithHumanVerification from '../components/human-verification/ScrolithHumanVerification';
 
 const IS_MOBILE_APP_BUILD = import.meta.env.VITE_SCROLITH_MOBILE_APP === 'true';
+const BRAND_LOGO_FALLBACK = '/logo.png';
+
+const handleBrandLogoError = (event: React.SyntheticEvent<HTMLImageElement>) => {
+  const image = event.currentTarget;
+  if (image.src.endsWith(BRAND_LOGO_FALLBACK)) {
+    image.style.display = 'none';
+    return;
+  }
+  image.src = BRAND_LOGO_FALLBACK;
+};
 
 const shouldUseMobilePostLoginRoute = () => {
   if (typeof window === 'undefined') return false;
@@ -225,7 +235,12 @@ const Login = () => {
           <div className="relative">
             <Link to="/" className="inline-flex items-center gap-3">
               {branding.show_logo && branding.logo_url ? (
-                <img src={branding.logo_url} alt="Scrolith" className="h-10 w-10 rounded-xl object-contain" />
+                <img
+                  src={branding.logo_url}
+                  alt="Scrolith"
+                  className="h-10 w-10 rounded-xl object-contain"
+                  onError={handleBrandLogoError}
+                />
               ) : null}
               <span className="text-2xl font-bold tracking-tight">Scrolith</span>
             </Link>
@@ -254,7 +269,12 @@ const Login = () => {
             <div className="space-y-4 text-center lg:text-left">
               <Link to={branding.logo_link_url || '/'} className="mx-auto inline-flex items-center gap-3 lg:mx-0">
                 {branding.show_logo && branding.logo_url ? (
-                  <img src={branding.logo_url} alt="Scrolith" className="h-11 w-11 rounded-xl object-contain" />
+                  <img
+                    src={branding.logo_url}
+                    alt="Scrolith"
+                    className="h-11 w-11 rounded-xl object-contain"
+                    onError={handleBrandLogoError}
+                  />
                 ) : null}
                 <span className="text-xl font-bold text-slate-950">Scrolith</span>
               </Link>

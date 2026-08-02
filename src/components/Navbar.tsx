@@ -49,8 +49,18 @@ type LucideIconComponent = React.ComponentType<{ size?: number; className?: stri
 
 const HEADER_SEARCH_PLACEHOLDER =
   "Search people, jobs, gigs, posts, pages, communities, or marketplace";
+const BRAND_LOGO_FALLBACK = "/logo.png";
 
 const formatBadgeCount = (count: number) => formatMessagingBadgeCount(count);
+
+const handleBrandLogoError = (event: React.SyntheticEvent<HTMLImageElement>) => {
+  const image = event.currentTarget;
+  if (image.src.endsWith(BRAND_LOGO_FALLBACK)) {
+    image.style.display = "none";
+    return;
+  }
+  image.src = BRAND_LOGO_FALLBACK;
+};
 
 const resolveNavIconKey = (item: { label?: string; url?: string; icon?: string }) => {
   const iconHint = String(item?.icon || "").toLowerCase().trim();
@@ -1730,6 +1740,7 @@ const Navbar = () => {
                       height={32}
                       decoding="async"
                       className="h-8 w-auto max-w-[7.5rem] object-contain xl:max-w-[9.5rem]"
+                      onError={handleBrandLogoError}
                     />
                   ) : (
                     <div
@@ -1859,6 +1870,7 @@ const Navbar = () => {
                       height={32}
                       decoding="async"
                       className="h-7 w-auto max-w-[7.5rem] object-contain sm:h-8 sm:max-w-[10rem]"
+                      onError={handleBrandLogoError}
                     />
                   ) : (
                     <div className="h-8 w-8 flex-shrink-0 rounded-lg bg-gray-200" aria-hidden="true" />
