@@ -1651,9 +1651,17 @@ const AppContent = () => {
                <Route path="/affiliate-program" element={renderResponsiveMobilePage('Referral', <AffiliateProgram />)} />
               
               {/* Community Platform Routes (auth required) */}
-               <Route
-                 path="/post/:postId"
-                 element={
+              <Route
+                path="/post/create"
+                element={
+                  <ProtectedRoute>
+                    {renderResponsiveMobilePage('Create post', <MobilePostScreen />)}
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/post/:postId"
+                element={
                    <ProtectedRoute>
                      {renderResponsiveMobilePage('Post', <PostDetailView />)}
                    </ProtectedRoute>
@@ -1889,7 +1897,7 @@ const AppContent = () => {
                <Route 
                  path="/create-gig" 
                  element={
-                     <ProtectedRoute allowedRoles={[UserRole.FREELANCER]}>
+                    <ProtectedRoute allowedRoles={[UserRole.FREELANCER, UserRole.ADMIN]}>
                        {renderResponsiveMobilePage('Create gig', <CreateGig />)}
                      </ProtectedRoute>
                  } 
@@ -1907,7 +1915,7 @@ const AppContent = () => {
                <Route 
                  path="/create-job" 
                  element={
-                     <ProtectedRoute allowedRoles={[UserRole.EMPLOYER]}>
+                    <ProtectedRoute allowedRoles={[UserRole.EMPLOYER, UserRole.ADMIN]}>
                        {renderResponsiveMobilePage('Create job', <CreateJob />)}
                      </ProtectedRoute>
                  } 

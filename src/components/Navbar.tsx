@@ -1563,7 +1563,7 @@ const Navbar = () => {
   const createMenuItems = useMemo(() => {
     // Only surface create actions already available on the platform via existing routes.
     const items: Array<{ id: string; label: string; url: string; roles?: string[] }> = [
-      { id: "create-post", label: "Post", url: "/member-home" },
+      { id: "create-post", label: "Post", url: "/post/create" },
       { id: "create-job", label: "Job", url: "/create-job", roles: ["employer", "admin"] },
       { id: "create-gig", label: "Gig", url: "/create-gig", roles: ["freelancer", "admin"] },
       { id: "create-marketplace", label: "Marketplace listing", url: "/marketplace/create" }
@@ -1590,6 +1590,7 @@ const Navbar = () => {
             closeAllHeaderPopovers();
             setShowCreateMenu(next);
           }}
+          data-testid="header-create-button"
         >
           <Plus className="h-4 w-4" />
           <span className="hidden 2xl:inline">Create</span>
@@ -1606,6 +1607,7 @@ const Navbar = () => {
                 type="button"
                 role="menuitem"
                 className="block w-full px-4 py-2.5 text-left text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-700 focus:outline-none focus-visible:bg-blue-50"
+                data-testid={`header-${item.id}`}
                 onClick={() => {
                   setShowCreateMenu(false);
                   navigate(item.url);
