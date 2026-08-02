@@ -40,8 +40,9 @@ const CMS_FREELANCER_SCOPE = 'cms_freelancer_page';
 const CMS_BLOG_POSTS_SCOPE = 'cms_blog_posts';
 const CMS_BLOG_CATEGORIES_SCOPE = 'cms_blog_categories';
 const CMS_BLOG_SETTINGS_SCOPE = 'cms_blog_settings';
-const BRAND_LOGO_URL = 'https://scrolith.com/logo.png';
-const BRAND_FAVICON_URL = 'https://scrolith.com/favicon.png';
+const IS_PRODUCTION_RUNTIME = process.env.NODE_ENV === 'production';
+const BRAND_LOGO_URL = IS_PRODUCTION_RUNTIME ? 'https://scrolith.com/logo.png' : '/logo.png';
+const BRAND_FAVICON_URL = IS_PRODUCTION_RUNTIME ? 'https://scrolith.com/favicon.png' : '/favicon.png';
 const LOCAL_BRAND_ASSET_HOSTS = new Set([
   'scrolith.com',
   'www.scrolith.com',
@@ -67,6 +68,9 @@ const getCanonicalBrandAssetUrl = (value: unknown, assetType: 'logo' | 'favicon'
   const hostname = url.hostname.toLowerCase();
   const pathname = url.pathname.toLowerCase();
   const basename = pathname.split('/').filter(Boolean).pop() || '';
+  if (LOCAL_BRAND_ASSET_HOSTS.has(hostname) && (basename === 'logo.png' || basename === 'favicon.png')) {
+    return fallbackUrl;
+  }
   const isBrandUpload =
     pathname.startsWith('/uploads/') &&
     LOCAL_BRAND_ASSET_HOSTS.has(hostname) &&
@@ -2809,8 +2813,6 @@ export default {
   saveHirePage,
   saveFreelancerPage
 };
-
-
 
 
 
