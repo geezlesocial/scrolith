@@ -268,37 +268,11 @@ const ModuleThumb = ({
     if (activePreviewToken === tokenRef.current) setActivePreviewToken(null);
   };
 
-  // Brand logo must never become a large module hero — icon badge handles identity.
-  if (isBrandLogoUrl(src) || isBrandLogoUrl(initialSrc)) {
-    return null;
-  }
-
-  if (hidden && !item.icon) return null;
-  if (hidden && item.icon) {
-    const tone = toneClasses[item.tone || 'slate'];
-    return (
-      <span
-        className={[
-          large
-            ? 'inline-flex h-24 w-24 shrink-0 items-center justify-center rounded-2xl sm:h-28 sm:w-28'
-            : 'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:h-12 sm:w-12',
-          tone.icon
-        ].join(' ')}
-        aria-hidden
-      >
-        {item.icon}
-      </span>
-    );
-  }
-
-  if (hidden || (!src && !videoUrl)) return null;
-
-  // large ≈ 100–112px for marketplace / series product media
+  // Keep preview state and hooks above conditional returns so media fallback changes cannot alter hook order.
   const size = large ? (compact ? 96 : 112) : compact ? 44 : 48;
   const shouldRenderVideo = Boolean(
     videoUrl && (isVideoUrl(videoUrl) || videoUrl.includes('/api/files/content/') || Boolean(posterUrl))
   );
-  // Touch/mobile: autoplay when in view (hoverPreview still limits desktop to hover).
   const isCoarsePointer =
     typeof window !== 'undefined' &&
     typeof window.matchMedia === 'function' &&
@@ -324,7 +298,6 @@ const ModuleThumb = ({
           quality: 72
         })
       : '';
-
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   // Mobile series: exclusive autoplay only when this thumb is in viewport.
@@ -349,6 +322,31 @@ const ModuleThumb = ({
       if (activePreviewToken === tokenRef.current) setActivePreviewToken(null);
     };
   }, [mobileAutoPreview, shouldRenderVideo, videoUrl]);
+
+  // Brand logo must never become a large module hero; icon badge handles identity.
+  if (isBrandLogoUrl(src) || isBrandLogoUrl(initialSrc)) {
+    return null;
+  }
+
+  if (hidden && !item.icon) return null;
+  if (hidden && item.icon) {
+    const tone = toneClasses[item.tone || 'slate'];
+    return (
+      <span
+        className={[
+          large
+            ? 'inline-flex h-24 w-24 shrink-0 items-center justify-center rounded-2xl sm:h-28 sm:w-28'
+            : 'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:h-12 sm:w-12',
+          tone.icon
+        ].join(' ')}
+        aria-hidden
+      >
+        {item.icon}
+      </span>
+    );
+  }
+
+  if (hidden || (!src && !videoUrl)) return null;
 
   return (
     <div
