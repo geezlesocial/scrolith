@@ -133,8 +133,8 @@ export const jobsApi = {
     handleApiResponse(response);
   },
 
-  submitJob: async (id: string): Promise<void> => {
-    const response = await api.post<ApiResponse<void>>(`/jobs/${id}/submit`);
+  submitJob: async (id: string, payload?: { planId?: string | null }): Promise<void> => {
+    const response = await api.post<ApiResponse<void>>(`/jobs/${id}/submit`, payload || {});
     handleApiResponse(response);
   },
 
@@ -177,8 +177,8 @@ export const JobsService = {
   remove: async (id: string): Promise<void> => {
     await api.delete(`/jobs/${id}`);
   },
-  submit: async (id: string): Promise<void> => {
-    await api.post(`/jobs/${id}/submit`, {});
+  submit: async (id: string, payload?: { planId?: string | null }): Promise<void> => {
+    await api.post(`/jobs/${id}/submit`, payload || {});
   },
   pause: async (id: string): Promise<void> => {
     await api.post(`/jobs/${id}/pause`, {});

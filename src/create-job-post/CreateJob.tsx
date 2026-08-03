@@ -7,7 +7,7 @@ import { AdminService } from '../services/admin';
 import { categoriesApi } from '../services/categories';
 import { jobsApi } from '../services/jobs';
 import { Job, ListingCategory, UploadedFile, BudgetAdvice, Plan, PaymentGateway } from '../types';
-import { Briefcase, DollarSign, FileText, CheckCircle, Upload, X, Crown, Sparkles, ChevronRight, ChevronLeft, Loader2 } from 'lucide-react';
+import { Briefcase, DollarSign, FileText, FileImage, FileVideo, ExternalLink, CheckCircle, Upload, X, Crown, Sparkles, ChevronRight, ChevronLeft, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import FilePickerModal from '../dashboard/shared/FilePickerModal';
 import { AdvisorService } from '../services/ai/advisor.service';
@@ -18,6 +18,12 @@ import { formsApi } from '../services/forms';
 import { plansApi } from '../services/plans';
 import { JobsService } from '../services/jobs';
 import { getUserFacingPaymentMethodName } from '../utils/paymentGatewayDisplay';
+import {
+    encodeJobAttachment,
+    isSameJobAttachment,
+    normalizeJobAttachmentPayload,
+    parseJobAttachment
+} from '../utils/jobAttachments';
 
 const DEFAULT_JOB_STEPS = [
     { id: 'overview', label: 'Job Overview', enabled: true },
@@ -651,13 +657,6 @@ const CreateJob: React.FC<CreateJobProps> = ({ jobId, mode = 'create', redirectO
                     showNotification('alert', 'Payment Required', 'Please fund your wallet to pay the plan fee before submitting.');
                     return;
                 }
-                try {
-                    await plansApi.purchasePlan(selectedPlan.id);
-                    await refreshWallet();
-                } catch (error: any) {
-                    showNotification('alert', 'Payment Failed', error?.message || 'Unable to process plan payment.');
-                    return;
-                }
             } else {
                 try {
                     const result = await WalletService.initiateTopup({
@@ -692,6 +691,7 @@ const CreateJob: React.FC<CreateJobProps> = ({ jobId, mode = 'create', redirectO
                 const payload: any = {
                     ...job,
                     budget: budgetPayload,
+                    attachments: normalizeJobAttachmentPayload(job.attachments || []),
                     categoryId: resolveCategoryId(String(job.category || '')) ?? job.categoryId ?? null,
                     plan_id: selectedPlan?.id,
                     plan_name: selectedPlan?.name,
@@ -734,7 +734,10 @@ const CreateJob: React.FC<CreateJobProps> = ({ jobId, mode = 'create', redirectO
             const currentStatus = (job.status || '').toString().toLowerCase();
             const shouldSubmit = !isEditMode || ['draft', 'rejected', 'submitted', 'under_review'].includes(currentStatus);
             if (shouldSubmit) {
-                await jobsApi.submitJob(id);
+                await jobsApi.submitJob(id, selectedPlan?.id ? { planId: selectedPlan.id } : undefined);
+                if (selectedPlan?.price && selectedPlan.price > 0) {
+                    await refreshWallet();
+                }
             }
 
             showNotification('success', 'Job Posted!', 'Your job is under review and will be live shortly.');
@@ -776,6 +779,7 @@ const CreateJob: React.FC<CreateJobProps> = ({ jobId, mode = 'create', redirectO
             const payload: any = {
                 ...job,
                 budget: budgetPayload,
+                attachments: normalizeJobAttachmentPayload(job.attachments || []),
                 categoryId: resolveCategoryId(String(job.category || '')) ?? job.categoryId ?? null,
                 ...(isEditMode
                     ? {}
@@ -842,25 +846,14 @@ const CreateJob: React.FC<CreateJobProps> = ({ jobId, mode = 'create', redirectO
     };
 
     const handleFileSelect = (file: UploadedFile) => {
+        const encoded = encodeJobAttachment(file);
         setJob(prev => ({
             ...prev,
-            attachments: [...(prev.attachments || []), file.url]
+            attachments: (prev.attachments || []).some((existing) => isSameJobAttachment(existing, encoded))
+                ? prev.attachments || []
+                : [...(prev.attachments || []), encoded]
         }));
-    };
-
-    const resolveAttachmentUrl = (value: string) => {
-        if (!value) return '';
-        const lower = value.toLowerCase();
-        if (lower.startsWith('http://') || lower.startsWith('https://')) return value;
-        if (lower.includes('/uploads/')) return value;
-        return '';
-    };
-
-    const isImageAttachment = (value: string) => {
-        const url = resolveAttachmentUrl(value);
-        if (!url) return false;
-        const clean = url.split('?')[0].split('#')[0];
-        return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(clean);
+        setIsFilePickerOpen(false);
     };
 
     if (isEditMode && jobLoading && !job?.id) {
@@ -1116,35 +1109,61 @@ const CreateJob: React.FC<CreateJobProps> = ({ jobId, mode = 'create', redirectO
                                         {Array.isArray(job.attachments) && job.attachments.length > 0 ? (
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                 {job.attachments.map((value, idx) => {
-                                                    const url = resolveAttachmentUrl(value);
-                                                    const label = url ? url.split('/').pop() : value;
+                                                    const attachment = parseJobAttachment(value);
+                                                    const url = attachment.url;
+                                                    const label = attachment.name;
                                                     return (
-                                                        <div key={`${value}-${idx}`} className="bg-white border border-gray-200 rounded-xl p-4">
+                                                        <div key={`${attachment.raw}-${idx}`} className="bg-white border border-gray-200 rounded-xl p-4">
                                                             <div className="flex items-start justify-between gap-3">
-                                                                <div className="flex items-start gap-3">
-                                                                    {isImageAttachment(value) && url ? (
+                                                                <div className="flex items-start gap-3 min-w-0">
+                                                                    {attachment.kind === 'image' && url ? (
                                                                         <img
                                                                             src={url}
                                                                             alt={label}
                                                                             className="w-16 h-16 rounded-lg object-cover border"
                                                                         />
+                                                                    ) : attachment.kind === 'video' && url ? (
+                                                                        <video
+                                                                            src={url}
+                                                                            poster={attachment.thumbnailUrl}
+                                                                            className="w-20 h-16 rounded-lg object-cover border bg-gray-900"
+                                                                            muted
+                                                                            playsInline
+                                                                            autoPlay
+                                                                            loop
+                                                                            controls
+                                                                            preload="metadata"
+                                                                        />
+                                                                    ) : attachment.kind === 'pdf' && url ? (
+                                                                        <div className="w-16 h-16 rounded-lg border bg-red-50 flex items-center justify-center">
+                                                                            <FileText className="w-5 h-5 text-red-500" />
+                                                                        </div>
                                                                     ) : (
                                                                         <div className="w-16 h-16 rounded-lg border bg-gray-50 flex items-center justify-center">
-                                                                            <FileText className="w-5 h-5 text-gray-400" />
+                                                                            {attachment.kind === 'image' ? (
+                                                                                <FileImage className="w-5 h-5 text-gray-400" />
+                                                                            ) : attachment.kind === 'video' ? (
+                                                                                <FileVideo className="w-5 h-5 text-gray-400" />
+                                                                            ) : (
+                                                                                <FileText className="w-5 h-5 text-gray-400" />
+                                                                            )}
                                                                         </div>
                                                                     )}
-                                                                    <div className="text-sm text-gray-700">
+                                                                    <div className="text-sm text-gray-700 min-w-0">
                                                                         <div className="font-semibold truncate max-w-[220px]" title={label}>
                                                                             {label}
+                                                                        </div>
+                                                                        <div className="text-xs text-gray-500 capitalize">
+                                                                            {attachment.kind === 'pdf' ? 'PDF' : attachment.kind}
                                                                         </div>
                                                                         {url ? (
                                                                             <a
                                                                                 href={url}
                                                                                 target="_blank"
                                                                                 rel="noreferrer"
-                                                                                className="text-xs text-blue-600 hover:underline"
+                                                                                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
                                                                             >
-                                                                                Preview file
+                                                                                <ExternalLink className="w-3 h-3" /> Open file
                                                                             </a>
                                                                         ) : (
                                                                             <div className="text-xs text-gray-400">
@@ -1388,7 +1407,7 @@ const CreateJob: React.FC<CreateJobProps> = ({ jobId, mode = 'create', redirectO
                 isOpen={isFilePickerOpen}
                 onClose={() => setIsFilePickerOpen(false)}
                 onSelect={handleFileSelect}
-                acceptedTypes="image/*,.pdf,.doc,.docx"
+                acceptedTypes="image/*,video/*,.pdf,.doc,.docx"
                 filterType="all"
                 role="employer"
             />

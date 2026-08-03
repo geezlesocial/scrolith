@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Tag, Clock, FileText, Upload, Heart, ShoppingCart } from 'lucide-react';
+import { Tag, Clock, FileText, FileImage, FileVideo, ExternalLink, Upload, Heart, ShoppingCart } from 'lucide-react';
 import { JobsService } from '../services/jobs';
 import { Job, UploadedFile } from '../types';
 import { useNotification } from '../context/NotificationContext';
@@ -11,6 +11,7 @@ import { jobsApi } from '../services/jobs';
 import { useFavorites } from '../context/FavoritesContext';
 import { useCart } from '../context/CartContext';
 import { FAVORITES_RATE_LIMIT_MESSAGE, isFavoritesRateLimitedError } from '../services/favorites';
+import { parseJobAttachment } from '../utils/jobAttachments';
 
 const JobDetail = () => {
   const { id } = useParams();
@@ -205,6 +206,8 @@ const JobDetail = () => {
     );
   }
 
+  const jobAttachments = (job.attachments || []).map(parseJobAttachment).filter((attachment) => attachment.url || attachment.name);
+
   return (
     <div className="max-w-4xl mx-auto px-4 py-12">
        <div className="bg-white border border-gray-200 rounded-lg p-8">
@@ -231,6 +234,73 @@ const JobDetail = () => {
                <h3 className="text-lg font-bold mb-2">Description</h3>
                <p className="text-gray-700">{job.description}</p>
            </div>
+
+           {jobAttachments.length > 0 && (
+             <div className="mb-8">
+               <h3 className="text-lg font-bold mb-3">Attachments</h3>
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                 {jobAttachments.map((attachment, index) => (
+                   <div key={`${attachment.raw}-${index}`} className="rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
+                     {attachment.kind === 'image' && attachment.url ? (
+                       <img
+                         src={attachment.url}
+                         alt={attachment.name}
+                         className="h-56 w-full object-cover bg-white"
+                         loading="lazy"
+                       />
+                     ) : attachment.kind === 'video' && attachment.url ? (
+                       <video
+                         src={attachment.url}
+                         poster={attachment.thumbnailUrl}
+                         className="h-56 w-full object-cover bg-gray-950"
+                         muted
+                         playsInline
+                         autoPlay
+                         loop
+                         controls
+                         preload="metadata"
+                       />
+                     ) : attachment.kind === 'pdf' && attachment.url ? (
+                       <iframe
+                         src={attachment.url}
+                         title={attachment.name}
+                         className="h-56 w-full bg-white"
+                         loading="lazy"
+                       />
+                     ) : (
+                       <div className="h-56 w-full flex items-center justify-center bg-white">
+                         {attachment.kind === 'image' ? (
+                           <FileImage className="w-10 h-10 text-gray-400" />
+                         ) : attachment.kind === 'video' ? (
+                           <FileVideo className="w-10 h-10 text-gray-400" />
+                         ) : (
+                           <FileText className="w-10 h-10 text-gray-400" />
+                         )}
+                       </div>
+                     )}
+                     <div className="p-4 flex items-center justify-between gap-3">
+                       <div className="min-w-0">
+                         <p className="truncate text-sm font-semibold text-gray-900" title={attachment.name}>
+                           {attachment.name}
+                         </p>
+                         <p className="text-xs text-gray-500 capitalize">{attachment.kind === 'pdf' ? 'PDF' : attachment.kind}</p>
+                       </div>
+                       {attachment.url && (
+                         <a
+                           href={attachment.url}
+                           target="_blank"
+                           rel="noreferrer"
+                           className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100"
+                         >
+                           <ExternalLink className="w-3 h-3" /> Open
+                         </a>
+                       )}
+                     </div>
+                   </div>
+                 ))}
+               </div>
+             </div>
+           )}
 
            <div className="mb-8">
                <h3 className="text-lg font-bold mb-2">Skills Required</h3>
