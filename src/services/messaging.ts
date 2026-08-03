@@ -368,6 +368,72 @@ const WRITE_RETRY_ATTEMPTS = 2;
 let rateLimitUntil = 0;
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+type ScrolithaEnsureResult = {
+  conversation: Conversation;
+  conversationId: string;
+  created?: boolean;
+  messagingAssistantEnabled?: boolean;
+  promptChips?: string[];
+  platformUser?: any;
+};
+
+/**
+ * Multiple application surfaces initialize Scrolitha during the same render
+ * cycle. Share the active request so they cannot create duplicate network
+ * traffic. Failed requests are never cached and may be retried normally.
+ */
+let scrolithaEnsureInFlight: Promise<ScrolithaEnsureResult> | null = null;
+
+const performScrolithaConversationEnsure =
+  async (): Promise<ScrolithaEnsureResult> => {
+    const response = await api.post('/messages/scrolitha/ensure');
+    const data = extractData<any>(response) || {};
+    const conversation = normalizeConversation(data) || data;
+    const conversationId = safeString(
+      conversation?.id ||
+        data?.id ||
+        data?.conversationId ||
+        data?.conversation_id
+    );
+
+    // Invalidate conversation cache only after a real successful request.
+    conversationCache.clear();
+
+    return {
+      conversation,
+      conversationId,
+      created: Boolean(data?.created),
+      messagingAssistantEnabled:
+        data?.messagingAssistantEnabled !== false,
+      promptChips: Array.isArray(data?.promptChips)
+        ? data.promptChips
+        : undefined,
+      platformUser: data?.platformUser
+    };
+  };
+
+const ensureScrolithaConversationDeduped =
+  (): Promise<ScrolithaEnsureResult> => {
+    if (scrolithaEnsureInFlight) {
+      return scrolithaEnsureInFlight;
+    }
+
+    const request = performScrolithaConversationEnsure();
+    scrolithaEnsureInFlight = request;
+
+    const clearInFlight = () => {
+      if (scrolithaEnsureInFlight === request) {
+        scrolithaEnsureInFlight = null;
+      }
+    };
+
+    // Use both fulfillment and rejection handlers so failures are retryable
+    // without creating an unhandled cleanup promise.
+    void request.then(clearInFlight, clearInFlight);
+
+    return request;
+  };
+
 export const MessagingService = {
   getVoiceRuntimeConfig: async (): Promise<MessengerVoiceConfig & { blockedForCurrentUser?: boolean }> => {
     const response = await api.get('/messages/voice/config');
@@ -1109,33 +1175,10 @@ export const MessagingService = {
   },
 
   /**
-   * Phase 20.7 — ensure exactly one private conversation with official Scrolitha assistant.
+   * Phase 20.7 — ensure exactly one private conversation with the official
+   * Scrolitha assistant while deduplicating concurrent initialization calls.
    */
-  ensureScrolithaConversation: async (): Promise<{
-    conversation: Conversation;
-    conversationId: string;
-    created?: boolean;
-    messagingAssistantEnabled?: boolean;
-    promptChips?: string[];
-    platformUser?: any;
-  }> => {
-    const response = await api.post('/messages/scrolitha/ensure');
-    const data = extractData<any>(response) || {};
-    const conversation = normalizeConversation(data) || data;
-    const conversationId = safeString(
-      conversation?.id || data?.id || data?.conversationId || data?.conversation_id
-    );
-    // Invalidate conversation cache so inbox picks up the pinned assistant.
-    conversationCache.clear();
-    return {
-      conversation,
-      conversationId,
-      created: Boolean(data?.created),
-      messagingAssistantEnabled: data?.messagingAssistantEnabled !== false,
-      promptChips: Array.isArray(data?.promptChips) ? data.promptChips : undefined,
-      platformUser: data?.platformUser || null
-    };
-  },
+  ensureScrolithaConversation: ensureScrolithaConversationDeduped,
 
   /**
    * Phase 20.7.1 — unified Scrolitha turn: persists user + assistant into canonical DM.
