@@ -1017,7 +1017,15 @@ export const ensureScrolithaMessagingConversation = async (req: Request, res: Re
       getDefaultScrolithaPromptChips
     } = await import('../services/scrolitha/scrolitha.messagingBridge');
 
-    const ensured = await ensureScrolithaDirectConversation(userId, { seedWelcome: true });
+    const { resolveActorFromRequest } =
+      await import('../services/scrolitha/scrolitha.audit');
+
+    const actor = resolveActorFromRequest(req);
+
+    const ensured = await ensureScrolithaDirectConversation(userId, {
+      seedWelcome: true,
+      actor
+    });
     const conversation = await prisma.conversation.findUnique({
       where: { id: ensured.conversationId },
       include: {

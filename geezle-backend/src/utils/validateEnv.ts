@@ -135,8 +135,22 @@ export function validateEnv() {
 
   const storage = (process.env.UPLOAD_DRIVER || process.env.STORAGE_DRIVER || 'local').toLowerCase();
 
-  const scrolithaProvider = String(process.env.SCROLITHA_PROVIDER || 'core').trim().toLowerCase();
-  if (scrolithaProvider === 'ollama' || scrolithaProvider === 'core') {
+  const scrolithaProviderEnv =
+    String(process.env.SCROLITHA_PROVIDER || '').trim();
+
+  const scrolithaProvider =
+    (scrolithaProviderEnv || 'core').toLowerCase();
+
+  // Only validate provider environment overrides when the provider was
+  // explicitly selected through the environment. The runtime may otherwise
+  // be supplied through ScrolithaConfig.metadata.llm.
+  if (
+    scrolithaProviderEnv &&
+    (
+      scrolithaProvider === 'ollama' ||
+      scrolithaProvider === 'core'
+    )
+  ) {
     const keys = ['SCROLITHA_CORE_ENDPOINT', 'SCROLITHA_CORE_MODEL'];
     const hasLegacyHost = Boolean(process.env.SCROLITHA_OLLAMA_HOST?.trim());
     const hasLegacyModel = Boolean(process.env.SCROLITHA_OLLAMA_MODEL?.trim());

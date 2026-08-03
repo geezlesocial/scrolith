@@ -176,7 +176,15 @@ export const consolidateScrolithaDirectConversations = async (
  */
 export const ensureScrolithaDirectConversation = async (
   userId: string,
-  options?: { seedWelcome?: boolean }
+  options?: {
+    seedWelcome?: boolean;
+    actor?: {
+      id?: string | null;
+      role?: string | null;
+      email?: string | null;
+      isAdmin?: boolean;
+    };
+  }
 ): Promise<EnsureScrolithaMessagingResult> => {
   const uid = String(userId || '').trim();
   if (!uid) throw Object.assign(new Error('userId is required'), { statusCode: 400 });
@@ -186,8 +194,17 @@ export const ensureScrolithaDirectConversation = async (
     throw Object.assign(new Error('Scrolitha cannot open a conversation with itself'), { statusCode: 400 });
   }
 
-  // Actor may be passed later; use id for capability check (internal allowlist uses id/email).
-  const messagingAssistantEnabled = await isMessagingAssistantEnabled({ id: uid });
+  // Prefer the authenticated request actor so role-based internal rollout works.
+  // Fall back to the user ID for service callers that do not have request context.
+  const capabilityActor = options?.actor
+    ? {
+        ...options.actor,
+        id: String(options.actor.id || uid).trim() || uid
+      }
+    : { id: uid };
+
+  const messagingAssistantEnabled =
+    await isMessagingAssistantEnabled(capabilityActor);
 
   const uniqueIds = [uid, platformUser.id];
 
@@ -801,7 +818,10 @@ export const processScrolithaUnifiedTurn = async (input: {
     return { skipped: true, reason: 'messaging_assistant_disabled', messagingAssistantEnabled: false };
   }
 
-  const ensured = await ensureScrolithaDirectConversation(input.userId, { seedWelcome: true });
+  const ensured = await ensureScrolithaDirectConversation(input.userId, {
+    seedWelcome: true,
+    actor: input.actor
+  });
   const platformUser = ensured.platformUser;
   const conversationId = ensured.conversationId;
   const attachmentIds = Array.isArray(input.attachmentFileIds)
