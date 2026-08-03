@@ -5,6 +5,7 @@ import { JobStatus } from '@prisma/client';
 import { notifyFollowersAboutPublication } from '../services/followPublicationNotifications.service';
 import { resolveFeaturedListingEligibility } from '../services/listingFeaturePolicy.service';
 import { publishIntegrationEvent } from '../services/talentCloud.service';
+import { PlanPurchaseError, purchaseUserPlanWithWallet } from '../services/planPurchase.service';
 
 const normalizeStatus = (status?: string) => (status || '').toString().toLowerCase();
 const parseBooleanQuery = (value: unknown) => {
@@ -441,6 +442,20 @@ export const submitJob = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, error: 'Not authorized' });
     }
 
+    const planId = String(req.body?.planId || req.body?.plan_id || '').trim();
+    let planCharge: any = null;
+    if (planId) {
+      planCharge = await purchaseUserPlanWithWallet({
+        userId,
+        planId,
+        requiredType: 'employer',
+        skipIfActiveSamePlan: true,
+        allowAdminForType: true,
+        source: 'jobs.submit',
+        referenceId: existing.id
+      });
+    }
+
     const autoApprove = await getAutoApproveJobs();
     const updated = await prisma.job.update({
       where: { id: req.params.id },
@@ -458,12 +473,32 @@ export const submitJob = async (req: Request, res: Response) => {
       categoryId: updated.categoryId,
       status: updated.status,
       adminStatus: updated.adminStatus,
-      isVisible: updated.isVisible
+      isVisible: updated.isVisible,
+      planId: planCharge?.plan?.id || null,
+      planCharged: Boolean(planCharge?.charged),
+      planAlreadyActive: Boolean(planCharge?.alreadyActive)
     });
 
-    return res.json({ success: true, data: serializeJob(updated) });
+    return res.json({
+      success: true,
+      data: serializeJob(updated),
+      payment: planCharge
+        ? {
+            planId: planCharge.plan.id,
+            charged: Boolean(planCharge.charged),
+            alreadyActive: Boolean(planCharge.alreadyActive)
+          }
+        : null
+    });
   } catch (error: any) {
     console.error('Submit job error:', error);
+    if (error instanceof PlanPurchaseError || error?.status) {
+      return res.status(error.status || 400).json({
+        success: false,
+        code: error.code || 'JOB_PLAN_PAYMENT_FAILED',
+        error: error.message || 'Failed to process job plan payment'
+      });
+    }
     return res.status(500).json({ success: false, error: error.message || 'Failed to submit job' });
   }
 };
