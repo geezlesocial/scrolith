@@ -1,0 +1,3 @@
+<en-US>
+This release improves media reliability and mobile playback across Scrolith. It hardens post, story, scroll, and community feed media loading, prevents missing legacy media from appearing as broken cards, and keeps the Android app aligned with the latest production Azure backend and frontend delivery fixes.
+</en-US>

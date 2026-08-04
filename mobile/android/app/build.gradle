@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 1.1.56 - company-linked profile experience with working dates.
-        versionCode 66
-        versionName "1.1.56"
+        // 1.1.57 - Azure media delivery and mobile playback hardening.
+        versionCode 67
+        versionName "1.1.57"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]
