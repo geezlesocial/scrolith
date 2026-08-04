@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import OptimizedImage from '../media/OptimizedImage';
 import {
   profilePhotoDebugLabel,
@@ -19,6 +19,54 @@ const SIZE_MAP: Record<EnterpriseAvatarSize, { px: number; className: string; te
   md: { px: 40, className: 'h-10 w-10 text-sm', text: 'text-sm' },
   lg: { px: 48, className: 'h-12 w-12 text-base', text: 'text-base' },
   xl: { px: 64, className: 'h-16 w-16 text-lg', text: 'text-lg' }
+};
+
+const failedAvatarSources = new Map<string, number>();
+const MAX_FAILED_AVATAR_SOURCES = 256;
+const FAILED_AVATAR_TTL_MS = 5 * 60 * 1000;
+
+const pruneFailedAvatarSources = (now = Date.now()) => {
+  for (const [src, expiresAt] of failedAvatarSources) {
+    if (expiresAt <= now) failedAvatarSources.delete(src);
+  }
+  while (failedAvatarSources.size > MAX_FAILED_AVATAR_SOURCES) {
+    const first = failedAvatarSources.keys().next().value;
+    if (!first) break;
+    failedAvatarSources.delete(first);
+  }
+};
+
+const isFailedAvatarSource = (src: string, now = Date.now()) => {
+  const normalized = String(src || '').trim();
+  if (!normalized) return false;
+  const expiresAt = failedAvatarSources.get(normalized);
+  if (!expiresAt) return false;
+  if (expiresAt <= now) {
+    failedAvatarSources.delete(normalized);
+    return false;
+  }
+  return true;
+};
+
+const rememberFailedAvatarSource = (src: string, now = Date.now()) => {
+  const normalized = String(src || '').trim();
+  if (!normalized) return;
+  failedAvatarSources.set(normalized, now + FAILED_AVATAR_TTL_MS);
+  pruneFailedAvatarSources(now);
+};
+
+const clearFailedAvatarSource = (src: string) => {
+  const normalized = String(src || '').trim();
+  if (normalized) failedAvatarSources.delete(normalized);
+};
+
+export const __enterpriseAvatarFailureRegistryForTests = {
+  remember: rememberFailedAvatarSource,
+  isFailed: isFailedAvatarSource,
+  clear: clearFailedAvatarSource,
+  reset: () => failedAvatarSources.clear(),
+  size: () => failedAvatarSources.size,
+  ttlMs: FAILED_AVATAR_TTL_MS
 };
 
 type EnterpriseAvatarProps = {
@@ -78,30 +126,18 @@ const EnterpriseAvatar: React.FC<EnterpriseAvatarProps> = ({
   const [candidateIndex, setCandidateIndex] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [failedAll, setFailedAll] = useState(false);
-  const [retryToken, setRetryToken] = useState(0);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const failCountRef = useRef(0);
 
   useEffect(() => {
     setCandidateIndex(0);
     setLoaded(false);
     setFailedAll(false);
-    failCountRef.current = 0;
-    setRetryToken(0);
-    if (retryTimerRef.current) {
-      clearTimeout(retryTimerRef.current);
-      retryTimerRef.current = null;
-    }
   }, [candidates.join('|')]);
 
-  useEffect(
-    () => () => {
-      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-    },
-    []
+  const viableCandidates = useMemo(
+    () => candidates.filter((candidate) => !isFailedAvatarSource(candidate)),
+    [candidates]
   );
-
-  const activeSrc = !failedAll && candidates.length > 0 ? candidates[candidateIndex] || '' : '';
+  const activeSrc = !failedAll && viableCandidates.length > 0 ? viableCandidates[candidateIndex] || '' : '';
   const showImage = Boolean(activeSrc);
 
   const dim = SIZE_MAP[size] || SIZE_MAP.md;
@@ -110,24 +146,14 @@ const EnterpriseAvatar: React.FC<EnterpriseAvatarProps> = ({
 
   const onImageError = useCallback(() => {
     setLoaded(false);
+    rememberFailedAvatarSource(activeSrc);
     const next = candidateIndex + 1;
-    if (next < candidates.length) {
+    if (next < viableCandidates.length) {
       setCandidateIndex(next);
       return;
     }
-    // Transient failure: retry primary candidate a few times before initials-only.
-    failCountRef.current += 1;
-    if (failCountRef.current <= 3 && candidates.length > 0) {
-      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-      retryTimerRef.current = setTimeout(() => {
-        setCandidateIndex(0);
-        setFailedAll(false);
-        setRetryToken((t) => t + 1);
-      }, 600 * failCountRef.current);
-      return;
-    }
     setFailedAll(true);
-  }, [candidateIndex, candidates.length]);
+  }, [activeSrc, candidateIndex, viableCandidates.length]);
 
   return (
     <div
@@ -152,12 +178,8 @@ const EnterpriseAvatar: React.FC<EnterpriseAvatarProps> = ({
       </span>
       {showImage ? (
         <OptimizedImage
-          key={`${activeSrc}:${retryToken}`}
-          src={
-            retryToken > 0
-              ? `${activeSrc}${activeSrc.includes('?') ? '&' : '?'}_av=${retryToken}`
-              : activeSrc
-          }
+          key={activeSrc}
+          src={activeSrc}
           alt={alt || displayName}
           width={dim.px}
           height={dim.px}
@@ -169,7 +191,7 @@ const EnterpriseAvatar: React.FC<EnterpriseAvatarProps> = ({
           decoding="async"
           fetchPriority={loading === 'eager' ? 'high' : 'auto'}
           onLoad={() => {
-            failCountRef.current = 0;
+            clearFailedAvatarSource(activeSrc);
             setLoaded(true);
           }}
           onError={onImageError}
