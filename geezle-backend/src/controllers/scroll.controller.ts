@@ -12,7 +12,7 @@ import {
   assessVideoIntegrityByFile,
   buildVideoIntegrityUpdate
 } from '../services/videoIntegrity.service';
-import { gcsMediaExists } from '../services/storage/gcsMediaStorage';
+import { isStoredMediaAvailable } from '../services/media/mediaAvailability.service';
 import { getScrollDashTotals } from '../services/gcoinDonationTotals.service';
 import {
   normalizeStoredContentOfferTags,
@@ -134,47 +134,6 @@ const resolveStoredFileMedia = (
     height: file.height ?? null,
     duration: file.duration ?? null
   };
-};
-
-const stripUploadsPrefix = (value?: string | null) => {
-  const raw = String(value || '').trim().replace(/\\/g, '/');
-  if (!raw) return '';
-  try {
-    const parsed = new URL(raw);
-    return stripUploadsPrefix(parsed.pathname);
-  } catch {}
-  const normalized = raw.replace(/^\/+/, '');
-  const marker = 'uploads/';
-  const index = normalized.toLowerCase().indexOf(marker);
-  return (index >= 0 ? normalized.slice(index + marker.length) : normalized).replace(/^\/+/, '');
-};
-
-const isVideoFileStorageAvailable = async (file: {
-  id: string;
-  url?: string | null;
-  storageKey?: string | null;
-  storageProvider?: string | null;
-  mimeType?: string | null;
-  originalName?: string | null;
-}) => {
-  const mimeType = String(file.mimeType || '').toLowerCase();
-  const hay = `${file.url || ''} ${file.originalName || ''}`.toLowerCase();
-  const isVideo =
-    mimeType.startsWith('video/') ||
-    /\.(mp4|webm|mov|m4v|ogg|avi|mkv)(?:$|[?#])/.test(hay);
-  if (!isVideo) return true;
-
-  const provider = String(file.storageProvider || '').toLowerCase();
-  if (['database_storage', 'firebase_storage', 'azure_blob'].includes(provider)) return true;
-
-  const candidates = [file.storageKey, stripUploadsPrefix(file.url), stripUploadsPrefix(file.originalName)]
-    .map((value) => String(value || '').trim())
-    .filter(Boolean);
-  if (!candidates.length) return false;
-  for (const candidate of Array.from(new Set(candidates))) {
-    if (await gcsMediaExists(candidate).catch(() => false)) return true;
-  }
-  return false;
 };
 
 const toInt = (value: any, fallback: number) => {
@@ -602,17 +561,17 @@ const buildScrollMediaMap = async (fileIds: string[], req: Request) => {
     }
   });
   const baseUrl = getBaseFileUrl(req);
-  const unavailableVideoFileIds = new Set<string>();
+  const unavailableFileIds = new Set<string>();
   await Promise.all(
     files.map(async (file) => {
-      const available = await isVideoFileStorageAvailable(file);
-      if (!available) unavailableVideoFileIds.add(file.id);
+      const available = await isStoredMediaAvailable(file);
+      if (!available) unavailableFileIds.add(file.id);
     })
   );
   return new Map(
     files.map((file) => {
       const media = resolveStoredFileMedia(file, baseUrl);
-      const unavailable = unavailableVideoFileIds.has(file.id);
+      const unavailable = unavailableFileIds.has(file.id);
       return [
         file.id,
         {

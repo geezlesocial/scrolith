@@ -63,7 +63,7 @@ import {
   normalizePostPresentationInput,
   serializePostPresentation
 } from '../utils/postPresentation';
-import { gcsMediaExists } from '../services/storage/gcsMediaStorage';
+import { isStoredMediaAvailable } from '../services/media/mediaAvailability.service';
 
 // Safe helper to retrieve the `io` instance from `req.app` without broad `as any` casts
 const getAppIo = (req: Request) => {
@@ -91,47 +91,6 @@ const getAppIo = (req: Request) => {
 };
 
 const NOTIFICATION_BATCH_SIZE = 250;
-
-const stripUploadsPrefix = (value?: string | null) => {
-  const raw = String(value || '').trim().replace(/\\/g, '/');
-  if (!raw) return '';
-  try {
-    const parsed = new URL(raw);
-    return stripUploadsPrefix(parsed.pathname);
-  } catch {}
-  const normalized = raw.replace(/^\/+/, '');
-  const marker = 'uploads/';
-  const index = normalized.toLowerCase().indexOf(marker);
-  return (index >= 0 ? normalized.slice(index + marker.length) : normalized).replace(/^\/+/, '');
-};
-
-const isVideoFileStorageAvailable = async (file: {
-  id: string;
-  url?: string | null;
-  storageKey?: string | null;
-  storageProvider?: string | null;
-  mimeType?: string | null;
-  originalName?: string | null;
-}) => {
-  const mimeType = String(file.mimeType || '').toLowerCase();
-  const hay = `${file.url || ''} ${file.originalName || ''}`.toLowerCase();
-  const isVideo =
-    mimeType.startsWith('video/') ||
-    /\.(mp4|webm|mov|m4v|ogg|avi|mkv)(?:$|[?#])/.test(hay);
-  if (!isVideo) return true;
-
-  const provider = String(file.storageProvider || '').toLowerCase();
-  if (['database_storage', 'firebase_storage', 'azure_blob'].includes(provider)) return true;
-
-  const candidates = [file.storageKey, stripUploadsPrefix(file.url), stripUploadsPrefix(file.originalName)]
-    .map((value) => String(value || '').trim())
-    .filter(Boolean);
-  if (!candidates.length) return false;
-  for (const candidate of Array.from(new Set(candidates))) {
-    if (await gcsMediaExists(candidate).catch(() => false)) return true;
-  }
-  return false;
-};
 
 const buildAttachmentLookup = async (fileIds: string[]) => {
   const ids = Array.from(
@@ -170,11 +129,11 @@ const buildAttachmentLookup = async (fileIds: string[]) => {
     duration?: number | null;
     size: number;
   }>;
-  const unavailableVideoIds = new Set<string>();
+  const unavailableFileIds = new Set<string>();
   await Promise.all(
     files.map(async (file) => {
-      const available = await isVideoFileStorageAvailable(file);
-      if (!available) unavailableVideoIds.add(file.id);
+      const available = await isStoredMediaAvailable(file);
+      if (!available) unavailableFileIds.add(file.id);
     })
   );
   return new Map<string, (typeof files)[number] & { unavailable?: boolean; unavailableReason?: string | null }>(
@@ -182,8 +141,8 @@ const buildAttachmentLookup = async (fileIds: string[]) => {
       f.id,
       {
         ...f,
-        unavailable: unavailableVideoIds.has(f.id),
-        unavailableReason: unavailableVideoIds.has(f.id) ? 'storage_missing' : null
+        unavailable: unavailableFileIds.has(f.id),
+        unavailableReason: unavailableFileIds.has(f.id) ? 'storage_missing' : null
       }
     ])
   );

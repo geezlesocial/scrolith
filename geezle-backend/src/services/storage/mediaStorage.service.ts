@@ -37,6 +37,7 @@ import {
 import {
   deleteBlobByName,
   downloadBlobByName,
+  blobExistsByName,
   isAzureBlobConfigured,
   uploadBufferToBlob
 } from './blobStorage';
@@ -369,12 +370,7 @@ export const mediaObjectExists = async (params: {
   if (provider === DATABASE_PROVIDER) return databaseStorageExistsByName(key);
   if (provider === FIREBASE_PROVIDER) return firebaseStorageExistsByName(key);
   if (provider === AZURE_PROVIDER) {
-    try {
-      await downloadBlobByName(key);
-      return true;
-    } catch {
-      return false;
-    }
+    return blobExistsByName(key);
   }
   return false;
 };

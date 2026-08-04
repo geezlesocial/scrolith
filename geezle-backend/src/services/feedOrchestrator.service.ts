@@ -20,7 +20,7 @@ import {
   resolveFileBaseUrl
 } from '../utils/mediaUrl';
 import { mapOrchestratedItemsWithIntelligence } from './intelligence/intelligence.contract';
-import { gcsMediaExists } from './storage/gcsMediaStorage';
+import { isStoredMediaAvailable } from './media/mediaAvailability.service';
 
 export type OrchestratedSurface = 'member_home' | 'community';
 
@@ -1291,54 +1291,6 @@ const inferAttachmentMediaType = (
   return 'document';
 };
 
-const stripUploadsPrefix = (value?: string | null) => {
-  const raw = String(value || '').trim().replace(/\\/g, '/');
-  if (!raw) return '';
-  try {
-    const parsed = new URL(raw);
-    return stripUploadsPrefix(parsed.pathname);
-  } catch {}
-  const normalized = raw.replace(/^\/+/, '');
-  const marker = 'uploads/';
-  const index = normalized.toLowerCase().indexOf(marker);
-  return (index >= 0 ? normalized.slice(index + marker.length) : normalized).replace(/^\/+/, '');
-};
-
-const isVideoFileStorageAvailable = async (file: {
-  id: string;
-  url?: string | null;
-  storageKey?: string | null;
-  storageProvider?: string | null;
-  mimeType?: string | null;
-  filename?: string | null;
-  originalName?: string | null;
-}) => {
-  const mimeType = String(file.mimeType || '').toLowerCase();
-  const hay = `${file.url || ''} ${file.filename || ''} ${file.originalName || ''}`.toLowerCase();
-  const isVideo =
-    mimeType.startsWith('video/') ||
-    /\.(mp4|webm|mov|m4v|ogg|avi|mkv)(?:$|[?#])/.test(hay);
-  if (!isVideo) return true;
-
-  const provider = String(file.storageProvider || '').toLowerCase();
-  if (['database_storage', 'firebase_storage', 'azure_blob'].includes(provider)) return true;
-
-  const candidates = [
-    file.storageKey,
-    stripUploadsPrefix(file.url),
-    file.filename && stripUploadsPrefix(file.filename),
-    file.originalName && stripUploadsPrefix(file.originalName)
-  ]
-    .map((value) => String(value || '').trim())
-    .filter(Boolean);
-
-  if (!candidates.length) return false;
-  for (const candidate of Array.from(new Set(candidates))) {
-    if (await gcsMediaExists(candidate).catch(() => false)) return true;
-  }
-  return false;
-};
-
 /**
  * Hydrate post attachment file ids into full media descriptors for member-home cards.
  * Without this, orchestrated feed ships raw ids and the FE falls back to "Document".
@@ -1467,16 +1419,16 @@ async function resolveFileMediaMap(fileIds: string[]) {
     })
     .catch(() => []);
 
-  const unavailableVideoFileIds = new Set<string>();
+  const unavailableFileIds = new Set<string>();
   await Promise.all(
     files.map(async (file) => {
-      const available = await isVideoFileStorageAvailable(file);
-      if (!available) unavailableVideoFileIds.add(file.id);
+      const available = await isStoredMediaAvailable(file);
+      if (!available) unavailableFileIds.add(file.id);
     })
   );
 
   for (const file of files) {
-    const unavailable = unavailableVideoFileIds.has(file.id);
+    const unavailable = unavailableFileIds.has(file.id);
     const contentUrl = buildFileContentUrl(file.id, baseUrl);
     const uploadsUrl = file.storageKey ? buildUploadsUrl(String(file.storageKey), baseUrl) : null;
     const directUrl = resolveDirectMediaUrl(file.url, baseUrl);

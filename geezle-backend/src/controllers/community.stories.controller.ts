@@ -4,6 +4,7 @@ import realtime from '../utils/realtime';
 import { addFileUsage, removeUsage } from '../utils/fileUsage';
 import { resolveDirectMediaUrl, resolveFileBaseUrl } from '../utils/mediaUrl';
 import { buildStoryActionUrl, deliverStoryEngagementAlert } from '../services/storyEngagementDelivery.service';
+import { isStoredMediaAvailable } from '../services/media/mediaAvailability.service';
 
 const DISK_ID_PREFIX = 'disk:';
 const DEFAULT_VIDEO_THUMBNAIL_FILENAME = '__video_fallback_thumbnail.svg';
@@ -91,7 +92,9 @@ const buildStoryMessageMediaReference = async (
     mimeType = media?.mimeType ? String(media.mimeType) : null;
     const isVideo = Boolean(mimeType && mimeType.startsWith('video/'));
     thumbnailUrl = media?.thumbnailUrl ? String(media.thumbnailUrl) : null;
-    if (isVideo) {
+    if (media?.unavailable) {
+      mediaPreview = '';
+    } else if (isVideo) {
       mediaPreview =
         thumbnailUrl ||
         buildFileContentUrl(mediaFileId, baseUrl) ||
@@ -160,12 +163,15 @@ const resolveStoryMedia = async (fileId?: string | null, req?: Request) => {
   if (!file) return null;
   const isVideo = String(file.mimeType || '').startsWith('video/');
   const fallbackVideoThumbnail = buildUploadsUrl(DEFAULT_VIDEO_THUMBNAIL_FILENAME, baseUrl);
+  const available = await isStoredMediaAvailable(file);
   return {
     id: file.id,
-    url: resolveStoredFileUrl(file, baseUrl),
+    url: available ? resolveStoredFileUrl(file, baseUrl) : null,
     mimeType: file.mimeType,
     name: file.originalName,
     storageKey: file.storageKey,
+    unavailable: !available,
+    unavailableReason: available ? null : 'storage_missing',
     thumbnailUrl:
       resolveDirectMediaUrl(file.thumbnailUrl, baseUrl) ||
       file.thumbnailUrl ||
