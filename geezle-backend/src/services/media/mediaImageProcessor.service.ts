@@ -6,7 +6,7 @@
  * so the upload path can avoid loading native Sharp when processing is disabled.
  */
 import crypto from 'crypto';
-import type { Sharp } from 'sharp';
+import type { Sharp, SharpOptions } from 'sharp';
 import {
   inferImageCategory,
   isEligibleImageMime,
@@ -44,10 +44,29 @@ export const WEBP_QUALITY = 80;
 export const AVIF_QUALITY = 65;
 export const JPEG_QUALITY = 82;
 
+type SharpFactory = (
+  input: Buffer,
+  options?: SharpOptions
+) => Sharp;
+
 /** Lazy load Sharp so disabled/prod-upload path need not resolve native bindings. */
-const getSharp = (): typeof import('sharp') => {
+const getSharp = (): SharpFactory => {
+  // Support both CommonJS callable exports and an interop default export.
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  return require('sharp');
+  const loaded = require('sharp') as
+    | SharpFactory
+    | { default?: SharpFactory };
+
+  const sharpFactory =
+    typeof loaded === 'function'
+      ? loaded
+      : loaded.default;
+
+  if (typeof sharpFactory !== 'function') {
+    throw new Error('Sharp callable export unavailable');
+  }
+
+  return sharpFactory;
 };
 
 const checksumBuffer = (buf: Buffer) => crypto.createHash('sha256').update(buf).digest('hex');
