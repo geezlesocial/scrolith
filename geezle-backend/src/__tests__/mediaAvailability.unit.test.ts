@@ -22,6 +22,16 @@ jest.mock('../services/storage/gcsMediaStorage', () => ({
 }));
 
 describe('mediaAvailability', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
+  });
+
   test('normalizes legacy uploads URLs into storage keys', () => {
     expect(
       stripUploadsPrefixForAvailability(
@@ -57,5 +67,15 @@ describe('mediaAvailability', () => {
         originalName: 'a.jpg'
       })
     ).toEqual(['uploads/a.jpg', 'a.jpg']);
+  });
+
+  test('does not probe GCS fallback when Azure is the selected storage driver', () => {
+    process.env.UPLOAD_DRIVER = 'azure_blob';
+    process.env.STORAGE_DRIVER = 'azure_blob';
+    delete process.env.STORAGE_BUCKET;
+    delete process.env.GCS_MEDIA_BUCKET;
+    delete process.env.GOOGLE_CLOUD_STORAGE_BUCKET;
+    delete process.env.GCLOUD_STORAGE_BUCKET;
+    expect(__mediaAvailabilityTestUtils.shouldProbeGcsLegacyFallback()).toBe(false);
   });
 });

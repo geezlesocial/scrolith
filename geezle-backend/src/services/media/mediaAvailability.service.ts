@@ -49,6 +49,21 @@ const buildStorageKeyCandidates = (file: StoredMediaAvailabilityInput) =>
     )
   );
 
+const selectedUploadDriver = () =>
+  String(process.env.UPLOAD_DRIVER || process.env.STORAGE_DRIVER || '').trim().toLowerCase();
+
+const shouldProbeGcsLegacyFallback = () =>
+  ['gcs', 'google_cloud_storage'].includes(selectedUploadDriver()) ||
+  Boolean(
+    String(
+      process.env.STORAGE_BUCKET ||
+        process.env.GCS_MEDIA_BUCKET ||
+        process.env.GOOGLE_CLOUD_STORAGE_BUCKET ||
+        process.env.GCLOUD_STORAGE_BUCKET ||
+        ''
+    ).trim()
+  );
+
 const localUploadExists = (candidate: string) => {
   const uploadsRoot = path.resolve(UPLOAD_DIR);
   const localPath = path.resolve(UPLOAD_DIR, candidate);
@@ -95,11 +110,12 @@ export const isStoredMediaAvailable = async (file: StoredMediaAvailabilityInput)
 
   if (await anyCandidateExists(candidates, localUploadExists)) return true;
   if (isAzureBlobConfigured() && (await anyCandidateExists(candidates, blobExistsByName))) return true;
-  if (await anyCandidateExists(candidates, gcsMediaExists)) return true;
+  if (shouldProbeGcsLegacyFallback() && (await anyCandidateExists(candidates, gcsMediaExists))) return true;
   return false;
 };
 
 export const __mediaAvailabilityTestUtils = {
   buildStorageKeyCandidates,
-  isSafeRelativeStorageKey
+  isSafeRelativeStorageKey,
+  shouldProbeGcsLegacyFallback
 };
