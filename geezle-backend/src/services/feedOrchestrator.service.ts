@@ -1160,7 +1160,7 @@ async function collectPeoplePages(
       }),
       prisma.communityClub
         .findMany({
-          where: { status: 'active', visibility: 'public' } as any,
+          where: { status: 'active', visibility: 'PUBLIC' } as any,
           orderBy: [{ memberCount: 'desc' }, { updatedAt: 'desc' }] as any,
           take: Math.max(3, Math.ceil(take / 2)),
           select: {
@@ -1607,17 +1607,18 @@ async function collectStoriesScroll(take: number, seen: Set<string>): Promise<Ca
 async function collectEvents(take: number, seen: Set<string>): Promise<Candidate[]> {
   try {
     // Prefer community events table when present.
+    const now = new Date();
     const events = await (prisma as any).communityEvent
       ?.findMany?.({
-        where: { status: { in: ['active', 'published', 'ACTIVE', 'PUBLISHED'] } },
-        orderBy: [{ startAt: 'asc' }, { createdAt: 'desc' }],
+        where: { startTime: { gte: now } },
+        orderBy: [{ startTime: 'asc' }, { createdAt: 'desc' }],
         take: Math.min(take, 6),
         select: {
           id: true,
           title: true,
           description: true,
-          startAt: true,
-          endAt: true,
+          startTime: true,
+          endTime: true,
           location: true,
           createdAt: true
         }
@@ -1636,7 +1637,7 @@ async function collectEvents(take: number, seen: Set<string>): Promise<Candidate
           id,
           sourceId: id,
           feedKey: key,
-          createdAt: toIso(event.startAt || event.createdAt),
+          createdAt: toIso(event.startTime || event.createdAt),
           score,
           rankingScore: score,
           author: null,
