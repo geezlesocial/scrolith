@@ -105,6 +105,9 @@ import {
 } from '../services/storage/gcsMediaStorage';
 import {
   MediaStorageService,
+  hasAzureStorageEnvironment,
+  hasExplicitUploadDriver,
+  resolveUploadDriver,
   resolveWriteStorageProvider,
   shouldUseMemoryUploadMulter,
   isGcsUploadDriver,
@@ -206,6 +209,46 @@ describe('MediaStorageService provider selection', () => {
     delete process.env.STORAGE_DRIVER;
     expect(resolveWriteStorageProvider()).toBe('local');
     expect(shouldUseMemoryUploadMulter()).toBe(false);
+  });
+
+  test('complete Azure configuration without explicit driver selects azure_blob', () => {
+    delete process.env.UPLOAD_DRIVER;
+    delete process.env.STORAGE_DRIVER;
+    process.env.AZURE_STORAGE_CONNECTION_STRING =
+      'DefaultEndpointsProtocol=https;AccountName=testaccount;AccountKey=testkey;EndpointSuffix=core.windows.net';
+    process.env.AZURE_STORAGE_CONTAINER = 'scrolith-prod-media';
+    expect(hasExplicitUploadDriver()).toBe(false);
+    expect(hasAzureStorageEnvironment()).toBe(true);
+    expect(resolveUploadDriver()).toBe('azure_blob');
+    expect(resolveWriteStorageProvider()).toBe('azure_blob');
+    expect(shouldUseMemoryUploadMulter()).toBe(true);
+  });
+
+  test('explicit local driver overrides complete Azure configuration', () => {
+    process.env.UPLOAD_DRIVER = 'local';
+    process.env.AZURE_STORAGE_CONNECTION_STRING =
+      'DefaultEndpointsProtocol=https;AccountName=testaccount;AccountKey=testkey;EndpointSuffix=core.windows.net';
+    process.env.AZURE_STORAGE_CONTAINER = 'scrolith-prod-media';
+    expect(resolveUploadDriver()).toBe('local');
+    expect(resolveWriteStorageProvider()).toBe('local');
+    expect(shouldUseMemoryUploadMulter()).toBe(false);
+  });
+
+  test('explicit Azure driver with incomplete configuration fails closed', () => {
+    process.env.UPLOAD_DRIVER = 'azure_blob';
+    delete process.env.STORAGE_DRIVER;
+    delete process.env.AZURE_STORAGE_CONNECTION_STRING;
+    process.env.AZURE_STORAGE_CONTAINER = 'scrolith-prod-media';
+    expect(() => resolveWriteStorageProvider()).toThrow(/AZURE_STORAGE_CONNECTION_STRING/);
+  });
+
+  test('production Azure environment with incomplete configuration fails closed', () => {
+    delete process.env.UPLOAD_DRIVER;
+    delete process.env.STORAGE_DRIVER;
+    process.env.NODE_ENV = 'production';
+    delete process.env.AZURE_STORAGE_CONNECTION_STRING;
+    process.env.AZURE_STORAGE_CONTAINER = 'scrolith-prod-media';
+    expect(() => resolveWriteStorageProvider()).toThrow(/Azure storage environment is incomplete/);
   });
 
   test('database_storage selects database_storage', () => {

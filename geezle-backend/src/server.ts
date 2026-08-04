@@ -99,6 +99,10 @@ import { authMiddleware } from './middleware/auth.middleware';
 import { adminMiddleware } from './middleware/admin.middleware';
 import { maintenanceModeMiddleware } from './middleware/maintenance.middleware';
 import {
+  createMediaDeliveryRateLimiter,
+  isMediaContentReadRequest
+} from './middleware/mediaDelivery.middleware';
+import {
   createRuntimeOptimizationMiddlewareBundle,
   resolveStaticAssetCacheControl
 } from './middleware/runtimeOptimization.middleware';
@@ -3718,6 +3722,8 @@ try {
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
+app.use('/api/files/content', createMediaDeliveryRateLimiter());
+
   // Rate limiting
 const limiter = rateLimit({
   windowMs: apiRateLimitWindowMs,
@@ -3757,6 +3763,7 @@ const limiter = rateLimit({
   // Skip rate limiting only for non-production local/dev — never via client headers.
   skip: (req) => {
     try {
+      if (isMediaContentReadRequest(req)) return true;
       if (req.path.includes('/socket.io/')) return true;
       // Client-supplied bypass headers are IGNORED in all environments (defense in depth).
       // Production / Cloud Run: never skip based on headers.

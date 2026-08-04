@@ -79,10 +79,26 @@ const GCS_PROVIDER: MediaStorageProvider = GOOGLE_CLOUD_STORAGE_PROVIDER as Medi
 
 const safeFilename = (name: string) => String(name || 'upload.bin').replace(/[^a-z0-9._-]+/gi, '_');
 
-const resolveUploadDriver = () =>
-  String(process.env.UPLOAD_DRIVER || process.env.STORAGE_DRIVER || DEFAULT_PROVIDER)
+const trimEnv = (value: unknown) => String(value || '').trim();
+
+export const hasAzureStorageEnvironment = () =>
+  Boolean(
+    trimEnv(process.env.AZURE_STORAGE_CONNECTION_STRING) ||
+      trimEnv(process.env.AZURE_STORAGE_CONTAINER) ||
+      trimEnv(process.env.AZURE_BLOB_BASE_URL)
+  );
+
+export const hasExplicitUploadDriver = () =>
+  Boolean(trimEnv(process.env.UPLOAD_DRIVER || process.env.STORAGE_DRIVER));
+
+export const resolveUploadDriver = () => {
+  const explicit = String(process.env.UPLOAD_DRIVER || process.env.STORAGE_DRIVER || '')
     .trim()
     .toLowerCase();
+  if (explicit) return explicit;
+  if (isAzureBlobConfigured()) return AZURE_PROVIDER;
+  return DEFAULT_PROVIDER;
+};
 
 export const isGcsUploadDriver = (driver = resolveUploadDriver()) =>
   ['gcs', 'google_cloud_storage'].includes(driver);
@@ -110,6 +126,21 @@ export const resolveWriteStorageProvider = (): MediaStorageProvider => {
   if (isGcsUploadDriver(driver) && !isGcsMediaConfigured()) {
     throw new Error(
       'UPLOAD_DRIVER=gcs requires explicit STORAGE_BUCKET=scrolith-prod-media (or GCS_MEDIA_BUCKET). Refusing silent local fallback.'
+    );
+  }
+  if (isAzureUploadDriver(driver) && !isAzureBlobConfigured()) {
+    throw new Error(
+      'UPLOAD_DRIVER=azure_blob requires AZURE_STORAGE_CONNECTION_STRING and AZURE_STORAGE_CONTAINER. Refusing silent local fallback.'
+    );
+  }
+  if (
+    !hasExplicitUploadDriver() &&
+    process.env.NODE_ENV === 'production' &&
+    hasAzureStorageEnvironment() &&
+    !isAzureBlobConfigured()
+  ) {
+    throw new Error(
+      'Azure storage environment is incomplete in production. Refusing silent local media writes.'
     );
   }
   return DEFAULT_PROVIDER;

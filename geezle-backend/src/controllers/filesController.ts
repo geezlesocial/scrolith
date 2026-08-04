@@ -46,6 +46,7 @@ import {
 import {
   MediaStorageService,
   GOOGLE_CLOUD_STORAGE_PROVIDER,
+  resolveUploadDriver as resolveSharedUploadDriver,
   resolveWriteStorageProvider,
   shouldUseMemoryUploadMulter as shouldUseMemoryUploadMulterService
 } from '../services/storage/mediaStorage.service';
@@ -84,10 +85,7 @@ const GCS_MEDIA_STORAGE_PROVIDER = GOOGLE_CLOUD_STORAGE_PROVIDER;
 const DEFAULT_VIDEO_THUMBNAIL_FILENAME = '__video_fallback_thumbnail.svg';
 const UPLOAD_THUMBNAILS_DIR = path.join(UPLOAD_DIR, 'thumbnails');
 
-const resolveUploadDriver = () =>
-  String(process.env.UPLOAD_DRIVER || process.env.STORAGE_DRIVER || DEFAULT_STORAGE_PROVIDER)
-    .trim()
-    .toLowerCase();
+const resolveUploadDriver = () => resolveSharedUploadDriver();
 
 const shouldUseDatabaseStorage = () => {
   const driver = resolveUploadDriver();
@@ -1574,6 +1572,13 @@ const redirectToBrandAssetFallback = (res: Response, assetName?: string | null) 
   res.redirect(302, fallbackUrl);
 };
 
+const isSafeLegacyContentFilename = (value: string) => {
+  const normalized = normalizeSlashes(String(value || '').trim()).replace(/^\/+/, '');
+  if (!normalized || normalized !== path.basename(normalized)) return false;
+  if (normalized.includes('..') || normalized.length > 240) return false;
+  return /\.[a-z0-9]{2,8}$/i.test(normalized);
+};
+
 const tryServeManagedStorageUploadAsset = async (relativePath: string, req: Request, res: Response) => {
   const normalizedPath = normalizeSlashes(relativePath).replace(/^\/+/, '');
   if (!normalizedPath) return false;
@@ -1860,19 +1865,38 @@ export const serveFileContent = async (req: Request, res: Response) => {
       return;
     }
 
-    const file = await prisma.file.findUnique({
+    const fileSelect = {
+      id: true,
+      ownerId: true,
+      filename: true,
+      mimeType: true,
+      visibility: true,
+      storageKey: true,
+      storageProvider: true,
+      url: true
+    } as const;
+
+    let file: any = await prisma.file.findUnique({
       where: { id },
-      select: {
-        id: true,
-        ownerId: true,
-        filename: true,
-        mimeType: true,
-        visibility: true,
-        storageKey: true,
-        storageProvider: true,
-        url: true
-      }
+      select: fileSelect
     });
+    if (!file && isSafeLegacyContentFilename(id)) {
+      const filename = path.basename(id);
+      file = await prisma.file.findFirst({
+        where: {
+          OR: [
+            { filename },
+            { storageKey: filename },
+            { storageKey: { endsWith: `/${filename}` } },
+            { url: { endsWith: `/api/files/content/${filename}` } },
+            { url: { endsWith: `/uploads/${filename}` } },
+            { url: { endsWith: `/${filename}` } }
+          ]
+        },
+        orderBy: { createdAt: 'desc' },
+        select: fileSelect
+      });
+    }
     if (!file) {
       res.status(404).json({ success: false, error: 'File not found' });
       return;
