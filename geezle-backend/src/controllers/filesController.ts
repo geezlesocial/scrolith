@@ -1579,35 +1579,52 @@ const isSafeLegacyContentFilename = (value: string) => {
   return /\.[a-z0-9]{2,8}$/i.test(normalized);
 };
 
+const shouldProbeGcsMediaRecovery = () => {
+  const driver = String(process.env.UPLOAD_DRIVER || process.env.STORAGE_DRIVER || '').trim().toLowerCase();
+  if (['gcs', 'google_cloud_storage'].includes(driver)) return true;
+  if (isAzureBlobConfigured()) return false;
+  return Boolean(
+    String(
+      process.env.STORAGE_BUCKET ||
+        process.env.GCS_MEDIA_BUCKET ||
+        process.env.GOOGLE_CLOUD_STORAGE_BUCKET ||
+        process.env.GCLOUD_STORAGE_BUCKET ||
+        ''
+    ).trim()
+  );
+};
+
 const tryServeManagedStorageUploadAsset = async (relativePath: string, req: Request, res: Response) => {
   const normalizedPath = normalizeSlashes(relativePath).replace(/^\/+/, '');
   if (!normalizedPath) return false;
 
-  try {
-    const metadata = await getGcsMediaMetadata(normalizedPath);
-    const contentType =
-      String(metadata?.contentType || '').trim() ||
-      getMimeTypeFromFilename(normalizedPath) ||
-      'application/octet-stream';
-    const size = Number(metadata?.size || 0) || 0;
-    const { serveRangedObject } = require('../utils/httpRange') as typeof import('../utils/httpRange');
-    serveRangedObject({
-      req,
-      res,
-      size,
-      contentType,
-      cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL,
-      etag: metadata?.etag || null,
-      lastModified: metadata?.updated || null,
-      openStream: (start, end) => createGcsMediaReadStream(normalizedPath, { start, end })
-    });
-    return true;
-  } catch (error: any) {
-    if (String(error?.code || '') !== 'NOT_FOUND' && Number(error?.code || 0) !== 404) {
-      console.warn('Failed to serve legacy GCS upload asset:', {
-        relativePath: normalizedPath,
-        error: String(error?.message || error)
+  if (shouldProbeGcsMediaRecovery()) {
+    try {
+      const metadata = await getGcsMediaMetadata(normalizedPath);
+      const contentType =
+        String(metadata?.contentType || '').trim() ||
+        getMimeTypeFromFilename(normalizedPath) ||
+        'application/octet-stream';
+      const size = Number(metadata?.size || 0) || 0;
+      const { serveRangedObject } = require('../utils/httpRange') as typeof import('../utils/httpRange');
+      serveRangedObject({
+        req,
+        res,
+        size,
+        contentType,
+        cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL,
+        etag: metadata?.etag || null,
+        lastModified: metadata?.updated || null,
+        openStream: (start, end) => createGcsMediaReadStream(normalizedPath, { start, end })
       });
+      return true;
+    } catch (error: any) {
+      if (String(error?.code || '') !== 'NOT_FOUND' && Number(error?.code || 0) !== 404) {
+        console.warn('Failed to serve legacy GCS upload asset:', {
+          relativePath: normalizedPath,
+          error: String(error?.message || error)
+        });
+      }
     }
   }
 
@@ -2289,43 +2306,37 @@ export const serveFileContent = async (req: Request, res: Response) => {
 
       // Durable GCS recovery — local provider mis-labels and Cloud Run ephemeral disk loss.
       // storageKey may already be a media/... object path even when provider stayed "local".
-      for (const objectName of fallbackCandidates) {
-        if (!objectName || objectName.includes('..')) continue;
-        // Prefer object keys that look like durable product media paths.
-        const looksDurable =
-          objectName.startsWith('media/') ||
-          objectName.includes('/') ||
-          objectName.length > 24;
-        if (!looksDurable && objectName === path.basename(objectName)) {
-          // Still try basename below via DB/Firebase; skip pure-local short names for GCS.
-        }
-        try {
-          const metadata = await getGcsMediaMetadata(objectName);
-          const contentType =
-            String(metadata?.contentType || '').trim() ||
-            file.mimeType ||
-            getMimeTypeFromFilename(file.filename || objectName) ||
-            'application/octet-stream';
-          const size = Number(metadata?.size || 0) || 0;
-          const { serveRangedObject } = require('../utils/httpRange') as typeof import('../utils/httpRange');
-          serveRangedObject({
-            req,
-            res,
-            size,
-            contentType,
-            cacheControl,
-            etag: metadata?.etag || null,
-            lastModified: metadata?.updated || null,
-            openStream: (start, end) => createGcsMediaReadStream(objectName, { start, end })
-          });
-          return;
-        } catch (error: any) {
-          if (String(error?.code || '') === 'NOT_FOUND' || Number(error?.code || 0) === 404) continue;
-          console.warn('Failed GCS recovery for missing local file:', {
-            fileId: file.id,
-            objectName,
-            error: String(error?.message || error)
-          });
+      if (shouldProbeGcsMediaRecovery()) {
+        for (const objectName of fallbackCandidates) {
+          if (!objectName || objectName.includes('..')) continue;
+          try {
+            const metadata = await getGcsMediaMetadata(objectName);
+            const contentType =
+              String(metadata?.contentType || '').trim() ||
+              file.mimeType ||
+              getMimeTypeFromFilename(file.filename || objectName) ||
+              'application/octet-stream';
+            const size = Number(metadata?.size || 0) || 0;
+            const { serveRangedObject } = require('../utils/httpRange') as typeof import('../utils/httpRange');
+            serveRangedObject({
+              req,
+              res,
+              size,
+              contentType,
+              cacheControl,
+              etag: metadata?.etag || null,
+              lastModified: metadata?.updated || null,
+              openStream: (start, end) => createGcsMediaReadStream(objectName, { start, end })
+            });
+            return;
+          } catch (error: any) {
+            if (String(error?.code || '') === 'NOT_FOUND' || Number(error?.code || 0) === 404) continue;
+            console.warn('Failed GCS recovery for missing local file:', {
+              fileId: file.id,
+              objectName,
+              error: String(error?.message || error)
+            });
+          }
         }
       }
 
