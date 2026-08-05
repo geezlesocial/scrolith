@@ -9,7 +9,11 @@ interface UserContextType {
   isLoading: boolean;
   getAdminProfile: () => any;
   updateAdminProfile: (data: any) => void;
-  login: (email: string, password: string, options?: { redirect?: boolean }) => Promise<boolean>;
+  login: (
+    email: string,
+    password: string,
+    options?: { redirect?: boolean; humanVerificationToken?: string | null }
+  ) => Promise<boolean>;
   logout: () => void;
   register: (
     email: string,
@@ -184,11 +188,19 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     updateUser(data);
   };
 
-  const login = async (email: string, password: string, options?: { redirect?: boolean }): Promise<boolean> => {
+  const login = async (
+    email: string,
+    password: string,
+    options?: { redirect?: boolean; humanVerificationToken?: string | null }
+  ): Promise<boolean> => {
     setIsLoading(true);
     
     try {
-      const result = await AuthService.login({ email, password });
+      const result = await AuthService.login({
+        email,
+        password,
+        humanVerificationToken: options?.humanVerificationToken || undefined
+      });
       
       if (result.success && result.user) {
         // CRITICAL: Ensure admin role is recognized (initial best-effort from login payload)

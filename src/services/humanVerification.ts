@@ -98,6 +98,34 @@ const fingerprint = (): string => {
   }
 };
 
+const wait = (ms: number) =>
+  new Promise<void>((resolve) => {
+    globalThis.setTimeout(resolve, ms);
+  });
+
+const isTransientNetworkError = (err: any) => {
+  const status = Number(err?.response?.status || 0);
+  if (status) return status >= 500 || status === 408 || status === 429;
+  const message = String(err?.message || '').toLowerCase();
+  const code = String(err?.code || '').toUpperCase();
+  return (
+    message.includes('network error') ||
+    message.includes('timeout') ||
+    code === 'ECONNABORTED' ||
+    Boolean(err?.request)
+  );
+};
+
+const withTransientRetry = async <T,>(operation: () => Promise<T>): Promise<T> => {
+  try {
+    return await operation();
+  } catch (firstError: any) {
+    if (!isTransientNetworkError(firstError)) throw firstError;
+    await wait(450);
+    return operation();
+  }
+};
+
 export class HumanVerificationService {
   static getFingerprint() {
     return fingerprint();
@@ -108,10 +136,12 @@ export class HumanVerificationService {
     publicSettings?: HumanVerificationPublicSettings;
   }> {
     try {
-      const res = await api.get('/human-verification/config', {
-        params: { endpoint },
-        __skipRetry: true
-      } as any);
+      const res = await withTransientRetry(() =>
+        api.get('/human-verification/config', {
+          params: { endpoint },
+          __skipRetry: true
+        } as any)
+      );
       const data = res?.data || {};
       return {
         required: Boolean(data.required),
@@ -124,13 +154,15 @@ export class HumanVerificationService {
 
   static async createChallenge(endpoint: HumanVerificationEndpoint): Promise<CreateChallengeResult> {
     try {
-      const res = await api.post(
-        '/human-verification/create',
-        {
-          endpoint,
-          fingerprint: fingerprint()
-        },
-        { __skipRetry: true } as any
+      const res = await withTransientRetry(() =>
+        api.post(
+          '/human-verification/create',
+          {
+            endpoint,
+            fingerprint: fingerprint()
+          },
+          { __skipRetry: true } as any
+        )
       );
       return res?.data as CreateChallengeResult;
     } catch (err: any) {
@@ -152,13 +184,15 @@ export class HumanVerificationService {
     startedAt?: number;
   }): Promise<VerifyChallengeResult> {
     try {
-      const res = await api.post(
-        '/human-verification/verify',
-        {
-          ...params,
-          fingerprint: fingerprint()
-        },
-        { __skipRetry: true } as any
+      const res = await withTransientRetry(() =>
+        api.post(
+          '/human-verification/verify',
+          {
+            ...params,
+            fingerprint: fingerprint()
+          },
+          { __skipRetry: true } as any
+        )
       );
       return res?.data as VerifyChallengeResult;
     } catch (err: any) {
