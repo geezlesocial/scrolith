@@ -12,7 +12,7 @@
     "javaHome":  "C:\\Program Files\\Microsoft\\jdk-21.0.11.10-hotspot",
     "compileSdk":  36,
     "sha1":  "f68455e7a49c9b318c3f5025d878685d9fc47895",
-    "productionFrontendRevision":  "ca-scrolith-frontend--hv-d61aeb4e",
+    "productionFrontendRevision":  "ca-scrolith-frontend--hvnet-1d8b5123",
     "versionName":  "1.1.59",
     "applicationId":  "com.scrolith.scrolith",
     "sizeBytes":  9248971,
