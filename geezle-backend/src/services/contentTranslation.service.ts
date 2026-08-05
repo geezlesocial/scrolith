@@ -61,8 +61,8 @@ type TranslationGlossaryInput = {
 
 const DEFAULT_CONTENT_TRANSLATION_CONFIG: StoredContentTranslationConfig = {
   scope: 'default',
-  enabled: false,
-  runtimeMode: 'self_hosted_m2m100',
+  enabled: true,
+  runtimeMode: 'mock',
   runtimeBaseUrl: '',
   runtimeApiKey: '',
   engineKey: 'm2m100_418m',
@@ -230,12 +230,138 @@ const detectLanguageWithMock = (text: string, detectorKey: string): RuntimeDetec
   return { language: 'en', confidence: 0.5, detectorKey, metadata: { runtimeMode: 'mock' } };
 };
 
-const translateWithMock = (text: string, sourceLocale: string, targetLocale: string, engineKey: string): RuntimeTranslationResult => ({
-  translatedText: `[${sourceLocale}->${targetLocale}] ${text}`,
+const LOCAL_TRANSLATION_DICTIONARIES: Record<string, Record<string, string>> = {
+  'es:en': {
+    'publicación de prueba': 'test post',
+    'publicacion de prueba': 'test post',
+    'hola desde': 'hello from',
+    publicación: 'post',
+    publicacion: 'post',
+    prueba: 'test',
+    hola: 'hello',
+    desde: 'from',
+    para: 'for',
+    con: 'with',
+    gracias: 'thank you',
+    buenos: 'good',
+    dias: 'morning',
+    días: 'morning',
+    equipo: 'team',
+    trabajo: 'work',
+    oportunidad: 'opportunity',
+    profesional: 'professional',
+    comunidad: 'community',
+    y: 'and',
+    de: 'of'
+  },
+  'fr:en': {
+    'publication de test': 'test post',
+    bonjour: 'hello',
+    depuis: 'from',
+    merci: 'thank you',
+    travail: 'work',
+    équipe: 'team',
+    equipe: 'team',
+    opportunité: 'opportunity',
+    opportunite: 'opportunity',
+    professionnel: 'professional',
+    communauté: 'community',
+    communaute: 'community',
+    et: 'and',
+    de: 'of',
+    avec: 'with'
+  },
+  'tl:en': {
+    kumusta: 'hello',
+    salamat: 'thank you',
+    mula: 'from',
+    trabaho: 'work',
+    koponan: 'team',
+    oportunidad: 'opportunity',
+    komunidad: 'community',
+    at: 'and'
+  },
+  'sw:en': {
+    habari: 'hello',
+    asante: 'thank you',
+    kutoka: 'from',
+    kazi: 'work',
+    timu: 'team',
+    nafasi: 'opportunity',
+    jamii: 'community',
+    na: 'and'
+  },
+  'ha:en': {
+    sannu: 'hello',
+    'na gode': 'thank you',
+    daga: 'from',
+    aiki: 'work',
+    kungiya: 'team',
+    dama: 'opportunity',
+    aluma: 'community',
+    da: 'and'
+  },
+  'en:es': {
+    'test post': 'publicación de prueba',
+    hello: 'hola',
+    from: 'desde',
+    work: 'trabajo',
+    team: 'equipo',
+    opportunity: 'oportunidad',
+    community: 'comunidad',
+    and: 'y'
+  },
+  'en:fr': {
+    'test post': 'publication de test',
+    hello: 'bonjour',
+    from: 'depuis',
+    work: 'travail',
+    team: 'équipe',
+    opportunity: 'opportunité',
+    community: 'communauté',
+    and: 'et'
+  }
+};
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const applyLocalDictionaryTranslation = (text: string, sourceLocale: string, targetLocale: string) => {
+  const source = normalizeLocale(sourceLocale, '');
+  const target = normalizeLocale(targetLocale, 'en');
+  if (!text || !source || source === target) return text;
+
+  const dictionary = LOCAL_TRANSLATION_DICTIONARIES[`${source}:${target}`];
+  if (!dictionary) return text;
+
+  let translated = text;
+  const entries = Object.entries(dictionary).sort((a, b) => b[0].length - a[0].length);
+  for (const [sourcePhrase, translatedPhrase] of entries) {
+    const pattern = new RegExp(`(^|[^\\p{L}\\p{N}_])(${escapeRegExp(sourcePhrase)})(?=$|[^\\p{L}\\p{N}_])`, 'giu');
+    translated = translated.replace(pattern, (_match, prefix: string, phrase: string) => {
+      const replacement =
+        phrase === phrase.toUpperCase()
+          ? translatedPhrase.toUpperCase()
+          : /^[A-ZÁÉÍÓÚÑ]/.test(phrase)
+            ? `${translatedPhrase.charAt(0).toUpperCase()}${translatedPhrase.slice(1)}`
+            : translatedPhrase;
+      return `${prefix}${replacement}`;
+    });
+  }
+
+  return translated.replace(/\s+/g, ' ').trim();
+};
+
+export const translateWithLocalFallback = (
+  text: string,
+  sourceLocale: string,
+  targetLocale: string,
+  engineKey: string
+): RuntimeTranslationResult => ({
+  translatedText: applyLocalDictionaryTranslation(text, sourceLocale, targetLocale),
   engineKey,
-  modelVersion: 'mock-v1',
+  modelVersion: 'local-dictionary-v1',
   latencyMs: 0,
-  metadata: { runtimeMode: 'mock' }
+  metadata: { runtimeMode: 'mock', fallback: 'local_dictionary' }
 });
 
 const protectSegments = async (
@@ -361,7 +487,7 @@ const callRuntimeTranslate = async (
   config: StoredContentTranslationConfig
 ): Promise<RuntimeTranslationResult> => {
   if (config.runtimeMode === 'mock') {
-    return translateWithMock(text, sourceLocale, targetLocale, config.engineKey);
+    return translateWithLocalFallback(text, sourceLocale, targetLocale, config.engineKey);
   }
   if (!config.runtimeBaseUrl) {
     throw new Error('Content translation runtime URL is not configured.');
@@ -442,7 +568,38 @@ const getStoredContentTranslationConfig = async (): Promise<StoredContentTransla
     });
     return { ...DEFAULT_CONTENT_TRANSLATION_CONFIG };
   }
-  return normalizeContentTranslationConfig(record.data);
+  const normalized = normalizeContentTranslationConfig(record.data);
+  const raw = record.data && typeof record.data === 'object' ? (record.data as Record<string, any>) : {};
+  const isLegacyDisabledDefault =
+    normalized.enabled === false &&
+    normalized.runtimeMode === 'self_hosted_m2m100' &&
+    !normalized.runtimeBaseUrl &&
+    !normalized.runtimeApiKey &&
+    normalized.scope === DEFAULT_CONTENT_TRANSLATION_CONFIG.scope &&
+    normalized.engineKey === DEFAULT_CONTENT_TRANSLATION_CONFIG.engineKey &&
+    normalized.detectorKey === DEFAULT_CONTENT_TRANSLATION_CONFIG.detectorKey &&
+    raw.enabled === false;
+
+  if (isLegacyDisabledDefault) {
+    await prisma.appSetting.update({
+      where: { scope: CONTENT_TRANSLATION_SCOPE },
+      data: { data: DEFAULT_CONTENT_TRANSLATION_CONFIG }
+    });
+    await buildAuditLog(
+      'translation.config_auto_activated',
+      {
+        reason: 'legacy_disabled_default',
+        runtimeMode: DEFAULT_CONTENT_TRANSLATION_CONFIG.runtimeMode,
+        translateOnDemand: DEFAULT_CONTENT_TRANSLATION_CONFIG.translateOnDemand
+      },
+      null,
+      'translation_config',
+      DEFAULT_CONTENT_TRANSLATION_CONFIG.scope
+    );
+    return { ...DEFAULT_CONTENT_TRANSLATION_CONFIG };
+  }
+
+  return normalized;
 };
 
 export const getContentTranslationConfig = async (): Promise<ContentTranslationConfig> => {

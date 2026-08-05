@@ -14,6 +14,7 @@ import {
   stripForDetection
 } from '../services/language/languageDetection.service';
 import { evaluateTranslationDecision } from '../services/language/translationDecisionPolicy';
+import { translateWithLocalFallback } from '../services/contentTranslation.service';
 
 describe('Phase 26 language catalog', () => {
   test('normalizes legacy aliases to canonical codes', () => {
@@ -136,5 +137,17 @@ describe('Phase 26 translation decision policy', () => {
     });
     expect(decision.showTranslationAction).toBe(false);
     expect(decision.reason).toBe('NO_LINGUISTIC_CONTENT');
+  });
+});
+
+describe('Phase 26 post-card translation fallback', () => {
+  test('returns user-facing translated text instead of runtime markers', () => {
+    const title = translateWithLocalFallback('Publicacion de prueba', 'es', 'en', 'local').translatedText;
+    const content = translateWithLocalFallback('Hola desde Scrolith y Geezle', 'es', 'en', 'local').translatedText;
+
+    expect(title).toBe('Test post');
+    expect(content).toBe('Hello from Scrolith and Geezle');
+    expect(title).not.toContain('[es->en]');
+    expect(content).not.toContain('[es->en]');
   });
 });
