@@ -14,7 +14,7 @@ import {
   stripForDetection
 } from '../services/language/languageDetection.service';
 import { evaluateTranslationDecision } from '../services/language/translationDecisionPolicy';
-import { translateWithLocalFallback } from '../services/contentTranslation.service';
+import { isLegacyPlaceholderTranslation, translateWithLocalFallback } from '../services/contentTranslation.service';
 
 describe('Phase 26 language catalog', () => {
   test('normalizes legacy aliases to canonical codes', () => {
@@ -149,5 +149,19 @@ describe('Phase 26 post-card translation fallback', () => {
     expect(content).toBe('Hello from Scrolith and Geezle');
     expect(title).not.toContain('[es->en]');
     expect(content).not.toContain('[es->en]');
+  });
+
+  test('marks legacy placeholder cache rows stale', () => {
+    expect(isLegacyPlaceholderTranslation({
+      translatedTitle: '[es->en] Publicacion de prueba',
+      translatedContent: 'Hello from Scrolith',
+      modelVersion: 'mock-v1'
+    })).toBe(true);
+
+    expect(isLegacyPlaceholderTranslation({
+      translatedTitle: 'Test post',
+      translatedContent: 'Hello from Scrolith',
+      modelVersion: 'local-dictionary-v1'
+    })).toBe(false);
   });
 });

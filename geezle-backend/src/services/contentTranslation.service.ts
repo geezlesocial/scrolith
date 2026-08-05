@@ -953,6 +953,18 @@ export const setCommunityPostLanguageManual = async (
 
 export const getTranslationSupportedLocales = () => listTranslationSupportedCodes();
 
+export const isLegacyPlaceholderTranslation = (value: {
+  translatedTitle?: string | null;
+  translatedContent?: string | null;
+  modelVersion?: string | null;
+}) => {
+  const title = asString(value.translatedTitle);
+  const content = asString(value.translatedContent);
+  const modelVersion = asString(value.modelVersion).toLowerCase();
+  const markerPattern = /^\[[a-z]{2,3}(?:-[a-z0-9]+)?->[a-z]{2,3}(?:-[a-z0-9]+)?\]\s*/i;
+  return modelVersion === 'mock-v1' || markerPattern.test(title) || markerPattern.test(content);
+};
+
 export const translateCommunityPostForLocale = async (
   postId: string,
   targetLocale: string
@@ -1038,7 +1050,7 @@ export const translateCommunityPostForLocale = async (
     }
   });
 
-  if (existing?.status === 'ready') {
+  if (existing?.status === 'ready' && !isLegacyPlaceholderTranslation(existing)) {
     return {
       postId: post.id,
       sourceLanguage,
