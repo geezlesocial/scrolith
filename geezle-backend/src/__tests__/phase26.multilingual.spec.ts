@@ -164,4 +164,13 @@ describe('Phase 26 post-card translation fallback', () => {
       modelVersion: 'local-dictionary-v1'
     })).toBe(false);
   });
+
+  test('supports external-runtime-free local translation fallback', () => {
+    const content = translateWithLocalFallback('Gracias por usar Scrolith con equipos globales.', 'es', 'en', 'm2m100_418m');
+
+    expect(content.translatedText).toContain('Thank you');
+    expect(content.translatedText).toContain('Scrolith');
+    expect(content.translatedText).not.toContain('[es->en]');
+    expect(content.modelVersion).toBe('local-dictionary-v1');
+  });
 });

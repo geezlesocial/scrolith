@@ -490,29 +490,50 @@ const callRuntimeTranslate = async (
     return translateWithLocalFallback(text, sourceLocale, targetLocale, config.engineKey);
   }
   if (!config.runtimeBaseUrl) {
-    throw new Error('Content translation runtime URL is not configured.');
+    return translateWithLocalFallback(text, sourceLocale, targetLocale, config.engineKey);
   }
 
   const startedAt = Date.now();
-  const response = await withAbortTimeout(config.timeoutMs, async (signal) =>
-    fetch(`${config.runtimeBaseUrl.replace(/\/+$/, '')}/translate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(config.runtimeApiKey ? { Authorization: `Bearer ${config.runtimeApiKey}` } : {})
-      },
-      body: JSON.stringify({
-        text,
-        sourceLanguage: sourceLocale,
-        targetLanguage: targetLocale,
-        model: config.engineKey
-      }),
-      signal
-    })
-  );
+  let response: Response;
+  try {
+    response = await withAbortTimeout(config.timeoutMs, async (signal) =>
+      fetch(`${config.runtimeBaseUrl.replace(/\/+$/, '')}/translate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(config.runtimeApiKey ? { Authorization: `Bearer ${config.runtimeApiKey}` } : {})
+        },
+        body: JSON.stringify({
+          text,
+          sourceLanguage: sourceLocale,
+          targetLanguage: targetLocale,
+          model: config.engineKey
+        }),
+        signal
+      })
+    );
+  } catch (error: any) {
+    const fallback = translateWithLocalFallback(text, sourceLocale, targetLocale, config.engineKey);
+    return {
+      ...fallback,
+      metadata: {
+        ...(fallback.metadata || {}),
+        runtimeMode: config.runtimeMode,
+        runtimeFallbackReason: String(error?.message || error || 'runtime_fetch_failed')
+      }
+    };
+  }
 
   if (!response.ok) {
-    throw new Error(`Content translation failed with status ${response.status}`);
+    const fallback = translateWithLocalFallback(text, sourceLocale, targetLocale, config.engineKey);
+    return {
+      ...fallback,
+      metadata: {
+        ...(fallback.metadata || {}),
+        runtimeMode: config.runtimeMode,
+        runtimeFallbackReason: `runtime_status_${response.status}`
+      }
+    };
   }
 
   const rawPayload = await response.json();
