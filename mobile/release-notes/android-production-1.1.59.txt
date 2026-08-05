@@ -1,0 +1,1 @@
+This update improves Scrolith Human Verification reliability on Android by adding a native secure network fallback for verification challenge creation and verification. It keeps sign-in and signup protected across the mobile app, web mobile, and desktop, and improves production app stability without changing existing account, messaging, marketplace, or feed behavior.

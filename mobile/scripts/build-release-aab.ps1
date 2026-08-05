@@ -6,9 +6,9 @@ $ErrorActionPreference = 'Stop'
 $MobileRoot = Split-Path -Parent $PSScriptRoot
 $GeezleRoot = Join-Path (Split-Path -Parent $MobileRoot) 'geezle'
 $AndroidRoot = Join-Path $MobileRoot 'android'
-$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.58'
-$VersionCode = 68
-$VersionName = '1.1.58'
+$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.59'
+$VersionCode = 69
+$VersionName = '1.1.59'
 $WebCommit = (git -C $GeezleRoot rev-parse --short HEAD 2>$null)
 if (-not $WebCommit) { $WebCommit = 'unknown' }
 
@@ -29,10 +29,12 @@ $env:VITE_LOG_LEVEL = 'error'
 $env:VITE_SOCKET_TRACE = 'false'
 $env:VITE_MESSAGES_TRACE_DEBUG = 'false'
 $env:VITE_ALLOW_LOCAL_API_IN_PROD = 'false'
+$env:VITE_SCROLITH_MOBILE_APP = 'true'
 # Match production web / Cloud Run FE (Phase 29.7)
 $env:VITE_API_URL = 'https://api.scrolith.com/api'
 $env:VITE_API_BASE_URL = 'https://api.scrolith.com/api'
 $env:VITE_BACKEND_URL = 'https://api.scrolith.com'
+$env:VITE_NATIVE_PROD_API_URL = 'https://api.scrolith.com/api'
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $LogDir = Join-Path $OutDir 'logs'
@@ -123,7 +125,7 @@ $meta = @{
   webCommit = $WebCommit
   minifyEnabled = $true
   shrinkResources = $true
-  phase = 'human-verification-mobile-auth-refresh'
+  phase = 'human-verification-native-network-fallback'
   targetSdk = 36
   compileSdk = 36
   minSdk = 24
