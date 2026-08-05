@@ -1,0 +1,1 @@
+This release expands Scrolith Human Verification across sign-in and signup surfaces, including guest homepage authentication and popup auth forms. It also improves verification retry behavior on mobile networks and keeps the Android app aligned with the latest Azure production frontend.
