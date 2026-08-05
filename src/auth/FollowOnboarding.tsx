@@ -53,9 +53,9 @@ const MAX_ONBOARDING_USERS = FOLLOW_ONBOARDING_MAX_USERS;
 const MAX_ONBOARDING_PAGES = FOLLOW_ONBOARDING_MAX_PAGES;
 const MAX_ONBOARDING_TOTAL = FOLLOW_ONBOARDING_MAX_TOTAL;
 
-/** Official Scrolith icon used in the compact onboarding header. */
-const SCROLITH_ICON_LOGO_URL =
-  'https://api.scrolith.com/api/files/content/78b68af8-aeb4-42d0-a065-85229a1ae6e7';
+/** Bundled onboarding wordmark; avoids remote media failures on the setup route. */
+const SCROLITH_ONBOARDING_WORDMARK_URL = '/assets/branding/scrolith-onboarding-wordmark.png';
+const SCROLITH_ONBOARDING_FALLBACK_URL = '/logo.png';
 
 const DEFAULT_STATUS: FollowOnboardingStatus = {
   required: true,
@@ -667,18 +667,24 @@ const FollowOnboarding = () => {
     <div className="follow-onboarding-shell min-h-[100dvh] bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.14),_transparent_36%),linear-gradient(180deg,#f8fbff_0%,#eef5ff_48%,#f8fafc_100%)] pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] pt-[max(0.75rem,env(safe-area-inset-top,0px))] sm:pb-8">
       {/* Compact onboarding header (no full product nav) */}
       <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-2.5">
+        <div className="flex min-w-0 items-center gap-2.5">
           <img
-            src={SCROLITH_ICON_LOGO_URL}
+            src={SCROLITH_ONBOARDING_WORDMARK_URL}
             alt="Scrolith"
-            width={36}
-            height={36}
+            width={344}
+            height={120}
             decoding="async"
-            className="h-9 w-9 shrink-0 rounded-xl object-contain shadow-sm ring-1 ring-slate-200/80 bg-white"
+            loading="eager"
+            onError={(event) => {
+              const image = event.currentTarget;
+              if (image.src.endsWith(SCROLITH_ONBOARDING_FALLBACK_URL)) return;
+              image.src = SCROLITH_ONBOARDING_FALLBACK_URL;
+            }}
+            className="h-12 w-auto max-w-[min(15.5rem,62vw)] shrink-0 rounded-2xl bg-white/80 object-contain p-1.5 shadow-sm ring-1 ring-slate-200/80 sm:h-14 sm:max-w-xs"
           />
-          <div>
-            <p className="text-sm font-semibold text-slate-900">Scrolith</p>
-            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Set up your feed</p>
+          <div className="sr-only">
+            <p>Scrolith</p>
+            <p>Set up your feed</p>
           </div>
         </div>
         <div className="inline-flex items-center gap-1.5 rounded-full border border-blue-100 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
