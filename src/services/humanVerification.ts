@@ -106,7 +106,7 @@ const wait = (ms: number) =>
 
 const isTransientNetworkError = (err: any) => {
   const status = Number(err?.response?.status || 0);
-  if (status) return status >= 500 || status === 408 || status === 429;
+  if (status) return status >= 500 || status === 408;
   const message = String(err?.message || '').toLowerCase();
   const code = String(err?.code || '').toUpperCase();
   return (
@@ -145,6 +145,11 @@ const isNativeRuntime = () => {
   }
 };
 
+const isNativeFallbackError = (err: any) => {
+  const status = Number(err?.response?.status || 0);
+  return isTransientNetworkError(err) || status === 404;
+};
+
 const nativePostJson = async <T,>(path: string, data: Record<string, unknown>): Promise<T> => {
   if (!isNativeRuntime()) {
     throw new Error('Native HTTP is not available.');
@@ -153,25 +158,47 @@ const nativePostJson = async <T,>(path: string, data: Record<string, unknown>): 
   if (!CapacitorHttp || typeof CapacitorHttp.post !== 'function') {
     throw new Error('Native HTTP bridge is not available.');
   }
-  const url = `${getApiBaseUrl().replace(/\/+$/, '')}${path}`;
-  const response = await CapacitorHttp.post({
-    url,
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      'x-scrolith-client': 'android'
-    },
-    data,
-    connectTimeout: 15000,
-    readTimeout: 24000
-  });
-  const status = Number(response?.status || 0);
-  if (status >= 400) {
-    const error = new Error(response?.data?.error || response?.data?.message || `Request failed with status ${status}`);
-    (error as any).response = { status, data: response?.data };
-    throw error;
+
+  const normalizeApiBase = (value: string) => {
+    const raw = String(value || '').trim().replace(/\/+$/, '');
+    if (!/^https?:\/\//i.test(raw)) return '';
+    return raw.endsWith('/api') ? raw : `${raw}/api`;
+  };
+
+  const bases = Array.from(
+    new Set(
+      [normalizeApiBase(getApiBaseUrl()), 'https://api.scrolith.com/api'].filter(Boolean)
+    )
+  );
+
+  let lastError: any = null;
+  for (const base of bases) {
+    const url = `${base}${path}`;
+    try {
+      const response = await CapacitorHttp.post({
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'x-scrolith-client': 'android'
+        },
+        data,
+        connectTimeout: 15000,
+        readTimeout: 24000
+      });
+      const status = Number(response?.status || 0);
+      if (status < 400) return response?.data as T;
+
+      const error = new Error(response?.data?.error || response?.data?.message || `Request failed with status ${status}`);
+      (error as any).response = { status, data: response?.data };
+      lastError = error;
+      if (status !== 404) break;
+    } catch (error: any) {
+      lastError = error;
+    }
   }
-  return response?.data as T;
+
+  throw lastError || new Error('Native human verification request failed.');
 };
 
 export class HumanVerificationService {
@@ -214,7 +241,7 @@ export class HumanVerificationService {
       );
       return res?.data as CreateChallengeResult;
     } catch (err: any) {
-      if (isTransientNetworkError(err) && isNativeRuntime()) {
+      if (isNativeFallbackError(err) && isNativeRuntime()) {
         try {
           return await nativePostJson<CreateChallengeResult>('/human-verification/create', {
             endpoint,
@@ -254,7 +281,7 @@ export class HumanVerificationService {
       );
       return res?.data as VerifyChallengeResult;
     } catch (err: any) {
-      if (isTransientNetworkError(err) && isNativeRuntime()) {
+      if (isNativeFallbackError(err) && isNativeRuntime()) {
         try {
           return await nativePostJson<VerifyChallengeResult>('/human-verification/verify', {
             ...params,

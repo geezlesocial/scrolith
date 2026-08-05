@@ -41,6 +41,8 @@ const ScrolithHumanVerification: React.FC<ScrolithHumanVerificationProps> = ({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const startedAtRef = useRef<number>(Date.now());
   const mountedRef = useRef(true);
+  const callbacksRef = useRef({ onVerified, onRequiredChange, onError });
+  const loadSeqRef = useRef(0);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -55,36 +57,43 @@ const ScrolithHumanVerification: React.FC<ScrolithHumanVerificationProps> = ({
   const rounded = theme?.shape !== 'square';
   const radius = rounded ? 'rounded-xl' : 'rounded-md';
 
+  useEffect(() => {
+    callbacksRef.current = { onVerified, onRequiredChange, onError };
+  }, [onError, onRequiredChange, onVerified]);
+
   const loadChallenge = useCallback(async () => {
     if (disabled) return;
+    const seq = loadSeqRef.current + 1;
+    loadSeqRef.current = seq;
+    const callbacks = callbacksRef.current;
     setLoading(true);
     setError(null);
     setVerified(false);
     setSelectedId(null);
     setChallenge(null);
-    onVerified(null);
+    callbacks.onVerified(null);
 
     try {
       const result = await HumanVerificationService.createChallenge(endpoint);
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || seq !== loadSeqRef.current) return;
 
       if (result.publicSettings) setSettings(result.publicSettings);
 
       if (!result.required) {
         setRequired(false);
-        onRequiredChange?.(false);
+        callbacksRef.current.onRequiredChange?.(false);
         setVerified(true);
-        onVerified(null);
+        callbacksRef.current.onVerified(null);
         return;
       }
 
       setRequired(true);
-      onRequiredChange?.(true);
+      callbacksRef.current.onRequiredChange?.(true);
 
       if (result.error || !result.challenge) {
         const msg = result.error || 'Unable to load verification challenge.';
         setError(msg);
-        onError?.(msg);
+        callbacksRef.current.onError?.(msg);
         return;
       }
 
@@ -93,11 +102,11 @@ const ScrolithHumanVerification: React.FC<ScrolithHumanVerificationProps> = ({
     } catch (err: any) {
       const msg = err?.message || 'Unable to load verification.';
       setError(msg);
-      onError?.(msg);
+      callbacksRef.current.onError?.(msg);
     } finally {
-      if (mountedRef.current) setLoading(false);
+      if (mountedRef.current && seq === loadSeqRef.current) setLoading(false);
     }
-  }, [disabled, endpoint, onError, onRequiredChange, onVerified]);
+  }, [disabled, endpoint]);
 
   useEffect(() => {
     if (autoLoad) void loadChallenge();
@@ -125,7 +134,7 @@ const ScrolithHumanVerification: React.FC<ScrolithHumanVerificationProps> = ({
           branding?.failureMessage ||
           'That was not correct. Please try again.';
         setError(msg);
-        onError?.(msg);
+        callbacksRef.current.onError?.(msg);
         setSelectedId(null);
         // Auto-refresh on expire / max attempts
         if (result.code === 'HV_EXPIRED' || result.code === 'HV_MAX_ATTEMPTS' || result.code === 'HV_ALREADY_USED') {
@@ -138,11 +147,11 @@ const ScrolithHumanVerification: React.FC<ScrolithHumanVerificationProps> = ({
 
       setVerified(true);
       setError(null);
-      onVerified(result.verificationToken);
+      callbacksRef.current.onVerified(result.verificationToken);
     } catch (err: any) {
       const msg = err?.message || 'Verification failed.';
       setError(msg);
-      onError?.(msg);
+      callbacksRef.current.onError?.(msg);
     } finally {
       if (mountedRef.current) setVerifying(false);
     }

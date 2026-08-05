@@ -32,4 +32,10 @@ describe('ScrolithHumanVerification component contract', () => {
     expect(source).not.toContain('correctValue');
     expect(source).not.toContain('correctAnswer');
   });
+
+  test('does not reload challenges when parent callback identities change', () => {
+    expect(source).toContain('callbacksRef');
+    expect(source).toContain('const loadChallenge = useCallback');
+    expect(source).toContain('}, [disabled, endpoint]);');
+  });
 });
