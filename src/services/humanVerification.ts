@@ -1,4 +1,5 @@
 import api from './api';
+import { getApiBaseUrl } from '../utils/apiBase';
 
 export type HumanVerificationEndpoint =
   | 'login'
@@ -126,6 +127,53 @@ const withTransientRetry = async <T,>(operation: () => Promise<T>): Promise<T> =
   }
 };
 
+const getNativeRuntime = () => {
+  if (typeof window === 'undefined') return null;
+  try {
+    return (window as any).Capacitor || null;
+  } catch {
+    return null;
+  }
+};
+
+const isNativeRuntime = () => {
+  const runtime = getNativeRuntime();
+  try {
+    return Boolean(runtime && typeof runtime.isNativePlatform === 'function' && runtime.isNativePlatform());
+  } catch {
+    return false;
+  }
+};
+
+const nativePostJson = async <T,>(path: string, data: Record<string, unknown>): Promise<T> => {
+  if (!isNativeRuntime()) {
+    throw new Error('Native HTTP is not available.');
+  }
+  const { CapacitorHttp } = await import('@capacitor/core');
+  if (!CapacitorHttp || typeof CapacitorHttp.post !== 'function') {
+    throw new Error('Native HTTP bridge is not available.');
+  }
+  const url = `${getApiBaseUrl().replace(/\/+$/, '')}${path}`;
+  const response = await CapacitorHttp.post({
+    url,
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      'x-scrolith-client': 'android'
+    },
+    data,
+    connectTimeout: 15000,
+    readTimeout: 24000
+  });
+  const status = Number(response?.status || 0);
+  if (status >= 400) {
+    const error = new Error(response?.data?.error || response?.data?.message || `Request failed with status ${status}`);
+    (error as any).response = { status, data: response?.data };
+    throw error;
+  }
+  return response?.data as T;
+};
+
 export class HumanVerificationService {
   static getFingerprint() {
     return fingerprint();
@@ -166,6 +214,16 @@ export class HumanVerificationService {
       );
       return res?.data as CreateChallengeResult;
     } catch (err: any) {
+      if (isTransientNetworkError(err) && isNativeRuntime()) {
+        try {
+          return await nativePostJson<CreateChallengeResult>('/human-verification/create', {
+            endpoint,
+            fingerprint: fingerprint()
+          });
+        } catch (nativeErr: any) {
+          err = nativeErr;
+        }
+      }
       const data = err?.response?.data || {};
       return {
         success: false,
@@ -196,6 +254,16 @@ export class HumanVerificationService {
       );
       return res?.data as VerifyChallengeResult;
     } catch (err: any) {
+      if (isTransientNetworkError(err) && isNativeRuntime()) {
+        try {
+          return await nativePostJson<VerifyChallengeResult>('/human-verification/verify', {
+            ...params,
+            fingerprint: fingerprint()
+          });
+        } catch (nativeErr: any) {
+          err = nativeErr;
+        }
+      }
       const data = err?.response?.data || {};
       return {
         success: false,
