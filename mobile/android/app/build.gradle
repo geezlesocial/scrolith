@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 1.1.59 - Native Human Verification transport fallback for Android.
-        versionCode 69
-        versionName "1.1.59"
+        // 1.1.60 - Bundled onboarding logo and setup route polish.
+        versionCode 70
+        versionName "1.1.60"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]

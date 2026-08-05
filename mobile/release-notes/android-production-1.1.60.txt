@@ -1,0 +1,1 @@
+This update improves the Scrolith onboarding experience by bundling the setup-feed logo directly inside the app, preventing broken logo images during follow onboarding. It also keeps Human Verification reliability improvements from the previous release and preserves existing feed, messaging, marketplace, profile, and authentication behavior.
