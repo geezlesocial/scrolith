@@ -582,34 +582,39 @@ const ModuleCard = ({
   const tone = toneClasses[item.tone || 'slate'];
   const seriesLike = isSeriesPlaylistHighlight(item);
   const listingLike = isMarketplaceOrListingHighlight(item);
-  const largeThumb = seriesLike || listingLike;
+  // Large thumbs only for series/video previews — listing cards stay compact so
+  // titles/CTAs never collide in multi-column grids (mobile + desktop).
+  const largeThumb = seriesLike;
 
   return (
     <div
       className={[
-        'rounded-2xl border p-2.5 shadow-sm transition hover:border-slate-300 hover:shadow-md sm:p-3',
+        'h-full min-h-[7.5rem] min-w-0 overflow-hidden rounded-2xl border p-3 shadow-sm transition',
+        'hover:border-slate-300 hover:shadow-md sm:min-h-[8rem] sm:p-3.5',
         tone.ring
       ].join(' ')}
       data-testid="scrolith-discovery-module-card"
       data-module-kind={seriesLike ? 'series' : listingLike ? 'listing' : 'generic'}
     >
-      <ActionSurface item={item}>
-        <div className="flex items-start gap-2.5 sm:gap-3">
+      <ActionSurface item={item} className="h-full min-w-0">
+        <div className="flex h-full min-w-0 items-start gap-3">
           <ModuleThumb
             item={item}
             compact={compact}
             large={largeThumb}
             hoverPreview={seriesLike}
           />
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               {item.eyebrow ? (
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{item.eyebrow}</p>
+                <p className="max-w-full truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                  {item.eyebrow}
+                </p>
               ) : null}
               {item.badge ? (
                 <span
                   className={[
-                    'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                    'max-w-[9rem] truncate rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
                     tone.badge
                   ].join(' ')}
                 >
@@ -617,25 +622,25 @@ const ModuleCard = ({
                 </span>
               ) : null}
             </div>
-            <h3 className="mt-0.5 text-sm font-semibold leading-snug text-slate-900 line-clamp-2 sm:text-[15px]">
+            <h3 className="mt-1 break-words text-sm font-semibold leading-snug text-slate-900 line-clamp-2 sm:text-[15px]">
               {item.title}
             </h3>
-            <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-slate-600 sm:text-[13px] sm:leading-5">
+            <p className="mt-1 line-clamp-2 break-words text-xs leading-5 text-slate-600 sm:text-[13px] sm:leading-5">
               {item.description}
             </p>
             {item.reason ? (
-              <p className="mt-1 line-clamp-1 text-[11px] font-medium text-sky-700">
-                Why: {item.reason}
+              <p className="mt-1.5 line-clamp-2 break-words text-[11px] font-medium leading-4 text-sky-700">
+                <span className="text-sky-500">Why:</span> {item.reason}
               </p>
             ) : null}
-            <div className="mt-1.5 flex items-center justify-between gap-2">
-              <span className={['truncate', enterpriseWidgetMeta].join(' ')}>
+            <div className="mt-auto flex min-w-0 items-center justify-between gap-2 pt-2">
+              <span className={['min-w-0 flex-1 truncate', enterpriseWidgetMeta].join(' ')}>
                 {item.meta || 'Live on member home'}
               </span>
               {item.ctaLabel ? (
-                <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-slate-900 sm:text-sm">
-                  {item.ctaLabel}
-                  <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" aria-hidden />
+                <span className="inline-flex max-w-[45%] shrink-0 items-center gap-1 truncate text-xs font-semibold text-slate-900 sm:text-sm">
+                  <span className="truncate">{item.ctaLabel}</span>
+                  <ArrowRight className="h-3.5 w-3.5 shrink-0 transition group-hover:translate-x-0.5" aria-hidden />
                 </span>
               ) : null}
             </div>
@@ -678,7 +683,7 @@ export default function MemberHomeHighlightsBoard({
     <section
       className={[
         enterprisePanel,
-        'p-4 sm:p-5',
+        'overflow-hidden p-4 sm:p-5',
         className
       ]
         .filter(Boolean)
@@ -740,19 +745,21 @@ export default function MemberHomeHighlightsBoard({
         </div>
       ) : null}
 
-      {/* C. Secondary discovery modules — tighter grid spacing */}
+      {/* C. Secondary discovery modules — stable equal-height grid, no overlap */}
       {moduleItems.length ? (
         <div
           className={[
             'mt-3 sm:mt-3.5',
-            compact ? 'grid grid-cols-1 gap-2' : 'grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-2.5 xl:grid-cols-3'
+            compact
+              ? 'grid grid-cols-1 gap-2.5'
+              : 'grid auto-rows-fr grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 xl:grid-cols-3'
           ].join(' ')}
           data-testid="scrolith-discovery-module-grid"
         >
           {moduleItems.map((item) => (
-            <React.Fragment key={item.id}>
+            <div key={item.id} className="min-w-0">
               <ModuleCard item={item} compact={compact} />
-            </React.Fragment>
+            </div>
           ))}
         </div>
       ) : null}

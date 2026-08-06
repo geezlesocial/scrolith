@@ -656,50 +656,67 @@ const MyPosts: React.FC = () => {
   };
 
   const actionBtnClass =
-    'inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-full border px-3 py-2 text-xs font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-55 sm:min-h-[36px] sm:py-1.5';
+    'inline-flex min-h-[42px] min-w-0 items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold shadow-sm transition hover:shadow active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-55 sm:min-h-[38px] sm:rounded-full sm:py-1.5';
+
+  const inventoryCardClass =
+    'overflow-hidden rounded-2xl border border-slate-200/90 bg-white p-3.5 shadow-sm ring-1 ring-slate-900/[0.02] transition hover:border-slate-300 hover:shadow-md sm:rounded-3xl sm:p-5';
 
   return (
-    <div className="space-y-4 sm:space-y-5">
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="mx-auto w-full max-w-5xl space-y-4 sm:space-y-5">
+      <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-br from-slate-50 via-white to-indigo-50/40 p-4 shadow-sm ring-1 ring-slate-900/[0.03] sm:rounded-3xl sm:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Content inventory</p>
-            <h2 className="text-lg font-bold text-slate-900 sm:text-xl">My Posts, Scrolls & Stories</h2>
-            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-600">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-indigo-600">Content inventory</p>
+            <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+              My Posts, Scrolls & Stories
+            </h2>
+            <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-600">
               Manage community posts, Scroll videos, and Stories in one place: edit, update media, pin, highlight, delete.
               Highlights (posts) appear on your profile (max {HIGHLIGHT_LIMIT}).
             </p>
-            <p className="mt-2 text-[11px] font-medium text-slate-500">
-              Posts {posts.length} · Scrolls {scrolls.length} · Stories {stories.length} · Highlights{' '}
-              {highlightedCount}/{HIGHLIGHT_LIMIT}
-            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {[
+                ['Posts', posts.length, 'bg-slate-100 text-slate-700'],
+                ['Scrolls', scrolls.length, 'bg-cyan-50 text-cyan-800'],
+                ['Stories', stories.length, 'bg-violet-50 text-violet-800'],
+                ['Highlights', `${highlightedCount}/${HIGHLIGHT_LIMIT}`, 'bg-amber-50 text-amber-800']
+              ].map(([label, value, tone]) => (
+                <span
+                  key={String(label)}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${tone}`}
+                >
+                  <span className="opacity-70">{label}</span>
+                  <span className="tabular-nums">{value}</span>
+                </span>
+              ))}
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 lg:max-w-md lg:justify-end">
             <button
               type="button"
               onClick={() => void load()}
-              className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 sm:rounded-full"
             >
               <RefreshCw className="h-3.5 w-3.5" />
               Refresh
             </button>
             <Link
               to="/scroll?create=1"
-              className="inline-flex items-center gap-2 rounded-full border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-800 hover:bg-cyan-100"
+              className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-800 hover:bg-cyan-100 sm:rounded-full"
             >
               <Clapperboard className="h-3.5 w-3.5" />
               New Scroll
             </Link>
             <Link
               to="/home"
-              className="inline-flex items-center gap-2 rounded-full border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-800 hover:bg-violet-100"
+              className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-800 hover:bg-violet-100 sm:rounded-full"
             >
               <BookOpen className="h-3.5 w-3.5" />
               New Story
             </Link>
             <Link
               to="/home"
-              className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+              className="inline-flex min-h-[40px] items-center gap-2 rounded-xl bg-slate-900 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-slate-800 sm:rounded-full"
             >
               <Plus className="h-3.5 w-3.5" />
               New post
@@ -707,8 +724,8 @@ const MyPosts: React.FC = () => {
           </div>
         </div>
 
-        <div className="mt-4 flex flex-col gap-3">
-          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+        <div className="mt-5 flex flex-col gap-3 border-t border-slate-200/80 pt-4">
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]">
             {(
               [
                 ['all', `All (${posts.length + scrolls.length + stories.length})`],
@@ -721,17 +738,17 @@ const MyPosts: React.FC = () => {
                 key={id}
                 type="button"
                 onClick={() => setKindFilter(id)}
-                className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold sm:py-1.5 ${
+                className={`shrink-0 rounded-full px-3.5 py-2 text-xs font-semibold transition sm:py-1.5 ${
                   kindFilter === id
-                    ? 'bg-indigo-600 text-white'
-                    : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/20'
+                    : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                 }`}
               >
                 {label}
               </button>
             ))}
           </div>
-          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0 [scrollbar-width:thin]">
             {(
               [
                 ['all', 'All'],
@@ -750,7 +767,7 @@ const MyPosts: React.FC = () => {
                   id !== 'all' &&
                   id !== 'with-media'
                 }
-                className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold sm:py-1.5 disabled:opacity-40 ${
+                className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold transition sm:py-1.5 disabled:opacity-40 ${
                   filter === id
                     ? 'bg-slate-900 text-white'
                     : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -765,7 +782,7 @@ const MyPosts: React.FC = () => {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search title or body…"
-            className="w-full min-w-0 flex-1 rounded-full border border-slate-200 px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-slate-400 sm:min-w-[12rem] sm:py-1.5 sm:text-xs"
+            className="w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-700 shadow-sm outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 sm:rounded-full sm:py-2"
           />
         </div>
       </div>
@@ -782,7 +799,7 @@ const MyPosts: React.FC = () => {
           description="Publish a post, Story, or Scroll on Member Home, then manage everything here."
         />
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3.5 sm:space-y-4">
           {filteredStories.map((story) => {
             const busy = busyId === story.id;
             const media = resolveInlineMedia(story, { typeHint: story?.type });
@@ -793,7 +810,7 @@ const MyPosts: React.FC = () => {
             return (
               <article
                 key={`story-${story.id}`}
-                className="rounded-2xl border border-violet-100 bg-white p-3 shadow-sm ring-1 ring-violet-50 sm:p-4"
+                className={`${inventoryCardClass} border-violet-100/90 ring-violet-50/80`}
                 data-testid="my-posts-story-card"
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -837,7 +854,7 @@ const MyPosts: React.FC = () => {
                       className="h-40 w-full object-cover"
                       containerClassName="h-40 w-full"
                       controls
-                      mutedDefault
+                      defaultMuted
                       showMuteToggle={false}
                     />
                   ) : media.src ? (
@@ -974,7 +991,7 @@ const MyPosts: React.FC = () => {
             return (
               <article
                 key={`scroll-${scroll.id}`}
-                className="rounded-2xl border border-cyan-100 bg-white p-3 shadow-sm ring-1 ring-cyan-50 sm:p-4"
+                className={`${inventoryCardClass} border-cyan-100/90 ring-cyan-50/80`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
@@ -1063,8 +1080,10 @@ const MyPosts: React.FC = () => {
             return (
               <article
                 key={post.id}
-                className={`rounded-2xl border bg-white p-3 shadow-sm sm:p-4 ${
-                  isHighlighted ? 'border-violet-200 ring-1 ring-violet-100' : 'border-slate-200'
+                className={`${inventoryCardClass} ${
+                  isHighlighted
+                    ? 'border-violet-200 ring-violet-100/90'
+                    : 'border-slate-200/90'
                 }`}
               >
                 {isEditing && draft ? (

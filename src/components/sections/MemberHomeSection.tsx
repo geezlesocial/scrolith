@@ -7036,10 +7036,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         return (
           <article
             key={`feed_listing_job_${slotIndex}_${listingId}`}
-            className="rounded-3xl border border-indigo-200/80 bg-gradient-to-br from-indigo-50 via-white to-white p-5 shadow-sm"
+            className="min-w-0 overflow-hidden rounded-2xl border border-indigo-200/80 bg-gradient-to-br from-indigo-50 via-white to-white p-4 shadow-sm sm:rounded-3xl sm:p-5"
           >
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-indigo-600">Featured Job</p>
+            <div className="flex min-w-0 items-center justify-between gap-3">
+              <p className="truncate text-[11px] font-semibold uppercase tracking-[0.16em] text-indigo-600">Featured Job</p>
               {job?.isFeatured ? (
                 <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">Promoted</span>
               ) : null}
@@ -7145,10 +7145,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       return (
         <article
           key={`feed_listing_gig_${slotIndex}_${listingId}`}
-          className="rounded-3xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-white to-white p-5 shadow-sm"
+          className="min-w-0 overflow-hidden rounded-2xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-white to-white p-4 shadow-sm sm:rounded-3xl sm:p-5"
         >
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-600">Featured Gig</p>
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <p className="truncate text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-600">Featured Gig</p>
             {gig?.isFeatured ? (
               <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Promoted</span>
             ) : null}
