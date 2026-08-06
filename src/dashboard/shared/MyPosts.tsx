@@ -24,6 +24,7 @@ import { FileService } from '../../services/files';
 import { ScrollService, type ScrollVideo } from '../../services/scroll';
 import { resolveAssetUrl } from '../../utils/assetUrl';
 import {
+  resolvePostAttachmentMediaPair,
   resolvePostAttachmentMediaUrl,
   resolvePostAttachmentPosterUrl
 } from '../../utils/postAttachmentMedia';
@@ -80,19 +81,41 @@ const inferType = (media: any): 'image' | 'video' | 'document' => {
   return 'document';
 };
 
-const mediaSrc = (media: MediaDraft) => {
-  const raw = String(media.url || '').trim();
-  if (raw.startsWith('blob:') || raw.startsWith('data:')) return raw;
-  return resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(raw) || raw;
+/** Resolve primary + fallback playback URLs for edit previews (content API first). */
+const mediaPlayback = (media: MediaDraft | any) => {
+  const raw = String(media?.url || '').trim();
+  if (raw.startsWith('blob:') || raw.startsWith('data:')) {
+    return { src: raw, fallbackSrc: undefined as string | undefined };
+  }
+  const pair = resolvePostAttachmentMediaPair(media);
+  const src =
+    pair.url ||
+    resolvePostAttachmentMediaUrl(media) ||
+    resolveAssetUrl(raw) ||
+    raw;
+  const fallbackSrc =
+    pair.fallbackUrl && pair.fallbackUrl !== src
+      ? pair.fallbackUrl
+      : media?.id
+        ? resolvePostAttachmentMediaUrl({ fileId: media.id, id: media.id })
+        : undefined;
+  return {
+    src: String(src || '').trim(),
+    fallbackSrc:
+      fallbackSrc && fallbackSrc !== src ? String(fallbackSrc).trim() : undefined
+  };
 };
+
+const mediaSrc = (media: MediaDraft) => mediaPlayback(media).src;
 
 const mapAttachments = (post: any): MediaDraft[] => {
   const list = Array.isArray(post?.attachments) ? post.attachments : [];
   return list
     .map((item: any, index: number) => {
       if (!item) return null;
-      const id = String(item.id || item.fileId || item.file_id || '').trim();
-      const url = String(item.url || resolvePostAttachmentMediaUrl(item) || '').trim();
+      const id = String(item.id || item.fileId || item.file_id || item.file?.id || '').trim();
+      const pair = resolvePostAttachmentMediaPair({ ...item, fileId: id || item.fileId });
+      const url = String(pair.url || item.url || resolvePostAttachmentMediaUrl(item) || '').trim();
       return {
         localId: `${post.id || 'post'}-media-${id || index}`,
         id: id || undefined,
@@ -100,7 +123,8 @@ const mapAttachments = (post: any): MediaDraft[] => {
         name: item.name || item.originalName || item.filename,
         type: inferType(item),
         mimeType: item.mimeType || item.mime_type,
-        thumbnailUrl: item.thumbnailUrl || item.thumbnail_url || null
+        thumbnailUrl:
+          pair.posterUrl || item.thumbnailUrl || item.thumbnail_url || null
       } as MediaDraft;
     })
     .filter(Boolean) as MediaDraft[];
@@ -276,6 +300,19 @@ const MyPosts: React.FC = () => {
         ? 'image'
         : 'document';
 
+    // Enterprise rule: only one video per post card (replace existing video instead of stacking).
+    if (type === 'video' && !replaceId) {
+      const existingVideo = draft.media.find((m) => m.type === 'video');
+      if (existingVideo) {
+        showNotification(
+          'warning',
+          'My Posts',
+          'Only one video is allowed per post. Replacing the existing video.'
+        );
+        return void uploadMedia(file, existingVideo.localId);
+      }
+    }
+
     setDraft((prev) => {
       if (!prev) return prev;
       const nextItem: MediaDraft = {
@@ -291,6 +328,11 @@ const MyPosts: React.FC = () => {
           ...prev,
           media: prev.media.map((item) => (item.localId === replaceId ? nextItem : item))
         };
+      }
+      // If adding a video while other videos exist (edge race), keep single video.
+      if (type === 'video') {
+        const withoutVideos = prev.media.filter((m) => m.type !== 'video');
+        return { ...prev, media: [...withoutVideos, nextItem] };
       }
       return { ...prev, media: [...prev.media, nextItem] };
     });
@@ -1170,7 +1212,13 @@ const MyPosts: React.FC = () => {
                                 </div>
                               ) : media.type === 'video' ? (
                                 <InlineAutoplayVideo
-                                  src={mediaSrc(media)}
+                                  src={mediaPlayback(media).src}
+                                  fallbackSrc={mediaPlayback(media).fallbackSrc}
+                                  poster={
+                                    resolvePostAttachmentPosterUrl(media) ||
+                                    media.thumbnailUrl ||
+                                    undefined
+                                  }
                                   className="h-36 w-full object-cover"
                                   controls={false}
                                   loop
@@ -1184,7 +1232,7 @@ const MyPosts: React.FC = () => {
                                   src={
                                     resolvePostAttachmentPosterUrl(media) || mediaSrc(media) || ''
                                   }
-                                  fallbackSrc={mediaSrc(media)}
+                                  fallbackSrc={mediaPlayback(media).fallbackSrc || mediaSrc(media)}
                                   alt={media.name || 'Media'}
                                   width={640}
                                   height={360}
