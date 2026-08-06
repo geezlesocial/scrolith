@@ -20,7 +20,10 @@ import {
   resolveFileBaseUrl
 } from '../utils/mediaUrl';
 import { mapOrchestratedItemsWithIntelligence } from './intelligence/intelligence.contract';
-import { gcsMediaExists } from './storage/gcsMediaStorage';
+import {
+  absolutizePublicMediaUrl,
+  isVideoFileStorageAvailable
+} from './storage/videoStorageAvailability';
 
 export type OrchestratedSurface = 'member_home' | 'community';
 
@@ -1304,41 +1307,6 @@ const stripUploadsPrefix = (value?: string | null) => {
   return (index >= 0 ? normalized.slice(index + marker.length) : normalized).replace(/^\/+/, '');
 };
 
-const isVideoFileStorageAvailable = async (file: {
-  id: string;
-  url?: string | null;
-  storageKey?: string | null;
-  storageProvider?: string | null;
-  mimeType?: string | null;
-  filename?: string | null;
-  originalName?: string | null;
-}) => {
-  const mimeType = String(file.mimeType || '').toLowerCase();
-  const hay = `${file.url || ''} ${file.filename || ''} ${file.originalName || ''}`.toLowerCase();
-  const isVideo =
-    mimeType.startsWith('video/') ||
-    /\.(mp4|webm|mov|m4v|ogg|avi|mkv)(?:$|[?#])/.test(hay);
-  if (!isVideo) return true;
-
-  const provider = String(file.storageProvider || '').toLowerCase();
-  if (['database_storage', 'firebase_storage', 'azure_blob'].includes(provider)) return true;
-
-  const candidates = [
-    file.storageKey,
-    stripUploadsPrefix(file.url),
-    file.filename && stripUploadsPrefix(file.filename),
-    file.originalName && stripUploadsPrefix(file.originalName)
-  ]
-    .map((value) => String(value || '').trim())
-    .filter(Boolean);
-
-  if (!candidates.length) return false;
-  for (const candidate of Array.from(new Set(candidates))) {
-    if (await gcsMediaExists(candidate).catch(() => false)) return true;
-  }
-  return false;
-};
-
 /**
  * Hydrate post attachment file ids into full media descriptors for member-home cards.
  * Without this, orchestrated feed ships raw ids and the FE falls back to "Document".
@@ -1481,22 +1449,24 @@ async function resolveFileMediaMap(fileIds: string[]) {
     const uploadsUrl = file.storageKey ? buildUploadsUrl(String(file.storageKey), baseUrl) : null;
     const directUrl = resolveDirectMediaUrl(file.url, baseUrl);
     const provider = String(file.storageProvider || '').toLowerCase();
-    const managed = ['database_storage', 'firebase_storage', 'azure_blob'].includes(provider);
-    const preferred = unavailable
-      ? null
-      : managed
-        ? contentUrl
-        : directUrl || uploadsUrl || contentUrl;
+    const managed = ['database_storage', 'firebase_storage', 'azure_blob', 'azure', 'blob'].includes(
+      provider
+    );
+    // Azure-first: always prefer durable content URL. Never blank media URLs solely
+    // because a GCS probe failed — that caused postcard/Scroll "Video unavailable".
+    const preferred = managed
+      ? contentUrl || directUrl || uploadsUrl
+      : contentUrl || directUrl || uploadsUrl || null;
     const fallback =
       !preferred
         ? null
         : preferred === contentUrl
-        ? uploadsUrl || directUrl || null
-        : preferred === uploadsUrl
-          ? contentUrl
-          : contentUrl !== preferred
+          ? uploadsUrl || directUrl || null
+          : preferred === uploadsUrl
             ? contentUrl
-            : null;
+            : contentUrl !== preferred
+              ? contentUrl
+              : null;
     map.set(file.id, {
       fileId: file.id,
       url: preferred,
@@ -1507,7 +1477,11 @@ async function resolveFileMediaMap(fileIds: string[]) {
       mimeType: file.mimeType || null,
       originalName: file.originalName || null,
       filename: file.filename || null,
-      thumbnailUrl: resolveDirectMediaUrl(file.thumbnailUrl, baseUrl) || file.thumbnailUrl || null,
+      thumbnailUrl:
+        absolutizePublicMediaUrl(
+          resolveDirectMediaUrl(file.thumbnailUrl, baseUrl) || file.thumbnailUrl || null,
+          baseUrl
+        ) || null,
       width: file.width ?? null,
       height: file.height ?? null,
       durationSeconds: file.duration ?? null

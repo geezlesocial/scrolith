@@ -63,7 +63,12 @@ import {
   normalizePostPresentationInput,
   serializePostPresentation
 } from '../utils/postPresentation';
-import { gcsMediaExists } from '../services/storage/gcsMediaStorage';
+import {
+  absolutizePublicMediaUrl,
+  buildPublicFileContentUrl,
+  isVideoFileStorageAvailable,
+  resolvePublicApiOrigin
+} from '../services/storage/videoStorageAvailability';
 
 // Safe helper to retrieve the `io` instance from `req.app` without broad `as any` casts
 const getAppIo = (req: Request) => {
@@ -103,34 +108,6 @@ const stripUploadsPrefix = (value?: string | null) => {
   const marker = 'uploads/';
   const index = normalized.toLowerCase().indexOf(marker);
   return (index >= 0 ? normalized.slice(index + marker.length) : normalized).replace(/^\/+/, '');
-};
-
-const isVideoFileStorageAvailable = async (file: {
-  id: string;
-  url?: string | null;
-  storageKey?: string | null;
-  storageProvider?: string | null;
-  mimeType?: string | null;
-  originalName?: string | null;
-}) => {
-  const mimeType = String(file.mimeType || '').toLowerCase();
-  const hay = `${file.url || ''} ${file.originalName || ''}`.toLowerCase();
-  const isVideo =
-    mimeType.startsWith('video/') ||
-    /\.(mp4|webm|mov|m4v|ogg|avi|mkv)(?:$|[?#])/.test(hay);
-  if (!isVideo) return true;
-
-  const provider = String(file.storageProvider || '').toLowerCase();
-  if (['database_storage', 'firebase_storage', 'azure_blob'].includes(provider)) return true;
-
-  const candidates = [file.storageKey, stripUploadsPrefix(file.url), stripUploadsPrefix(file.originalName)]
-    .map((value) => String(value || '').trim())
-    .filter(Boolean);
-  if (!candidates.length) return false;
-  for (const candidate of Array.from(new Set(candidates))) {
-    if (await gcsMediaExists(candidate).catch(() => false)) return true;
-  }
-  return false;
 };
 
 const buildAttachmentLookup = async (fileIds: string[]) => {
@@ -214,16 +191,29 @@ const mapAttachmentIds = (fileIds: string[], map: Map<string, any>) =>
       ) {
         type = 'video';
       }
+      // Always expose durable content URL so Azure clients can stream/replace.
+      // Do not blank URL on soft-unavailable — player + replace UX need a target.
+      const apiOrigin = resolvePublicApiOrigin();
+      const contentUrl = buildPublicFileContentUrl(file.id, apiOrigin);
+      const directUrl = absolutizePublicMediaUrl(file.url, apiOrigin);
+      const uploadsUrl = file.storageKey
+        ? absolutizePublicMediaUrl(`/uploads/${String(file.storageKey).replace(/^\/+/, '')}`, apiOrigin)
+        : '';
+      const primary = contentUrl || directUrl || uploadsUrl || null;
+      const fallback =
+        [directUrl, uploadsUrl, contentUrl]
+          .filter((value) => value && value !== primary)
+          .map(String)[0] || null;
       return {
         id: file.id,
         fileId: file.id,
-        url: file.unavailable ? null : file.url,
-        fallbackUrl: null,
+        url: primary,
+        fallbackUrl: fallback,
         unavailable: Boolean(file.unavailable),
         unavailableReason: file.unavailableReason || null,
         name: file.originalName,
         mimeType: file.mimeType,
-        thumbnailUrl: file.thumbnailUrl || undefined,
+        thumbnailUrl: absolutizePublicMediaUrl(file.thumbnailUrl, apiOrigin) || undefined,
         width: file.width ?? undefined,
         height: file.height ?? undefined,
         duration: file.duration ?? undefined,

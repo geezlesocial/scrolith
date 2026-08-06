@@ -12,7 +12,10 @@ import {
   assessVideoIntegrityByFile,
   buildVideoIntegrityUpdate
 } from '../services/videoIntegrity.service';
-import { gcsMediaExists } from '../services/storage/gcsMediaStorage';
+import {
+  absolutizePublicMediaUrl,
+  isVideoFileStorageAvailable
+} from '../services/storage/videoStorageAvailability';
 import { getScrollDashTotals } from '../services/gcoinDonationTotals.service';
 import {
   normalizeStoredContentOfferTags,
@@ -147,34 +150,6 @@ const stripUploadsPrefix = (value?: string | null) => {
   const marker = 'uploads/';
   const index = normalized.toLowerCase().indexOf(marker);
   return (index >= 0 ? normalized.slice(index + marker.length) : normalized).replace(/^\/+/, '');
-};
-
-const isVideoFileStorageAvailable = async (file: {
-  id: string;
-  url?: string | null;
-  storageKey?: string | null;
-  storageProvider?: string | null;
-  mimeType?: string | null;
-  originalName?: string | null;
-}) => {
-  const mimeType = String(file.mimeType || '').toLowerCase();
-  const hay = `${file.url || ''} ${file.originalName || ''}`.toLowerCase();
-  const isVideo =
-    mimeType.startsWith('video/') ||
-    /\.(mp4|webm|mov|m4v|ogg|avi|mkv)(?:$|[?#])/.test(hay);
-  if (!isVideo) return true;
-
-  const provider = String(file.storageProvider || '').toLowerCase();
-  if (['database_storage', 'firebase_storage', 'azure_blob'].includes(provider)) return true;
-
-  const candidates = [file.storageKey, stripUploadsPrefix(file.url), stripUploadsPrefix(file.originalName)]
-    .map((value) => String(value || '').trim())
-    .filter(Boolean);
-  if (!candidates.length) return false;
-  for (const candidate of Array.from(new Set(candidates))) {
-    if (await gcsMediaExists(candidate).catch(() => false)) return true;
-  }
-  return false;
 };
 
 const toInt = (value: any, fallback: number) => {
@@ -613,6 +588,8 @@ const buildScrollMediaMap = async (fileIds: string[], req: Request) => {
     files.map((file) => {
       const media = resolveStoredFileMedia(file, baseUrl);
       const unavailable = unavailableVideoFileIds.has(file.id);
+      // Keep playable content URLs even when soft-unavailable so Azure clients
+      // can still attempt stream / owners can replace media.
       return [
         file.id,
         {
@@ -621,12 +598,12 @@ const buildScrollMediaMap = async (fileIds: string[], req: Request) => {
           name: file.originalName,
           mimeType: file.mimeType,
           duration: file.duration ?? null,
-          url: unavailable ? null : media.url,
-          fallbackUrl: unavailable ? null : media.fallbackUrl,
+          url: media.url || null,
+          fallbackUrl: media.fallbackUrl || null,
           storagePath: media.storagePath,
           unavailable,
           unavailableReason: unavailable ? 'storage_missing' : null,
-          thumbnailUrl: media.thumbnailUrl,
+          thumbnailUrl: absolutizePublicMediaUrl(media.thumbnailUrl, baseUrl) || media.thumbnailUrl,
           width: file.width ?? null,
           height: file.height ?? null
         }

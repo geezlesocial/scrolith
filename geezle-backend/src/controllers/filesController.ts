@@ -1574,35 +1574,56 @@ const redirectToBrandAssetFallback = (res: Response, assetName?: string | null) 
   res.redirect(302, fallbackUrl);
 };
 
+/** Azure production must not probe GCS (retired). Only probe when GCS is the active driver. */
+const shouldProbeGcsMediaRecovery = () => {
+  const driver = String(process.env.UPLOAD_DRIVER || process.env.STORAGE_DRIVER || '')
+    .trim()
+    .toLowerCase();
+  if (['gcs', 'google_cloud_storage'].includes(driver)) return true;
+  if (isAzureBlobConfigured()) return false;
+  if (['azure_blob', 'azure', 'blob'].includes(driver)) return false;
+  return Boolean(
+    String(
+      process.env.STORAGE_BUCKET ||
+        process.env.GCS_MEDIA_BUCKET ||
+        process.env.GOOGLE_CLOUD_STORAGE_BUCKET ||
+        process.env.GCLOUD_STORAGE_BUCKET ||
+        ''
+    ).trim()
+  );
+};
+
 const tryServeManagedStorageUploadAsset = async (relativePath: string, req: Request, res: Response) => {
   const normalizedPath = normalizeSlashes(relativePath).replace(/^\/+/, '');
   if (!normalizedPath) return false;
 
-  try {
-    const metadata = await getGcsMediaMetadata(normalizedPath);
-    const contentType =
-      String(metadata?.contentType || '').trim() ||
-      getMimeTypeFromFilename(normalizedPath) ||
-      'application/octet-stream';
-    const size = Number(metadata?.size || 0) || 0;
-    const { serveRangedObject } = require('../utils/httpRange') as typeof import('../utils/httpRange');
-    serveRangedObject({
-      req,
-      res,
-      size,
-      contentType,
-      cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL,
-      etag: metadata?.etag || null,
-      lastModified: metadata?.updated || null,
-      openStream: (start, end) => createGcsMediaReadStream(normalizedPath, { start, end })
-    });
-    return true;
-  } catch (error: any) {
-    if (String(error?.code || '') !== 'NOT_FOUND' && Number(error?.code || 0) !== 404) {
-      console.warn('Failed to serve legacy GCS upload asset:', {
-        relativePath: normalizedPath,
-        error: String(error?.message || error)
+  if (shouldProbeGcsMediaRecovery()) {
+    try {
+      const metadata = await getGcsMediaMetadata(normalizedPath);
+      const contentType =
+        String(metadata?.contentType || '').trim() ||
+        getMimeTypeFromFilename(normalizedPath) ||
+        'application/octet-stream';
+      const size = Number(metadata?.size || 0) || 0;
+      const { serveRangedObject } = require('../utils/httpRange') as typeof import('../utils/httpRange');
+      serveRangedObject({
+        req,
+        res,
+        size,
+        contentType,
+        cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL,
+        etag: metadata?.etag || null,
+        lastModified: metadata?.updated || null,
+        openStream: (start, end) => createGcsMediaReadStream(normalizedPath, { start, end })
       });
+      return true;
+    } catch (error: any) {
+      if (String(error?.code || '') !== 'NOT_FOUND' && Number(error?.code || 0) !== 404) {
+        console.warn('Failed to serve legacy GCS upload asset:', {
+          relativePath: normalizedPath,
+          error: String(error?.message || error)
+        });
+      }
     }
   }
 
@@ -2263,9 +2284,9 @@ export const serveFileContent = async (req: Request, res: Response) => {
         )
       );
 
-      // Durable GCS recovery — local provider mis-labels and Cloud Run ephemeral disk loss.
+      // Durable GCS recovery — only when GCS is the active driver (not Azure production).
       // storageKey may already be a media/... object path even when provider stayed "local".
-      for (const objectName of fallbackCandidates) {
+      if (shouldProbeGcsMediaRecovery()) for (const objectName of fallbackCandidates) {
         if (!objectName || objectName.includes('..')) continue;
         // Prefer object keys that look like durable product media paths.
         const looksDurable =
