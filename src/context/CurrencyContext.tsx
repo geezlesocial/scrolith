@@ -3,7 +3,9 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { Currency } from '../types';
 import { INITIAL_CURRENCIES } from '../constants';
 import api from '../services/api';
+import { tokenStore } from '../services/tokenStore';
 import { useSocket } from './SocketContext';
+import { useUser } from './UserContext';
 import { convertMajorUnits, formatConvertedMoney, formatMoneyMajor } from '../utils/moneyConversion';
 
 interface CurrencyContextType {
@@ -44,6 +46,7 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const defaultCurrency = INITIAL_CURRENCIES.find((c) => c.isDefault) || INITIAL_CURRENCIES[0];
   const [currency, setCurrencyState] = useState<Currency>(defaultCurrency);
   const { socket } = useSocket();
+  const { isAuthenticated, isLoading: authLoading } = useUser();
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -54,6 +57,7 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const refreshCurrencies = useCallback(async () => {
     try {
+      // Public catalog — safe for guest login/signup surfaces.
       const response = await api.get('/currencies/active');
       const payload = response?.data?.data ?? response?.data ?? [];
       const meta = response?.data?.meta || {};
@@ -63,12 +67,19 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       else setBaseCurrency('USD');
 
       let preferredCode: string | null = localStorage.getItem(STORAGE_KEY);
-      try {
-        const prefRes = await api.get('/currencies/preference');
-        const pref = prefRes?.data?.data?.preferredCurrency;
-        if (pref) preferredCode = String(pref).toUpperCase();
-      } catch {
-        /* unauthenticated or endpoint unavailable */
+
+      // Auth-only preference endpoint. Skip when guest so DevTools never logs 401
+      // on Welcome/Login/Signup (browser still surfaces failed XHR even if caught).
+      const token = await tokenStore.get();
+      const canLoadServerPreference = Boolean(token) && !authLoading && isAuthenticated;
+      if (canLoadServerPreference) {
+        try {
+          const prefRes = await api.get('/currencies/preference');
+          const pref = prefRes?.data?.data?.preferredCurrency;
+          if (pref) preferredCode = String(pref).toUpperCase();
+        } catch {
+          /* token expired or endpoint unavailable — keep local preference */
+        }
       }
 
       const selected =
@@ -85,15 +96,17 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       console.warn('Failed to load currencies, using defaults.', error);
       setRatesReady(false);
     }
-  }, []);
+  }, [authLoading, isAuthenticated]);
 
   useEffect(() => {
-    refreshCurrencies();
+    void refreshCurrencies();
   }, [refreshCurrencies]);
 
   useEffect(() => {
     if (!socket) return;
-    const handleSettings = () => refreshCurrencies();
+    const handleSettings = () => {
+      void refreshCurrencies();
+    };
     // Phase 28D — real-time pricing/catalog invalidation hooks (project conventions)
     socket.on('settings:updated', handleSettings);
     socket.on('currency:catalog:updated', handleSettings);
@@ -113,7 +126,16 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (!found) return;
       setCurrencyState(found);
       localStorage.setItem(STORAGE_KEY, found.code);
-      void api.put('/currencies/preference', { preferredCurrency: found.code }).catch(() => undefined);
+      // Persist server-side only when a session exists (guest stays localStorage-only).
+      void (async () => {
+        const token = await tokenStore.get();
+        if (!token) return;
+        try {
+          await api.put('/currencies/preference', { preferredCurrency: found.code });
+        } catch {
+          /* ignore unauthenticated / transient failures */
+        }
+      })();
     },
     [availableCurrencies]
   );
