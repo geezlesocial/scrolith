@@ -32,7 +32,11 @@ import {
 const MobileMessagingOverlay = React.lazy(
   () => import('../../components/messaging/MobileMessagingOverlay')
 );
-import { MOBILE_PAGE_CONTAINER_CLASS, shouldUseMobileShellViewport } from './mobileShellLayout';
+import {
+  MOBILE_PAGE_CONTAINER_CLASS,
+  MOBILE_SHELL_MAIN_PAD_CLASS,
+  shouldUseMobileShellViewport
+} from './mobileShellLayout';
 
 type MobileHomeLayoutConfig = {
   header?: {
@@ -701,20 +705,21 @@ const MobileHome = () => {
       jobs: 'Jobs'
     };
     return (
-      <div className="fixed inset-0 z-[820] bg-slate-50 pt-14 pb-20">
-        <div className="sticky top-14 z-10 border-b border-slate-200 bg-white/95 backdrop-blur">
+      <div className={`fixed inset-0 z-[820] bg-slate-50 ${MOBILE_SHELL_MAIN_PAD_CLASS}`}>
+        <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur">
           <div className={`${MOBILE_PAGE_CONTAINER_CLASS} flex items-center justify-between py-3`}>
             <div className="text-sm font-semibold text-slate-900">{titleMap[activePanelTab]}</div>
             <button
               type="button"
               onClick={closeActivePanel}
-              className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
+              className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 touch-manipulation active:bg-slate-50"
+              style={{ WebkitTapHighlightColor: 'transparent' }}
             >
               Close
             </button>
           </div>
         </div>
-        <div className="h-[calc(100vh-113px-env(safe-area-inset-bottom))] overflow-y-auto">
+        <div className="h-[calc(100dvh-var(--scrolith-shell-header-offset,3.5rem)-var(--scrolith-shell-bottom-offset,4.25rem))] overflow-y-auto overscroll-contain">
           <Suspense
             fallback={
               <div className="px-4 py-6 text-sm font-medium text-slate-500">
@@ -733,7 +738,7 @@ const MobileHome = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-[100dvh] bg-slate-50">
       <MobileHeader
         user={user}
         loading={loading}
@@ -767,7 +772,7 @@ const MobileHome = () => {
         }}
       />
 
-      <div className="pt-14 pb-20">
+      <div className={MOBILE_SHELL_MAIN_PAD_CLASS}>
         {/^\/m\/briefs(\/|$)/.test(location.pathname) ? (
           <Outlet
             context={{
@@ -795,7 +800,7 @@ const MobileHome = () => {
       {!scrollOverlay ? <MobileBottomNav activeTab={activeTab} onChange={onTabChange} settings={bottomNavSettings} /> : null}
 
       {searchOpen ? (
-        <div className="fixed inset-0 z-[900] overflow-y-auto bg-slate-50 pt-14 pb-20">
+        <div className={`fixed inset-0 z-[900] overflow-y-auto overscroll-contain bg-slate-50 ${MOBILE_SHELL_MAIN_PAD_CLASS}`}>
           <Suspense
             fallback={
               <div className="px-4 py-6 text-sm font-medium text-slate-500">

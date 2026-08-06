@@ -63,6 +63,49 @@ html {
   }
 }
 
+/*
+ * Next-gen mobile / Capacitor shell chrome (1.1.64+)
+ * Applied via applyNativeChrome() — safe-area, overscroll, touch defaults.
+ */
+html.scrolith-native-shell,
+html.scrolith-compact-touch {
+  --scrolith-sat: env(safe-area-inset-top, 0px);
+  --scrolith-sar: env(safe-area-inset-right, 0px);
+  --scrolith-sab: env(safe-area-inset-bottom, 0px);
+  --scrolith-sal: env(safe-area-inset-left, 0px);
+  --scrolith-header-h: 56px;
+  --scrolith-bottom-nav-h: 64px;
+  --scrolith-shell-header-offset: calc(var(--scrolith-header-h) + var(--scrolith-sat));
+  --scrolith-shell-bottom-offset: calc(var(--scrolith-bottom-nav-h) + var(--scrolith-sab));
+  overscroll-behavior-y: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+html.scrolith-native-shell body,
+html.scrolith-compact-touch body {
+  overscroll-behavior-y: contain;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  background-color: #f8fafc;
+  min-height: 100dvh;
+}
+
+html.scrolith-native-shell button,
+html.scrolith-compact-touch button,
+html.scrolith-native-shell a,
+html.scrolith-compact-touch a {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Prefer content-sized scrollers over document rubber-band on Android WebView */
+html.scrolith-native-shell #root,
+html.scrolith-compact-touch #root {
+  min-height: 100dvh;
+  isolation: isolate;
+}
+
 /* Skip-link focus target: ensure main is focusable without layout shift */
 #main-content:focus {
   outline: none;

@@ -29,6 +29,7 @@ import { MarketingService } from './services/marketing';
 import { resolveResponsiveAssetUrl } from './utils/assetUrl';
 import { getCanonicalAppOrigin, getCanonicalRedirectUrl } from './utils/siteUrl';
 import { isLikelyChunkLoadError, normalizeRouteHref } from './mobile/runtime/routeRecovery';
+import { applyNativeChrome } from './mobile/runtime/nativeChrome';
 import { shouldUseMobileShellViewport } from './mobile/home/mobileShellLayout';
 import {
   FOLLOW_ONBOARDING_PATH,
@@ -810,6 +811,18 @@ const AppContent = () => {
       cancelled = true;
     };
   }, []);
+
+  // Next-gen native / compact-touch chrome: safe-area, overscroll, theme-color.
+  useEffect(() => {
+    const dispose = applyNativeChrome({
+      isNative,
+      isCompactTouch: isNative || isCompactTouchRuntime() || shouldUseMobileShellViewport(),
+      brandThemeColor: '#0B5FFF'
+    });
+    return () => {
+      dispose?.();
+    };
+  }, [isNative]);
 
   useEffect(() => {
     if (!canonicalRedirectUrl || typeof window === 'undefined') return;
