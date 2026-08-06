@@ -13,6 +13,7 @@ import { resolveVerificationLevel } from '../utils/verification';
 import { resolveAssetUrl } from '../utils/assetUrl';
 import { buildScrolithaPath } from '../utils/scrolithaLaunch';
 import { MoneyDisplay } from './money/MoneyDisplay';
+import { listingBodyToPlainPreview } from '../utils/listingBodyFormat';
 
 interface GigCardProps {
   gig: Gig;
@@ -86,10 +87,7 @@ const GigCard: React.FC<GigCardProps> = ({ gig }) => {
   const trustLabel = typeof freelancerTrustScore === 'number' ? `Trust ${Math.round(freelancerTrustScore)}` : null;
 
   const descriptionPreview = useMemo(() => {
-    const cleanDescription = String(gig.description || '')
-      .replace(/<[^>]*>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+    const cleanDescription = listingBodyToPlainPreview(gig.description, 180);
     return cleanDescription || 'Professional delivery with clear communication, scoped execution, and revision support.';
   }, [gig.description]);
 

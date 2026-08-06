@@ -22,6 +22,7 @@ import { useMessages } from '../context/MessageContext';
 import { Contract, Message, TimeEntry } from '../types';
 import { reconcileOptimisticMessage } from '../services/messagingSurfaces';
 import { getUserFacingPaymentMethodName } from '../utils/paymentGatewayDisplay';
+import ListingBodyContent from '../components/ListingBodyContent';
 
 const defaultGigExperience = {
   enabled: true,
@@ -511,7 +512,6 @@ const GigDetail = () => {
   // --- Mock Data for UI Expansion ---
   const priceAmount = gig?.priceAmount ?? 0;
   const description = gig?.description || '';
-  const descriptionIsHtml = /<[^>]+>/.test(description);
   const galleryImages = [gig?.image, ...(gig?.images || [])]
       .filter(Boolean)
       .filter((src, index, arr) => arr.indexOf(src) === index);
@@ -1212,17 +1212,10 @@ const GigDetail = () => {
                {/* Description */}
                <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
                    <h3 className="text-xl font-bold text-gray-900 mb-6">{overviewHeading}</h3>
-                   <div className="prose max-w-none text-gray-700 leading-relaxed whitespace-pre-wrap">
-                       {description ? (
-                           descriptionIsHtml ? (
-                               <div dangerouslySetInnerHTML={{ __html: description }} />
-                           ) : (
-                               <div>{description}</div>
-                           )
-                       ) : (
-                           "This freelancer has not provided a detailed description. Please contact them for more info."
-                       )}
-                   </div>
+                   <ListingBodyContent
+                       content={description}
+                       emptyFallback="This freelancer has not provided a detailed description. Please contact them for more info."
+                   />
                    
                    {/* Documents/Attachments */}
                    {gig.documents && gig.documents.length > 0 && (

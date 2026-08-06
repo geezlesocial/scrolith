@@ -12,6 +12,7 @@ import { useFavorites } from '../context/FavoritesContext';
 import { useCart } from '../context/CartContext';
 import { FAVORITES_RATE_LIMIT_MESSAGE, isFavoritesRateLimitedError } from '../services/favorites';
 import { parseJobAttachment } from '../utils/jobAttachments';
+import ListingBodyContent from '../components/ListingBodyContent';
 
 const JobDetail = () => {
   const { id } = useParams();
@@ -219,6 +220,12 @@ const JobDetail = () => {
            </div>
            
            <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-8 border-b border-gray-100 pb-6">
+               {(job.category || job.subcategory) && (
+                 <div className="flex items-center">
+                   <span className="font-medium text-gray-900 mr-2">Category:</span>
+                   {[job.category, job.subcategory].filter(Boolean).join(' · ')}
+                 </div>
+               )}
                <div className="flex items-center">
                    <span className="font-medium text-gray-900 mr-2">Budget:</span> {job.budget}
                </div>
@@ -230,9 +237,12 @@ const JobDetail = () => {
                </div>
            </div>
 
-           <div className="prose max-w-none mb-8">
-               <h3 className="text-lg font-bold mb-2">Description</h3>
-               <p className="text-gray-700">{job.description}</p>
+           <div className="mb-8">
+               <h3 className="text-lg font-bold mb-3 text-gray-900">Description</h3>
+               <ListingBodyContent
+                 content={job.description}
+                 emptyFallback="No description provided for this job."
+               />
            </div>
 
            {jobAttachments.length > 0 && (

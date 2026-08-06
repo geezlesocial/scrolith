@@ -159,6 +159,7 @@ const CreateJob: React.FC<CreateJobProps> = ({ jobId, mode = 'create', redirectO
     
     // Data State
     const [categories, setCategories] = useState<ListingCategory[]>([]);
+    const [availableSubs, setAvailableSubs] = useState<ListingCategory['subcategories']>([]);
     type JobDraft = Partial<Job> & { categoryId?: string | null };
     const [job, setJob] = useState<JobDraft>({
         title: '',
@@ -444,6 +445,23 @@ const CreateJob: React.FC<CreateJobProps> = ({ jobId, mode = 'create', redirectO
         }
     }, [categories, job.category, job.categoryId]);
 
+    // Keep subcategory options in sync with selected category (parity with Create Gig).
+    useEffect(() => {
+        const cat =
+            categories.find((c) => c.name === job.category) ||
+            categories.find((c) => c.id === job.categoryId) ||
+            categories.find((c) => c.id === String(job.category || ''));
+        const subs = Array.isArray(cat?.subcategories) ? cat!.subcategories : [];
+        setAvailableSubs(subs);
+        if (!job.subcategory) return;
+        const stillValid = subs.some(
+            (s) => s.name === job.subcategory || s.id === job.subcategory || s.slug === job.subcategory
+        );
+        if (!stillValid) {
+            setJob((prev) => ({ ...prev, subcategory: '' }));
+        }
+    }, [categories, job.category, job.categoryId, job.subcategory]);
+
     useEffect(() => {
         const stored = sessionStorage.getItem('ai_job_brief');
         if (isEditMode) return;
@@ -606,6 +624,10 @@ const CreateJob: React.FC<CreateJobProps> = ({ jobId, mode = 'create', redirectO
         if (currentStepId === 'overview') {
             if (!job.title || !job.category) {
                 showNotification('alert', 'Required Fields', 'Please fill in Job Title and Category.');
+                return;
+            }
+            if (availableSubs.length > 0 && !(job.subcategory && String(job.subcategory).trim())) {
+                showNotification('alert', 'Required Fields', 'Please select a Job Subcategory.');
                 return;
             }
         }
@@ -914,18 +936,35 @@ const CreateJob: React.FC<CreateJobProps> = ({ jobId, mode = 'create', redirectO
                                         <select 
                                             className="w-full border-gray-300 rounded-xl p-3 shadow-sm bg-white"
                                             value={job.category}
-                                            onChange={e => setJob({...job, category: e.target.value})}
+                                            onChange={e => setJob({ ...job, category: e.target.value, subcategory: '' })}
                                         >
                                             <option value="">Select Category</option>
                                             {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                                         </select>
                                     </div>
                                     <div>
+                                        <label className="block text-sm font-bold text-gray-900 mb-1">{labels.subcategoryLabel || 'Subcategory'}</label>
+                                        <select
+                                            className="w-full border-gray-300 rounded-xl p-3 shadow-sm bg-white disabled:bg-gray-50 disabled:text-gray-400"
+                                            value={job.subcategory || ''}
+                                            onChange={e => setJob({ ...job, subcategory: e.target.value })}
+                                            disabled={!availableSubs.length}
+                                        >
+                                            <option value="">{availableSubs.length ? 'Select Subcategory' : 'Select a category first'}</option>
+                                            {availableSubs.map((s) => (
+                                                <option key={s.id || s.slug || s.name} value={s.name}>{s.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
                                         <label className="block text-sm font-bold text-gray-900 mb-1">Job Type</label>
                                         <div className="flex bg-gray-100 p-1 rounded-xl">
                                             {['Fixed Price', 'Hourly', 'Contract'].map(type => (
                                                 <button
                                                     key={type}
+                                                    type="button"
                                                     onClick={() => setJob({...job, type: type as string})}
                                                     className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${job.type === type ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
                                                 >
@@ -934,8 +973,6 @@ const CreateJob: React.FC<CreateJobProps> = ({ jobId, mode = 'create', redirectO
                                             ))}
                                         </div>
                                     </div>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div>
                                         <label className="block text-sm font-bold text-gray-900 mb-1">Experience Level</label>
                                         <select 
@@ -948,6 +985,8 @@ const CreateJob: React.FC<CreateJobProps> = ({ jobId, mode = 'create', redirectO
                                             <option>Expert</option>
                                         </select>
                                     </div>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div>
                                         <label className="block text-sm font-bold text-gray-900 mb-1">Visibility</label>
                                         <select 

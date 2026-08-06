@@ -10,6 +10,7 @@ import { useFavorites } from '../context/FavoritesContext';
 import { useCart } from '../context/CartContext';
 import { useNotification } from '../context/NotificationContext';
 import { FAVORITES_RATE_LIMIT_MESSAGE, isFavoritesRateLimitedError } from '../services/favorites';
+import ListingBodyContent from '../components/ListingBodyContent';
 
 const BrowseJobs = () => {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -146,7 +147,13 @@ const BrowseJobs = () => {
                   {job.status}
                 </span>
               </div>
-              <p className="mt-4 text-gray-600 line-clamp-2">{job.description}</p>
+              <ListingBodyContent
+                content={job.description}
+                preview
+                previewMaxLength={160}
+                className="mt-4 text-gray-600 line-clamp-2"
+                as="p"
+              />
               <div className="mt-4 flex items-center justify-between">
                  <div className="flex items-center space-x-2">
                     {(job.tags || []).map((tag) => (
