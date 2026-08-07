@@ -16,6 +16,9 @@ import { FileService } from '../services/files';
 import { Capacitor } from '@capacitor/core';
 import { captureAndUpload } from '../mobile/uploads';
 import { getPublicAppOrigin } from '../utils/siteUrl';
+import { resolveAssetUrl } from '../utils/assetUrl';
+import { resolvePostAttachmentMediaUrl } from '../utils/postAttachmentMedia';
+import { resolveUserAvatarUrl } from '../utils/userAvatar';
 
 const LocationPicker = React.lazy(() => import('../components/common/LocationPicker'));
 
@@ -327,19 +330,40 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
         }
     };
 
+    const resolveIdentityMediaUrl = (file: UploadedFile) => {
+        const fileId = String(file.id || (file as any).fileId || '').trim();
+        return (
+            resolvePostAttachmentMediaUrl({
+                url: file.url,
+                fileId,
+                id: fileId,
+                storageKey: (file as any).storageKey || (file as any).storage_key
+            }) ||
+            resolveAssetUrl(String(file.url || '').trim()) ||
+            (fileId ? resolveAssetUrl(`/api/files/content/${encodeURIComponent(fileId)}`) : '') ||
+            String(file.url || '').trim()
+        );
+    };
+
     const applyProfilePhoto = async (file: UploadedFile) => {
         if (!profile || !user) return;
-        updateUser({ avatar: file.url, profilePhotoFileId: file.id });
+        const durableUrl = resolveIdentityMediaUrl(file);
+        const fileId = String(file.id || (file as any).fileId || '').trim();
+        updateUser({ avatar: durableUrl, profilePhotoFileId: fileId || undefined });
         setProfile(prev => prev ? {
             ...prev,
-            avatarUrl: file.url,
-            avatar_url: file.url,
-            profilePhotoFileId: file.id,
-            profile_photo_file_id: file.id
+            avatarUrl: durableUrl,
+            avatar_url: durableUrl,
+            profilePhotoFileId: fileId,
+            profile_photo_file_id: fileId
         } : prev);
         try {
-            await UserService.updateCredentials(user.id, { avatar: file.url, profilePhotoFileId: file.id });
-            notifyProfileUpdate(null, { avatar: file.url });
+            await UserService.updateCredentials(user.id, {
+                avatar: durableUrl,
+                profilePhotoFileId: fileId || undefined
+            });
+            notifyProfileUpdate(null, { avatar: durableUrl, profilePhotoFileId: fileId });
+            showNotification('success', 'Profile', 'Profile photo updated.');
         } catch (error) {
             showNotification('alert', 'Error', 'Failed to update profile photo.');
         }
@@ -347,13 +371,23 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
 
     const applyCoverPhoto = async (file: UploadedFile) => {
         if (!profile || !user) return;
+        const durableUrl = resolveIdentityMediaUrl(file);
+        const fileId = String(file.id || (file as any).fileId || '').trim();
         setProfile(prev => prev ? {
             ...prev,
-            coverPhotoUrl: file.url,
-            cover_photo_url: file.url
+            coverPhotoUrl: durableUrl,
+            cover_photo_url: durableUrl,
+            coverPhotoFileId: fileId,
+            cover_photo_file_id: fileId
         } : prev);
         try {
-            const updated = await UserService.updateMyProfile({ coverPhotoUrl: file.url, cover_photo_url: file.url });
+            // Prefer durable content URL so <img> never depends on ephemeral hosts.
+            const updated = await UserService.updateMyProfile({
+                coverPhotoUrl: durableUrl,
+                cover_photo_url: durableUrl,
+                coverPhotoFileId: fileId || undefined,
+                cover_photo_file_id: fileId || undefined
+            });
             setProfile(updated);
             notifyProfileUpdate(updated);
             showNotification('success', 'Profile', 'Cover photo updated.');
@@ -787,7 +821,30 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                                         <div className="mt-3 overflow-hidden rounded-2xl border border-gray-200 bg-slate-900">
                                             <div className="relative aspect-[5/2] w-full">
                                                 {profile.coverPhotoUrl ? (
-                                                    <img src={profile.coverPhotoUrl} alt="Cover" className="h-full w-full object-cover" />
+                                                    <img
+                                                        src={
+                                                            resolvePostAttachmentMediaUrl({
+                                                                url: profile.coverPhotoUrl,
+                                                                fileId: (profile as any).coverPhotoFileId || (profile as any).cover_photo_file_id
+                                                            }) ||
+                                                            resolveAssetUrl(String(profile.coverPhotoUrl || '')) ||
+                                                            profile.coverPhotoUrl
+                                                        }
+                                                        alt="Cover"
+                                                        className="h-full w-full object-cover"
+                                                        onError={(event) => {
+                                                            const img = event.currentTarget;
+                                                            const id = String(
+                                                                (profile as any).coverPhotoFileId ||
+                                                                  (profile as any).cover_photo_file_id ||
+                                                                  ''
+                                                            ).trim();
+                                                            if (id && img.dataset.fallbackTried !== '1') {
+                                                                img.dataset.fallbackTried = '1';
+                                                                img.src = `https://api.scrolith.com/api/files/content/${encodeURIComponent(id)}`;
+                                                            }
+                                                        }}
+                                                    />
                                                 ) : (
                                                     <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700">
                                                         <span className="text-xs font-semibold uppercase tracking-widest text-slate-200">Add cover photo</span>
@@ -803,7 +860,31 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
 
                                     <div className="flex items-center space-x-6">
                                         <div className="relative group w-24 h-24 rounded-full bg-gray-100 overflow-hidden border-2 border-gray-200 cursor-pointer" onClick={() => openPicker('avatar')}>
-                                            <img src={user?.avatar || "/placeholders/avatar.svg"} alt="Profile" className="w-full h-full object-cover" />
+                                            <img
+                                                src={
+                                                    resolveUserAvatarUrl(user) ||
+                                                    resolveUserAvatarUrl(profile) ||
+                                                    resolveAssetUrl(String(user?.avatar || profile?.avatarUrl || '')) ||
+                                                    '/placeholders/avatar.svg'
+                                                }
+                                                alt="Profile"
+                                                className="w-full h-full object-cover"
+                                                onError={(event) => {
+                                                    const img = event.currentTarget;
+                                                    const id = String(
+                                                        user?.profilePhotoFileId ||
+                                                          (profile as any)?.profilePhotoFileId ||
+                                                          (profile as any)?.profile_photo_file_id ||
+                                                          ''
+                                                    ).trim();
+                                                    if (id && img.dataset.fallbackTried !== '1') {
+                                                        img.dataset.fallbackTried = '1';
+                                                        img.src = `https://api.scrolith.com/api/files/content/${encodeURIComponent(id)}`;
+                                                        return;
+                                                    }
+                                                    img.src = '/placeholders/avatar.svg';
+                                                }}
+                                            />
                                             <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                                                 <Camera className="w-6 h-6 text-white" />
                                             </div>
@@ -1298,8 +1379,10 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                 onSelect={handleFileSelect}
                 acceptedTypes={pickerTarget === 'video' ? 'video/*' : 'image/*'}
                 title={pickerTarget === 'video' ? 'Select Video' : 'Select Photo'}
-                allowCamera={pickerTarget === 'avatar'}
+                allowCamera={pickerTarget === 'avatar' || pickerTarget === 'cover'}
                 cameraCapture="user"
+                filterType={pickerTarget === 'video' ? 'video' : 'image'}
+                visibility="public"
             />
             <FilePickerModal
                 isOpen={portfolioPickerOpen}

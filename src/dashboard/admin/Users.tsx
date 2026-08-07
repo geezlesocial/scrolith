@@ -1415,11 +1415,15 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                           {isBanned ? <ShieldCheck className="w-4 h-4" /> : <ShieldX className="w-4 h-4" />}
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleEditUser(u)}
-                          className="text-blue-600 hover:bg-blue-50 p-1.5 rounded"
-                          title="Edit User"
+                          className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                          title="Edit user profile, role, status, photo, and more"
+                          data-testid={`admin-user-edit-${u.id}`}
+                          aria-label={`Edit ${userLabel}`}
                         >
-                          <Edit3 className="w-4 h-4" />
+                          <Edit3 className="w-3.5 h-3.5" />
+                          Edit
                         </button>
                         <button
                           onClick={() => {

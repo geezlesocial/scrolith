@@ -319,13 +319,22 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
   const friendlyUploadError = (error: any) => {
     const code = String(error?.response?.data?.code || error?.code || '').toUpperCase();
     const message = String(error?.response?.data?.error || error?.message || 'Upload failed');
+    const status = Number(error?.response?.status || 0);
     if (code === 'MALWARE_DETECTED') return 'File failed security scanning and cannot be accepted.';
-    if (code === 'SCANNER_UNAVAILABLE') return 'Security scanner is temporarily unavailable. Please try again later.';
+    if (code === 'SCANNER_UNAVAILABLE') return 'Security scanner is temporarily unavailable. Please try again in a few minutes.';
     if (code === 'FILE_TOO_LARGE') return 'File is too large. Maximum size is 10MB.';
     if (code === 'UNSUPPORTED_TYPE' || code === 'MIME_MAGIC_MISMATCH') return 'Unsupported file type. Use JPEG, PNG, WEBP, or PDF.';
     if (code === 'DOCUMENT_OWNERSHIP') return 'Document ownership validation failed.';
     if (code === 'CONSENT_REQUIRED') return 'You must accept the KYC consent statement before submitting.';
-    if (code === 'RATE_LIMIT') return 'Too many attempts. Please wait and try again.';
+    if (code === 'RATE_LIMIT' || code === 'HV_RATE_LIMIT') return 'Too many attempts. Please wait and try again.';
+    if (code === 'DOCUMENTS_REQUIRED') return 'Upload all required documents before submitting for verification.';
+    if (code === 'DOCUMENT_NOT_CLEAN') return 'A document is still scanning or failed security checks. Re-upload a clean file.';
+    if (code === 'DOCUMENT_ALREADY_ATTACHED') return 'One document is already on a submission. Re-upload a fresh copy or update the existing submission.';
+    if (code === 'DOCUMENT_NOT_FOUND') return 'A document reference expired. Please re-upload your documents.';
+    if (code === 'CONSENT_VERSION_MISMATCH') return 'Consent text was updated. Refresh the page, re-accept consent, and submit again.';
+    if (status === 401) return 'Your session expired. Please sign in again and resubmit KYC.';
+    if (status === 429) return 'Too many KYC attempts. Please wait a moment and try again.';
+    if (status >= 500) return message || 'Verification service had a temporary issue. Please try again.';
     return message;
   };
 
@@ -336,9 +345,15 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
     setUploadingType(type);
     try {
       const uploaded = await kycApi.uploadSecureDocument(type, file, file.name);
+      const documentId = String(
+        uploaded?.documentId || (uploaded as any)?.document_id || (uploaded as any)?.id || ''
+      ).trim();
+      if (!documentId) {
+        throw new Error('Upload completed without a document id. Please retry.');
+      }
       const next = {
         type,
-        documentId: uploaded.documentId,
+        documentId,
         scanStatus: uploaded.scanStatus
       };
       setDocuments((prev) => {
