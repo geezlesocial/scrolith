@@ -1887,6 +1887,7 @@ export const serveFileContent = async (req: Request, res: Response) => {
         id: true,
         ownerId: true,
         filename: true,
+        originalName: true,
         mimeType: true,
         visibility: true,
         storageKey: true,
@@ -1944,7 +1945,11 @@ export const serveFileContent = async (req: Request, res: Response) => {
       'community_story',
       'scroll_video',
       'community_ad',
-      'marketplace_listing_media'
+      'marketplace_listing_media',
+      // Platform branding assets (pro labels, logos) must render in <img> without bearer tokens.
+      'platform_pro_label',
+      'platform_branding',
+      'system_settings_asset'
     ] as const;
     const hasPublicMediaUsage = await prisma.fileUsage
       .count({
@@ -1981,6 +1986,23 @@ export const serveFileContent = async (req: Request, res: Response) => {
       .then((count) => count > 0)
       .catch(() => false);
 
+    // Platform branding images selected in System Settings (pro labels, etc.) are
+    // public product chrome. Match by filename heuristics only for image/* to avoid
+    // widening private document access.
+    const originalName = String((file as any).originalName || file.filename || '').toLowerCase();
+    const isPlatformBrandingImage =
+      isImageMime &&
+      (
+        originalName.includes('pro label') ||
+        originalName.includes('pro-label') ||
+        originalName.includes('pro_label') ||
+        originalName.includes('employer pro') ||
+        originalName.includes('freelancer pro') ||
+        originalName.includes('verification label') ||
+        (originalName.includes('scrolith') &&
+          (originalName.includes('logo') || originalName.includes('label')))
+      );
+
     const isPrivate = String(file.visibility || DEFAULT_VISIBILITY).toUpperCase() === FileVisibility.PRIVATE;
     // Profile photos are intentionally public identity assets. They may have
     // been uploaded through private file flows, but browsers cannot attach app
@@ -1990,7 +2012,8 @@ export const serveFileContent = async (req: Request, res: Response) => {
       isCoverPhotoFile ||
       isBusinessPageMedia ||
       isMarketplaceListingMedia ||
-      hasPublicMediaUsage;
+      hasPublicMediaUsage ||
+      isPlatformBrandingImage;
     const canServeAsPublicIdentityPhoto = isPrivate && canServeAsPublicMedia;
     const canAccessPrivate =
       Boolean(requester?.id) &&

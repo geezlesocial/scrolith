@@ -33,6 +33,62 @@ type ClientContext = {
 const memoryLocks = new Map<string, number>();
 const progressiveFails = new Map<string, number>();
 
+/** In-process challenge store so login/signup stay available if HV tables lag migrations. */
+type MemoryChallenge = {
+  id: string;
+  challengeToken: string;
+  endpoint: string;
+  challengeType: string;
+  difficulty: string;
+  prompt: any;
+  options: any[];
+  answerHash: string;
+  expiresAt: Date;
+  status: string;
+  attemptCount: number;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  fingerprint?: string | null;
+  sessionId?: string | null;
+  userId?: string | null;
+  solvedAt?: Date | null;
+  verificationTokenHash?: string | null;
+  verificationExpiresAt?: Date | null;
+  source: 'memory';
+};
+
+const memoryChallenges = new Map<string, MemoryChallenge>();
+const MEMORY_CHALLENGE_MAX = 5_000;
+
+const pruneMemoryChallenges = () => {
+  const now = Date.now();
+  for (const [token, row] of memoryChallenges.entries()) {
+    if (new Date(row.expiresAt).getTime() < now || row.status === 'solved' || row.status === 'expired') {
+      // Keep solved tokens briefly so double-submit can return ALREADY_USED, then drop.
+      if (row.status === 'solved' && row.solvedAt && now - row.solvedAt.getTime() < 120_000) continue;
+      memoryChallenges.delete(token);
+    }
+  }
+  if (memoryChallenges.size <= MEMORY_CHALLENGE_MAX) return;
+  const overflow = memoryChallenges.size - MEMORY_CHALLENGE_MAX;
+  let removed = 0;
+  for (const token of memoryChallenges.keys()) {
+    memoryChallenges.delete(token);
+    removed += 1;
+    if (removed >= overflow) break;
+  }
+};
+
+const putMemoryChallenge = (row: MemoryChallenge) => {
+  pruneMemoryChallenges();
+  memoryChallenges.set(row.challengeToken, row);
+};
+
+const getMemoryChallenge = (token: string) => {
+  pruneMemoryChallenges();
+  return memoryChallenges.get(token) || null;
+};
+
 function lockKey(ip: string, endpoint: string) {
   return `${ip || 'unknown'}::${endpoint}`;
 }
@@ -298,6 +354,7 @@ export class HumanVerificationService {
     const browser = parseUserAgentBrowser(ctx.userAgent);
 
     let challengeId = randomBytes(12).toString('hex');
+    let persisted = false;
     try {
       const row = await (prisma as any).humanVerificationChallenge.create({
         data: {
@@ -323,16 +380,33 @@ export class HumanVerificationService {
         }
       });
       challengeId = row.id;
+      persisted = true;
     } catch (err) {
-      console.error('[human-verification] create challenge failed', (err as any)?.message);
-      return {
-        required: true,
-        error: {
-          code: 'HV_UNAVAILABLE',
-          message:
-            'Human verification is enabled but storage is not ready. Apply the Phase 30 migration or disable the feature.'
-        }
-      };
+      // Fail open to in-memory challenges so login/signup never hard-break when
+      // HV tables are missing or transient DB errors occur (enterprise continuity).
+      console.error(
+        '[human-verification] create challenge failed; using memory fallback',
+        (err as any)?.message
+      );
+      putMemoryChallenge({
+        id: challengeId,
+        challengeToken,
+        endpoint,
+        challengeType: generated.challengeType,
+        difficulty: generated.difficulty,
+        prompt: generated.prompt,
+        options: generated.options,
+        answerHash,
+        expiresAt,
+        status: 'pending',
+        attemptCount: 0,
+        ipAddress: ctx.ipAddress || null,
+        userAgent: ctx.userAgent || null,
+        fingerprint: ctx.fingerprint || null,
+        sessionId: ctx.sessionId || null,
+        userId: ctx.userId || null,
+        source: 'memory'
+      });
     }
 
     await bumpAnalytics(new Date(), endpoint, 'generated');
@@ -341,7 +415,11 @@ export class HumanVerificationService {
       endpoint,
       challengeId,
       ipAddress: ctx.ipAddress,
-      details: { type: generated.challengeType, difficulty: generated.difficulty }
+      details: {
+        type: generated.challengeType,
+        difficulty: generated.difficulty,
+        storage: persisted ? 'db' : 'memory'
+      }
     });
 
     return {
@@ -377,17 +455,22 @@ export class HumanVerificationService {
     }
 
     const settings = await this.getSettings();
-    let challenge: any;
+    let challenge: any = null;
+    let fromMemory = false;
     try {
       challenge = await (prisma as any).humanVerificationChallenge.findUnique({
         where: { challengeToken }
       });
     } catch (err) {
-      return {
-        success: false,
-        code: 'HV_UNAVAILABLE',
-        message: 'Human verification storage is not available.'
-      };
+      console.warn('[human-verification] DB lookup failed; checking memory store', (err as any)?.message);
+    }
+
+    if (!challenge) {
+      const mem = getMemoryChallenge(challengeToken);
+      if (mem) {
+        challenge = mem;
+        fromMemory = true;
+      }
     }
 
     if (!challenge) {
@@ -403,13 +486,18 @@ export class HumanVerificationService {
     }
 
     if (challenge.status === 'expired' || new Date(challenge.expiresAt).getTime() < Date.now()) {
-      try {
-        await (prisma as any).humanVerificationChallenge.update({
-          where: { id: challenge.id },
-          data: { status: 'expired' }
-        });
-      } catch {
-        // ignore
+      if (fromMemory) {
+        challenge.status = 'expired';
+        putMemoryChallenge(challenge as MemoryChallenge);
+      } else {
+        try {
+          await (prisma as any).humanVerificationChallenge.update({
+            where: { id: challenge.id },
+            data: { status: 'expired' }
+          });
+        } catch {
+          // ignore
+        }
       }
       await bumpAnalytics(new Date(), challenge.endpoint, 'expired');
       return { success: false, code: 'HV_EXPIRED', message: 'Challenge expired. Request a new one.' };
@@ -465,16 +553,22 @@ export class HumanVerificationService {
 
     if (!ok) {
       const nextAttempts = (challenge.attemptCount || 0) + 1;
-      try {
-        await (prisma as any).humanVerificationChallenge.update({
-          where: { id: challenge.id },
-          data: {
-            attemptCount: nextAttempts,
-            status: nextAttempts >= settings.timing.maxAttempts ? 'failed' : 'pending'
-          }
-        });
-      } catch {
-        // ignore
+      if (fromMemory) {
+        challenge.attemptCount = nextAttempts;
+        challenge.status = nextAttempts >= settings.timing.maxAttempts ? 'failed' : 'pending';
+        putMemoryChallenge(challenge as MemoryChallenge);
+      } else {
+        try {
+          await (prisma as any).humanVerificationChallenge.update({
+            where: { id: challenge.id },
+            data: {
+              attemptCount: nextAttempts,
+              status: nextAttempts >= settings.timing.maxAttempts ? 'failed' : 'pending'
+            }
+          });
+        } catch {
+          // ignore
+        }
       }
 
       const lk = lockKey(ctx.ipAddress || challenge.ipAddress || 'unknown', challenge.endpoint);
@@ -506,25 +600,48 @@ export class HumanVerificationService {
       Date.now() + settings.timing.verificationTtlSeconds * 1000
     );
 
-    try {
-      await (prisma as any).humanVerificationChallenge.update({
-        where: { id: challenge.id },
-        data: {
+    if (fromMemory) {
+      challenge.status = 'solved';
+      challenge.solvedAt = new Date();
+      challenge.attemptCount = (challenge.attemptCount || 0) + 1;
+      challenge.verificationTokenHash = verificationTokenHash;
+      challenge.verificationExpiresAt = verificationExpiresAt;
+      putMemoryChallenge(challenge as MemoryChallenge);
+    } else {
+      try {
+        await (prisma as any).humanVerificationChallenge.update({
+          where: { id: challenge.id },
+          data: {
+            status: 'solved',
+            solvedAt: new Date(),
+            usedAt: new Date(),
+            solveTimeMs,
+            verificationTokenHash,
+            verificationExpiresAt,
+            attemptCount: (challenge.attemptCount || 0) + 1
+          }
+        });
+      } catch (err) {
+        // Last-resort memory finalize so the user is not blocked mid-login.
+        putMemoryChallenge({
+          id: String(challenge.id),
+          challengeToken: String(challenge.challengeToken),
+          endpoint: String(challenge.endpoint),
+          challengeType: String(challenge.challengeType || 'arithmetic'),
+          difficulty: String(challenge.difficulty || 'easy'),
+          prompt: challenge.prompt,
+          options: Array.isArray(challenge.options) ? challenge.options : [],
+          answerHash: String(challenge.answerHash),
+          expiresAt: new Date(challenge.expiresAt),
           status: 'solved',
+          attemptCount: (challenge.attemptCount || 0) + 1,
+          ipAddress: challenge.ipAddress,
           solvedAt: new Date(),
-          usedAt: new Date(),
-          solveTimeMs,
           verificationTokenHash,
           verificationExpiresAt,
-          attemptCount: (challenge.attemptCount || 0) + 1
-        }
-      });
-    } catch (err) {
-      return {
-        success: false,
-        code: 'HV_PERSIST_FAILED',
-        message: 'Unable to finalize verification.'
-      };
+          source: 'memory'
+        });
+      }
     }
 
     const lk = lockKey(ctx.ipAddress || challenge.ipAddress || 'unknown', challenge.endpoint);
@@ -583,7 +700,8 @@ export class HumanVerificationService {
     }
 
     const tokenHash = createHash('sha256').update(token).digest('hex');
-    let challenge: any;
+    let challenge: any = null;
+    let fromMemory = false;
     try {
       challenge = await (prisma as any).humanVerificationChallenge.findFirst({
         where: {
@@ -594,12 +712,23 @@ export class HumanVerificationService {
         }
       });
     } catch (err) {
-      return {
-        enforced: true,
-        success: false,
-        code: 'HV_UNAVAILABLE',
-        message: 'Human verification is temporarily unavailable.'
-      };
+      console.warn('[human-verification] token lookup failed; checking memory', (err as any)?.message);
+    }
+
+    if (!challenge) {
+      pruneMemoryChallenges();
+      for (const row of memoryChallenges.values()) {
+        if (
+          row.status === 'solved' &&
+          row.verificationTokenHash === tokenHash &&
+          row.verificationExpiresAt &&
+          new Date(row.verificationExpiresAt).getTime() > Date.now()
+        ) {
+          challenge = row;
+          fromMemory = true;
+          break;
+        }
+      }
     }
 
     if (!challenge) {
@@ -620,18 +749,24 @@ export class HumanVerificationService {
       };
     }
 
-    try {
-      await (prisma as any).humanVerificationChallenge.update({
-        where: { id: challenge.id },
-        data: { verificationConsumedAt: new Date(), status: 'consumed' }
-      });
-    } catch {
-      return {
-        enforced: true,
-        success: false,
-        code: 'HV_TOKEN_CONSUME_FAILED',
-        message: 'Unable to consume verification token.'
-      };
+    if (fromMemory) {
+      challenge.status = 'consumed';
+      putMemoryChallenge(challenge as MemoryChallenge);
+      memoryChallenges.delete(String(challenge.challengeToken));
+    } else {
+      try {
+        await (prisma as any).humanVerificationChallenge.update({
+          where: { id: challenge.id },
+          data: { verificationConsumedAt: new Date(), status: 'consumed' }
+        });
+      } catch {
+        return {
+          enforced: true,
+          success: false,
+          code: 'HV_TOKEN_CONSUME_FAILED',
+          message: 'Unable to consume verification token.'
+        };
+      }
     }
 
     await writeAudit({

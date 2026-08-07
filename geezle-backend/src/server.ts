@@ -3719,6 +3719,25 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
   // Rate limiting
+const isAuthCriticalPath = (req: { path?: string; originalUrl?: string; baseUrl?: string; method?: string }) => {
+  const path = String(req.path || '').toLowerCase();
+  const originalUrl = String(req.originalUrl || '').toLowerCase();
+  const mountedPath = String(`${req.baseUrl || ''}${req.path || ''}`).toLowerCase();
+  const haystack = `${path} ${originalUrl} ${mountedPath}`;
+  // Login/signup/oauth/HV must remain usable even when shared carrier NATs burn the
+  // anonymous global budget. Dedicated per-route limiters still apply on HV.
+  if (haystack.includes('/auth/oauth')) return true;
+  if (haystack.includes('/auth/login') || haystack.includes('/auth/signup')) return true;
+  if (haystack.includes('/auth/forgot-password') || haystack.includes('/auth/reset-password')) return true;
+  if (haystack.includes('/auth/health') || haystack.includes('/auth/me')) return true;
+  if (haystack.includes('/human-verification')) return true;
+  if (haystack.includes('/public/system-status')) return true;
+  if (path === '/health' || originalUrl.endsWith('/api/health') || originalUrl.includes('/api/health?')) {
+    return true;
+  }
+  return false;
+};
+
 const limiter = rateLimit({
   windowMs: apiRateLimitWindowMs,
   max: (req) => {
@@ -3738,9 +3757,13 @@ const limiter = rateLimit({
     if (isSearchRead) {
       return Math.max(baseLimit, auth ? 1200 : 360);
     }
+    // Auth + human verification: keep anonymous shared-IP traffic from locking users out.
+    if (isAuthCriticalPath(req)) {
+      return Math.max(baseLimit, auth ? 2400 : 1800);
+    }
     return baseLimit;
   },
-  message: { error: 'Too many requests from this IP, please try again later.' },
+  message: { error: 'Too many requests from this IP, please try again later.', code: 'RATE_LIMITED' },
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   keyGenerator: (req) => {
@@ -3752,12 +3775,19 @@ const limiter = rateLimit({
     const conn = req.connection as unknown as { remoteAddress?: string } | undefined;
     const rawIp = (req.ip || (conn && conn.remoteAddress) || '').toString();
     if (!rawIp) return 'unknown';
+    // Isolate auth-critical budget so feed/media thrash cannot block login/HV.
+    if (isAuthCriticalPath(req)) {
+      return `authcrit:${ipKeyGenerator(rawIp)}`;
+    }
     return ipKeyGenerator(rawIp);
   },
   // Skip rate limiting only for non-production local/dev — never via client headers.
   skip: (req) => {
     try {
       if (req.path.includes('/socket.io/')) return true;
+      // OAuth start is a browser redirect, not an API thrash vector.
+      const originalUrl = String(req.originalUrl || '').toLowerCase();
+      if (req.method === 'GET' && originalUrl.includes('/api/auth/oauth/')) return true;
       // Client-supplied bypass headers are IGNORED in all environments (defense in depth).
       // Production / Cloud Run: never skip based on headers.
       try {

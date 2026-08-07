@@ -8,12 +8,18 @@ import {
 
 const router = express.Router();
 
+// Dedicated HV budget — high enough for mobile carrier NATs + legitimate retries,
+// still bounded to blunt scripted abuse. Global /api limiter uses a separate key.
 const hvLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: Number(process.env.HV_RATE_LIMIT_MAX || 600),
   standardHeaders: true,
   legacyHeaders: false,
-  message: { success: false, error: 'Too many human verification requests' }
+  message: {
+    success: false,
+    error: 'Too many human verification requests. Please wait a moment and try again.',
+    code: 'HV_RATE_LIMIT'
+  }
 });
 
 router.use(hvLimiter);
