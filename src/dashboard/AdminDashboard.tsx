@@ -134,6 +134,28 @@ const AdminDashboard: React.FC = () => {
         }
     }, [searchParams]);
 
+    // Cross-module navigation (Users → KYC, etc.) without full page reload.
+    useEffect(() => {
+        const onAdminNavigate = (event: Event) => {
+            const detail = (event as CustomEvent)?.detail || {};
+            const tab = String(detail?.tab || '').trim();
+            if (tab && isValidTab(tab)) {
+                setActiveTab(tab as Tab);
+                setSidebarOpen(false);
+                try {
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('tab', tab);
+                    if (detail?.userId) url.searchParams.set('userId', String(detail.userId));
+                    window.history.replaceState({}, '', `${url.pathname}${url.search}`);
+                } catch {
+                    // ignore history failures
+                }
+            }
+        };
+        window.addEventListener('scrolith:admin-navigate', onAdminNavigate as EventListener);
+        return () => window.removeEventListener('scrolith:admin-navigate', onAdminNavigate as EventListener);
+    }, []);
+
     // Helper function to validate tab
     const isValidTab = (tab: string): tab is Tab => {
         const validTabs: Tab[] = [

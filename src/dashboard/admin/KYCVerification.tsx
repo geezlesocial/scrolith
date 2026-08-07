@@ -128,9 +128,19 @@ const KYCTab = () => {
     };
     window.addEventListener('kyc.submitted', handler as EventListener);
     window.addEventListener('kyc.updated', handler as EventListener);
+    // Enterprise real-time ops: poll quietly so admin decisions stay fresh without full reloads.
+    const pollId = window.setInterval(() => {
+      void loadRequests();
+    }, 20_000);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void loadRequests();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       window.removeEventListener('kyc.submitted', handler as EventListener);
       window.removeEventListener('kyc.updated', handler as EventListener);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.clearInterval(pollId);
     };
   }, []);
 

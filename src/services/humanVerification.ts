@@ -106,15 +106,41 @@ const wait = (ms: number) =>
 
 const isTransientNetworkError = (err: any) => {
   const status = Number(err?.response?.status || 0);
-  if (status) return status >= 500 || status === 408;
+  // 429 is recoverable after a short wait (shared carrier NATs).
+  if (status) return status >= 500 || status === 408 || status === 429;
   const message = String(err?.message || '').toLowerCase();
   const code = String(err?.code || '').toUpperCase();
   return (
     message.includes('network error') ||
     message.includes('timeout') ||
+    message.includes('failed to fetch') ||
     code === 'ECONNABORTED' ||
+    code === 'ERR_NETWORK' ||
     Boolean(err?.request)
   );
+};
+
+const friendlyHvError = (err: any, fallback: string) => {
+  const status = Number(err?.response?.status || 0);
+  const data = err?.response?.data || {};
+  const code = String(data.code || err?.code || '').toUpperCase();
+  if (status === 429 || code.includes('RATE') || code === 'HV_RATE_LIMIT' || code === 'HV_LOCKED') {
+    return data.error || data.message || 'Too many verification attempts. Please wait a moment and tap Refresh.';
+  }
+  if (status === 404) {
+    return 'Verification service is temporarily unreachable. Check your connection and tap Refresh.';
+  }
+  if (status >= 500) {
+    return data.error || 'Verification service had a temporary issue. Tap Refresh to try again.';
+  }
+  const raw = String(data.error || data.message || err?.message || fallback || '').trim();
+  if (/network error/i.test(raw)) {
+    return 'Network error. Please check your connection and tap Refresh.';
+  }
+  if (/request failed with status/i.test(raw)) {
+    return 'Unable to reach verification service. Tap Refresh to try again.';
+  }
+  return raw || fallback;
 };
 
 const withTransientRetry = async <T,>(operation: () => Promise<T>): Promise<T> => {
@@ -147,7 +173,8 @@ const isNativeRuntime = () => {
 
 const isNativeFallbackError = (err: any) => {
   const status = Number(err?.response?.status || 0);
-  return isTransientNetworkError(err) || status === 404;
+  // Prefer native HTTP on Android/iOS when axios cannot reach the API (CORS, 404 HTML, network).
+  return isTransientNetworkError(err) || status === 404 || status === 0 || !err?.response;
 };
 
 const nativePostJson = async <T,>(path: string, data: Record<string, unknown>): Promise<T> => {
@@ -229,6 +256,17 @@ export class HumanVerificationService {
 
   static async createChallenge(endpoint: HumanVerificationEndpoint): Promise<CreateChallengeResult> {
     try {
+      // On native, prefer Capacitor HTTP first — avoids WebView CORS / HTML-404 traps.
+      if (isNativeRuntime()) {
+        try {
+          return await nativePostJson<CreateChallengeResult>('/human-verification/create', {
+            endpoint,
+            fingerprint: fingerprint()
+          });
+        } catch {
+          // Fall through to axios path below.
+        }
+      }
       const res = await withTransientRetry(() =>
         api.post(
           '/human-verification/create',
@@ -255,8 +293,8 @@ export class HumanVerificationService {
       return {
         success: false,
         required: true,
-        error: data.error || err?.message || 'Failed to create challenge',
-        code: data.code,
+        error: friendlyHvError(err, 'Failed to create challenge'),
+        code: data.code || (Number(err?.response?.status) === 429 ? 'HV_RATE_LIMIT' : undefined),
         retryAfter: data.retryAfter
       };
     }
@@ -269,6 +307,16 @@ export class HumanVerificationService {
     startedAt?: number;
   }): Promise<VerifyChallengeResult> {
     try {
+      if (isNativeRuntime()) {
+        try {
+          return await nativePostJson<VerifyChallengeResult>('/human-verification/verify', {
+            ...params,
+            fingerprint: fingerprint()
+          });
+        } catch {
+          // Fall through to axios.
+        }
+      }
       const res = await withTransientRetry(() =>
         api.post(
           '/human-verification/verify',
@@ -294,7 +342,7 @@ export class HumanVerificationService {
       const data = err?.response?.data || {};
       return {
         success: false,
-        error: data.error || err?.message || 'Verification failed',
+        error: friendlyHvError(err, 'Verification failed'),
         code: data.code,
         attemptsRemaining: data.attemptsRemaining
       };

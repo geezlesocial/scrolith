@@ -24,6 +24,8 @@ import {
 import { INITIAL_CURRENCIES } from '../../constants';
 import { CMSService } from '../../services/cms';
 import FilePickerModal from '../shared/FilePickerModal';
+import { resolveAssetUrl } from '../../utils/assetUrl';
+import { resolvePostAttachmentMediaUrl } from '../../utils/postAttachmentMedia';
 import { normalizeVerificationSettings } from '../../utils/verification';
 import { normalizeTrustScoreSettings } from '../../utils/trustScore';
 import { normalizeDealFlowSettings } from '../../utils/dealFlow';
@@ -1225,7 +1227,19 @@ const SystemSettings = () => {
 
     const handleLabelSelect = (file: UploadedFile) => {
         if (!labelPickerTarget) return;
-        setProLabel(labelPickerTarget, file.url, file.id);
+        // Prefer durable content API URL so <img> never depends on ephemeral /uploads paths.
+        const fileId = String(file.id || (file as any).fileId || '').trim();
+        const resolved =
+          resolvePostAttachmentMediaUrl({
+            url: file.url,
+            fileId,
+            id: fileId,
+            storageKey: (file as any).storageKey || (file as any).storage_key
+          }) ||
+          resolveAssetUrl(String(file.url || '').trim()) ||
+          (fileId ? resolveAssetUrl(`/api/files/content/${encodeURIComponent(fileId)}`) : '') ||
+          String(file.url || '').trim();
+        setProLabel(labelPickerTarget, resolved, fileId || null);
         setIsLabelPickerOpen(false);
         setLabelPickerTarget(null);
     };
@@ -1623,22 +1637,36 @@ const SystemSettings = () => {
         { id: 'content_moderation', label: 'Content Moderation' }
     ];
 
-    const freelancerLabelUrl =
-        (localSettings as any)?.proFreelancerLabelUrl ??
-        (localSettings as any)?.pro_freelancer_label_url ??
-        '';
     const freelancerLabelFileId =
         (localSettings as any)?.proFreelancerLabelFileId ??
         (localSettings as any)?.pro_freelancer_label_file_id ??
-        '';
-    const employerLabelUrl =
-        (localSettings as any)?.proEmployerLabelUrl ??
-        (localSettings as any)?.pro_employer_label_url ??
         '';
     const employerLabelFileId =
         (localSettings as any)?.proEmployerLabelFileId ??
         (localSettings as any)?.pro_employer_label_file_id ??
         '';
+    const resolveProLabelDisplayUrl = (rawUrl: string, fileId: string) => {
+        const raw = String(rawUrl || '').trim();
+        const id = String(fileId || '').trim();
+        return (
+          resolvePostAttachmentMediaUrl({ url: raw, fileId: id, id }) ||
+          resolveAssetUrl(raw) ||
+          (id ? resolveAssetUrl(`/api/files/content/${encodeURIComponent(id)}`) : '') ||
+          raw
+        );
+    };
+    const freelancerLabelUrl = resolveProLabelDisplayUrl(
+        (localSettings as any)?.proFreelancerLabelUrl ??
+          (localSettings as any)?.pro_freelancer_label_url ??
+          '',
+        freelancerLabelFileId
+    );
+    const employerLabelUrl = resolveProLabelDisplayUrl(
+        (localSettings as any)?.proEmployerLabelUrl ??
+          (localSettings as any)?.pro_employer_label_url ??
+          '',
+        employerLabelFileId
+    );
     const systemSnapshot = (localSettings as any)?.system || {};
     const maintenanceEnabled = normalizeBoolean(systemSnapshot.maintenanceMode ?? systemSnapshot.maintenance_mode, false);
     const registrationsEnabled = normalizeBoolean(
@@ -1777,7 +1805,21 @@ const SystemSettings = () => {
                                     onClick={() => openLabelPicker('freelancer')}
                                 >
                                     {freelancerLabelUrl ? (
-                                        <img src={freelancerLabelUrl} className="max-h-full object-contain" alt="Freelancer pro label" />
+                                        <img
+                                          src={freelancerLabelUrl}
+                                          className="max-h-full object-contain"
+                                          alt="Freelancer pro label"
+                                          onError={(event) => {
+                                            const img = event.currentTarget;
+                                            const id = String(freelancerLabelFileId || '').trim();
+                                            if (id && img.dataset.fallbackTried !== '1') {
+                                              img.dataset.fallbackTried = '1';
+                                              img.src = `https://api.scrolith.com/api/files/content/${encodeURIComponent(id)}`;
+                                              return;
+                                            }
+                                            img.style.display = 'none';
+                                          }}
+                                        />
                                     ) : (
                                         <ImageIcon className="w-6 h-6 text-gray-400" />
                                     )}
@@ -1817,7 +1859,21 @@ const SystemSettings = () => {
                                     onClick={() => openLabelPicker('employer')}
                                 >
                                     {employerLabelUrl ? (
-                                        <img src={employerLabelUrl} className="max-h-full object-contain" alt="Employer pro label" />
+                                        <img
+                                          src={employerLabelUrl}
+                                          className="max-h-full object-contain"
+                                          alt="Employer pro label"
+                                          onError={(event) => {
+                                            const img = event.currentTarget;
+                                            const id = String(employerLabelFileId || '').trim();
+                                            if (id && img.dataset.fallbackTried !== '1') {
+                                              img.dataset.fallbackTried = '1';
+                                              img.src = `https://api.scrolith.com/api/files/content/${encodeURIComponent(id)}`;
+                                              return;
+                                            }
+                                            img.style.display = 'none';
+                                          }}
+                                        />
                                     ) : (
                                         <ImageIcon className="w-6 h-6 text-gray-400" />
                                     )}

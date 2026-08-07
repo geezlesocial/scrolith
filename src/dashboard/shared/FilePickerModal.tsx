@@ -16,7 +16,10 @@ import { FileService } from '../../services/files';
 import { UploadedFile } from '../../types';
 import { useUser } from '../../context/UserContext';
 import { captureAndUpload } from '../../mobile/uploads';
-import { resolvePostAttachmentMediaUrl } from '../../utils/postAttachmentMedia';
+import {
+  resolvePostAttachmentMediaPair,
+  resolvePostAttachmentMediaUrl
+} from '../../utils/postAttachmentMedia';
 
 type FileType = 'image' | 'video' | 'document';
 type FilterTab = 'all' | 'image' | 'video' | 'pdf' | 'document';
@@ -468,7 +471,32 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
                             }) || String(file.url || '').trim()
                           }
                           alt={file.name}
-                          className="h-36 w-full object-cover"
+                          className="h-36 w-full object-cover bg-slate-50"
+                          loading="lazy"
+                          decoding="async"
+                          onError={(event) => {
+                            const img = event.currentTarget;
+                            const pair = resolvePostAttachmentMediaPair({
+                              url: file.url,
+                              fileId: file.id || (file as any).fileId,
+                              storageKey: (file as any).storageKey || (file as any).storage_key,
+                              fallbackUrl: (file as any).fallbackUrl
+                            });
+                            const tried = String(img.dataset.fallbackTried || '');
+                            if (pair.fallbackUrl && tried !== '1' && pair.fallbackUrl !== img.src) {
+                              img.dataset.fallbackTried = '1';
+                              img.src = pair.fallbackUrl;
+                              return;
+                            }
+                            // Final durable content URL attempt from file id.
+                            const id = String(file.id || (file as any).fileId || '').trim();
+                            if (id && tried !== '2') {
+                              img.dataset.fallbackTried = '2';
+                              img.src = `https://api.scrolith.com/api/files/content/${encodeURIComponent(id)}`;
+                              return;
+                            }
+                            img.style.opacity = '0.35';
+                          }}
                         />
                       ) : kind === 'video' ? (
                         <div className="relative h-36 w-full bg-slate-100">

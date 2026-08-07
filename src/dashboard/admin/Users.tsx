@@ -1888,8 +1888,29 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                         ? 'Sets Scrolitha’s public verified badge across the platform. Apply Changes to save.'
                         : (
                           <>
-                            Profile, role, status, password, and wallet are saved here. Final KYC decisions are applied in{' '}
-                            <strong>Admin → KYC Verification</strong>.
+                            Profile, role, status, password, photo, video calling, moderation, and wallet are fully editable here.
+                            Final identity KYC approve/reject decisions run through the secure KYC workflow in{' '}
+                            <button
+                              type="button"
+                              className="font-semibold text-blue-700 underline-offset-2 hover:underline"
+                              onClick={() => {
+                                try {
+                                  window.dispatchEvent(
+                                    new CustomEvent('scrolith:admin-navigate', { detail: { tab: 'kyc', userId: editingUser.id } })
+                                  );
+                                } catch {
+                                  // ignore
+                                }
+                                showNotification(
+                                  'info',
+                                  'Open KYC Management',
+                                  'Use Admin → KYC Management to approve or reject this user in real time.'
+                                );
+                              }}
+                            >
+                              Admin → KYC Management
+                            </button>
+                            .
                           </>
                         )}
                     </p>

@@ -249,6 +249,46 @@ const shouldShowProvider = (
   return true;
 };
 
+const PRODUCTION_API_ORIGIN = 'https://api.scrolith.com/api';
+
+/** Always absolute HTTPS for OAuth — relative /api breaks in Capacitor and dead GCP URLs break login. */
+const resolveOAuthApiBase = () => {
+  const raw = String(getApiBaseUrl() || '').trim().replace(/\/+$/, '');
+  if (/^https:\/\/api\.scrolith\.com(\/api)?$/i.test(raw)) {
+    return raw.endsWith('/api') ? raw : `${raw}/api`;
+  }
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const host = new URL(raw).hostname.toLowerCase();
+      // Never send OAuth through suspended GCP Cloud Run or localhost from a production app.
+      if (
+        host.includes('run.app') ||
+        host.includes('localhost') ||
+        host === '127.0.0.1' ||
+        host === '10.0.2.2'
+      ) {
+        return PRODUCTION_API_ORIGIN;
+      }
+      return raw.endsWith('/api') ? raw : `${raw}/api`;
+    } catch {
+      return PRODUCTION_API_ORIGIN;
+    }
+  }
+  // Relative /api (web same-origin) is fine in browser; native must use absolute API.
+  if (isNativePlatform()) return PRODUCTION_API_ORIGIN;
+  if (typeof window !== 'undefined') {
+    try {
+      const host = String(window.location?.hostname || '').toLowerCase();
+      if (host === 'scrolith.com' || host.endsWith('.scrolith.com')) {
+        return PRODUCTION_API_ORIGIN;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return raw || PRODUCTION_API_ORIGIN;
+};
+
 const buildOAuthUrl = (
   provider: AuthProviderKey,
   mode: 'login' | 'signup',
@@ -261,18 +301,27 @@ const buildOAuthUrl = (
   if (redirectTo) params.set('redirect', redirectTo);
   if (isNativePlatform()) params.set('returnTarget', 'app');
   const query = params.toString();
-  return `${getApiBaseUrl()}/auth/oauth/${provider}${query ? `?${query}` : ''}`;
+  const base = resolveOAuthApiBase();
+  return `${base}/auth/oauth/${provider}${query ? `?${query}` : ''}`;
 };
 
 const openOAuthUrl = async (url: string) => {
+  // Guard: never open a relative or non-https OAuth start URL from native shells.
+  const safeUrl = (() => {
+    const value = String(url || '').trim();
+    if (/^https:\/\//i.test(value)) return value;
+    if (value.startsWith('/')) return `${PRODUCTION_API_ORIGIN.replace(/\/api$/, '')}${value.startsWith('/api') ? value : `/api${value}`}`;
+    return `${PRODUCTION_API_ORIGIN}/auth/oauth/google`;
+  })();
+
   if (isNativePlatform()) {
     try {
       const { Browser } = await import('@capacitor/browser');
-      await Browser.open({ url });
+      await Browser.open({ url: safeUrl, presentationStyle: 'popover' as any });
       return;
     } catch {
       try {
-        const opened = window.open(url, '_system', 'noopener,noreferrer');
+        const opened = window.open(safeUrl, '_system', 'noopener,noreferrer');
         if (opened) return;
       } catch {
         // Fall back to same-window navigation below.
@@ -280,7 +329,7 @@ const openOAuthUrl = async (url: string) => {
     }
   }
 
-  window.location.assign(url);
+  window.location.assign(safeUrl);
 };
 
 const AuthSocialButtons: React.FC<AuthSocialButtonsProps> = ({ mode, role, config, redirectTo }) => {
