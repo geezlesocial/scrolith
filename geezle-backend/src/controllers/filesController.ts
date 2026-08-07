@@ -1938,6 +1938,8 @@ export const serveFileContent = async (req: Request, res: Response) => {
     // only for intentionally public surfaces (not messenger/private files).
     const PUBLIC_MEDIA_USAGE_TYPES = [
       'profile_cover',
+      'profile_photo',
+      'user_avatar',
       'business_page_logo',
       'business_page_cover',
       'community_post',

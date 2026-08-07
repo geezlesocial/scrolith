@@ -874,7 +874,12 @@ export const updateUserProfile = async (req: Request, res: Response) => {
 
     // Pin cover media so storage GC does not delete identity assets still referenced by Profile.
     if (coverPhotoUrl !== undefined) {
-      const coverFileId = extractFileIdFromMediaUrl(String(updated.coverPhotoUrl || coverPhotoUrl || ''));
+      const explicitCoverId = String(
+        pick(req.body, 'coverPhotoFileId', 'cover_photo_file_id') || ''
+      ).trim();
+      const coverFileId =
+        explicitCoverId ||
+        extractFileIdFromMediaUrl(String(updated.coverPhotoUrl || coverPhotoUrl || ''));
       try {
         await syncFileUsages(
           'profile_cover',
@@ -1081,13 +1086,36 @@ export const updateUserBasics = async (req: Request, res: Response) => {
       data
     });
 
+    // Profile photos are public identity assets — browsers cannot send bearer tokens on <img>.
+    if (data.profilePhotoFileId) {
+      const photoId = String(data.profilePhotoFileId || '').trim();
+      if (photoId && !photoId.toLowerCase().startsWith('disk:')) {
+        try {
+          await prisma.file
+            .updateMany({
+              where: { id: photoId },
+              data: { visibility: FileVisibility.PUBLIC }
+            })
+            .catch(() => undefined);
+          const { syncFileUsages } = await import('../utils/fileUsage');
+          await syncFileUsages('profile_photo', userId, [photoId], 'Profile Photo').catch(() => undefined);
+        } catch (usageError) {
+          console.warn(
+            'updateUserBasics profile photo publicize failed:',
+            (usageError as any)?.message || usageError
+          );
+        }
+      }
+    }
+
     return ok(res, {
       id: updated.id,
       name: updated.name,
       email: updated.email,
       username: updated.username || '',
       avatar: updated.avatar,
-      profile_photo_file_id: updated.profilePhotoFileId || null
+      profile_photo_file_id: updated.profilePhotoFileId || null,
+      profilePhotoFileId: updated.profilePhotoFileId || null
     });
   } catch (error: any) {
     console.error('updateUserBasics error:', error);

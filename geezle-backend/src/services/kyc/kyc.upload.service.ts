@@ -344,7 +344,35 @@ export const assertAttachableKycDocument = async (params: {
     throw new KycValidationError('Document is not in the clean KYC namespace', 'DOCUMENT_NOT_PROMOTED', 400);
   }
   if (doc.submissionId) {
-    throw new KycValidationError('Document is already attached to a submission', 'DOCUMENT_ALREADY_ATTACHED', 400);
+    // Allow re-use when the prior submission is terminal (rejected / needs updates) or missing.
+    // Blocks only when still linked to an active pending/under-review submission.
+    try {
+      const prior = await prisma.kYCSubmission.findUnique({
+        where: { id: doc.submissionId },
+        select: { id: true, status: true, userId: true }
+      });
+      const status = String(prior?.status || '').toUpperCase();
+      const terminal = !prior || ['REJECTED', 'REQUIRES_UPDATES', 'APPROVED'].includes(status);
+      const owned = !prior || prior.userId === params.userId;
+      if (terminal && owned) {
+        await prisma.kYCDocument.update({
+          where: { id: doc.id },
+          data: { submissionId: null }
+        });
+        (doc as any).submissionId = null;
+      } else if (!terminal) {
+        throw new KycValidationError(
+          'Document is already attached to an active submission',
+          'DOCUMENT_ALREADY_ATTACHED',
+          400
+        );
+      } else {
+        throw new KycValidationError('Document is already attached to a submission', 'DOCUMENT_ALREADY_ATTACHED', 400);
+      }
+    } catch (error: any) {
+      if (error instanceof KycValidationError) throw error;
+      throw new KycValidationError('Document is already attached to a submission', 'DOCUMENT_ALREADY_ATTACHED', 400);
+    }
   }
   if (params.allowedTypes && params.allowedTypes.size > 0 && !params.allowedTypes.has(doc.type)) {
     throw new KycValidationError('Document type is not allowed', 'DOCUMENT_TYPE_NOT_ALLOWED', 400);
