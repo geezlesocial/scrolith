@@ -84,23 +84,24 @@ export const classifyFeedNetwork = (input?: {
  * smaller on slow/data-saver for lower TTFB + memory.
  */
 export const resolveAdaptivePageSize = (input: AdaptivePageSizeInput): number => {
-  const base = Math.max(4, Math.min(40, Math.trunc(Number(input.basePageSize) || 12)));
-  if (input.dataSaver) return Math.max(4, Math.min(base, 8));
+  // Continuous feed (Facebook-style): larger pages, still network-aware. No hard
+  // stop on total items — callers paginate until the API reports terminal.
+  const base = Math.max(8, Math.min(48, Math.trunc(Number(input.basePageSize) || 20)));
+  if (input.dataSaver) return Math.max(6, Math.min(base, 12));
   switch (input.networkClass) {
     case 'offline':
-      return Math.max(4, Math.min(base, 6));
-    case 'slow':
-      return Math.max(4, Math.min(base, 8));
-    case 'constrained':
       return Math.max(6, Math.min(base, 10));
+    case 'slow':
+      return Math.max(8, Math.min(base, 12));
+    case 'constrained':
+      return Math.max(10, Math.min(base, 16));
     case 'fast':
-      return Math.min(24, Math.max(base, input.isMobile ? 12 : 16));
+      return Math.min(40, Math.max(base, input.isMobile ? 16 : 24));
     case 'balanced':
     default: {
-      // Tall viewports can absorb a slightly larger page without extra requests.
       const vh = Number(input.viewportHeight || 0);
-      if (vh >= 900 && !input.isMobile) return Math.min(20, base + 2);
-      return base;
+      if (vh >= 900) return Math.min(32, base + 4);
+      return Math.min(28, Math.max(base, input.isMobile ? 14 : 18));
     }
   }
 };
@@ -114,45 +115,47 @@ export const resolvePrefetchPolicy = (
   const mobile = Boolean(options?.isMobile);
   if (dataSaver || networkClass === 'slow' || networkClass === 'offline') {
     return {
-      remainingItemThreshold: 2,
-      observerRootMarginPx: mobile ? 320 : 400,
-      maxInFlight: 1,
-      silentPrefetch: true,
-      progressiveRevealStep: 3,
-      progressiveInitialWindow: 5,
-      maxRetainedItems: 80
-    };
-  }
-  if (networkClass === 'constrained') {
-    return {
       remainingItemThreshold: 3,
       observerRootMarginPx: mobile ? 480 : 560,
       maxInFlight: 1,
       silentPrefetch: true,
       progressiveRevealStep: 4,
       progressiveInitialWindow: 6,
-      maxRetainedItems: 100
+      // Keep more items mounted so users can freely scroll back up without remount thrash.
+      maxRetainedItems: 180
+    };
+  }
+  if (networkClass === 'constrained') {
+    return {
+      remainingItemThreshold: 4,
+      observerRootMarginPx: mobile ? 640 : 720,
+      maxInFlight: 1,
+      silentPrefetch: true,
+      progressiveRevealStep: 4,
+      progressiveInitialWindow: 6,
+      maxRetainedItems: 220
     };
   }
   if (networkClass === 'fast') {
     return {
-      remainingItemThreshold: mobile ? 5 : 6,
-      observerRootMarginPx: mobile ? 720 : 900,
+      remainingItemThreshold: mobile ? 6 : 8,
+      observerRootMarginPx: mobile ? 900 : 1100,
       maxInFlight: 1,
       silentPrefetch: true,
-      progressiveRevealStep: mobile ? 5 : 6,
-      progressiveInitialWindow: mobile ? 8 : 10,
-      maxRetainedItems: 140
+      progressiveRevealStep: mobile ? 6 : 8,
+      progressiveInitialWindow: mobile ? 10 : 12,
+      // High retain so continuous scroll feels unlimited while memory stays bounded.
+      maxRetainedItems: 400
     };
   }
   return {
-    remainingItemThreshold: mobile ? 4 : 5,
-    observerRootMarginPx: mobile ? 560 : 720,
+    remainingItemThreshold: mobile ? 5 : 6,
+    observerRootMarginPx: mobile ? 720 : 900,
     maxInFlight: 1,
     silentPrefetch: true,
-    progressiveRevealStep: mobile ? 4 : 5,
-    progressiveInitialWindow: mobile ? 7 : 8,
-    maxRetainedItems: 120
+    progressiveRevealStep: mobile ? 5 : 6,
+    progressiveInitialWindow: mobile ? 8 : 10,
+    maxRetainedItems: 300
   };
 };
 

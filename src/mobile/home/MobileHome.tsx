@@ -519,32 +519,27 @@ const MobileHome = () => {
       return;
     }
     if (tab === 'messages') {
-      flushSync(() => {
-        setSoftConversationId(null);
-        setMessagesOpen(true);
-      });
-      // Soft refresh only — force thrash makes inbox open feel like a full reload.
+      // Soft open: no full-platform reload.
+      setSoftConversationId(null);
+      setMessagesOpen(true);
       void refreshMessages({ force: false });
       return;
     }
     if (tab === 'home') {
-      flushSync(() => {
-        setActivePanelTab(null);
-        setScrollOverlay(null);
-      });
+      setActivePanelTab(null);
+      setScrollOverlay(null);
       if (location.pathname !== '/m/home') {
         navigate('/m/home', { replace: true });
       }
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
-    flushSync(() => {
-      setScrollOverlay(null);
-      setActivePanelTab(tab);
-    });
+    // Soft panel open — keep feed mounted under the sheet (no hard remount of app shell).
+    setScrollOverlay(null);
+    setActivePanelTab(tab);
     const nextPath = `/m/${tab}`;
     if (location.pathname !== nextPath) {
-      navigate(nextPath);
+      navigate(nextPath, { replace: false });
     }
   }, [activeTab, location.pathname, navigate, refreshMessages]);
 
@@ -704,9 +699,16 @@ const MobileHome = () => {
       notifications: 'Notifications',
       jobs: 'Jobs'
     };
+    // Soft sheet: keep feed mounted underneath; panel scrolls independently (no full app reload).
     return (
-      <div className={`fixed inset-0 z-[820] bg-slate-50 ${MOBILE_SHELL_MAIN_PAD_CLASS}`}>
-        <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur">
+      <div
+        className="fixed inset-0 z-[820] flex flex-col bg-slate-50/97 backdrop-blur-sm animate-in fade-in duration-150"
+        style={{ paddingTop: 'var(--scrolith-shell-header-offset, 3.5rem)' }}
+        role="dialog"
+        aria-modal="true"
+        aria-label={titleMap[activePanelTab]}
+      >
+        <div className="shrink-0 border-b border-slate-200 bg-white/95 backdrop-blur">
           <div className={`${MOBILE_PAGE_CONTAINER_CLASS} flex items-center justify-between py-3`}>
             <div className="text-sm font-semibold text-slate-900">{titleMap[activePanelTab]}</div>
             <button
@@ -719,7 +721,14 @@ const MobileHome = () => {
             </button>
           </div>
         </div>
-        <div className="h-[calc(100dvh-var(--scrolith-shell-header-offset,3.5rem)-var(--scrolith-shell-bottom-offset,4.25rem))] overflow-y-auto overscroll-contain">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain"
+          style={{
+            WebkitOverflowScrolling: 'touch',
+            touchAction: 'pan-y',
+            paddingBottom: 'var(--scrolith-shell-bottom-offset, 4.25rem)'
+          }}
+        >
           <Suspense
             fallback={
               <div className="px-4 py-6 text-sm font-medium text-slate-500">
@@ -738,7 +747,7 @@ const MobileHome = () => {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-slate-50">
+    <div className="min-h-[100%] bg-slate-50" style={{ touchAction: 'pan-y pinch-zoom' }}>
       <MobileHeader
         user={user}
         loading={loading}
@@ -772,7 +781,10 @@ const MobileHome = () => {
         }}
       />
 
-      <div className={MOBILE_SHELL_MAIN_PAD_CLASS}>
+      <div
+        className={`${MOBILE_SHELL_MAIN_PAD_CLASS} mobile-home-feed`}
+        style={{ touchAction: 'pan-y pinch-zoom', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+      >
         {/^\/m\/briefs(\/|$)/.test(location.pathname) ? (
           <Outlet
             context={{

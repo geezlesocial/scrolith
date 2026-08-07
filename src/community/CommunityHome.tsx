@@ -1191,7 +1191,7 @@ const CommunityHome = () => {
     ) {
       return;
     }
-    const postsLimit = Math.max(6, Math.min(40, Number(profile.feedPageSize || 20)));
+    const postsLimit = Math.max(10, Math.min(48, Number(profile.feedPageSize || 24)));
     const existingCount = postsRef.current.length;
     const canUseOffsetFallback = !cursor && postsOffsetFallbackRef.current && existingCount > 0;
     const canUseDiscoverySupplement = !cursor && !canUseOffsetFallback && !discoverySupplementUsedRef.current;
@@ -1509,8 +1509,8 @@ const CommunityHome = () => {
       }
       setStoriesLoading(true);
       setReelsLoading(true);
-      const postsLimit = Math.max(6, Math.min(40, Number(profile.feedPageSize || 20)));
-      const reelsLimit = Math.max(6, Math.min(24, Number(profile.feedPageSize || 18)));
+      const postsLimit = Math.max(10, Math.min(48, Number(profile.feedPageSize || 24)));
+      const reelsLimit = Math.max(8, Math.min(32, Number(profile.feedPageSize || 20)));
       try {
         const [
           feedPostsResult,
@@ -2981,7 +2981,11 @@ const CommunityHome = () => {
   );
 
   return (
-    <div className="min-h-screen min-w-0 overflow-x-hidden bg-slate-50" data-testid="community-home">
+    <div
+      className="community-feed-surface min-h-[100%] min-w-0 overflow-x-hidden overflow-y-visible bg-slate-50"
+      data-testid="community-home"
+      style={{ touchAction: 'pan-y pinch-zoom', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+    >
       {/* Hero Section */}
       {showHero ? (
         <div

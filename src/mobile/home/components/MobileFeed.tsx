@@ -1856,7 +1856,9 @@ export default function MobileFeed({
       return;
     }
     loadInFlightRef.current = true;
-    const feedLimit = Math.max(6, Math.min(24, adaptiveFeedLimit));
+    // Facebook-style continuous feed: larger pages + no hard cap on total posts
+    // (pagination ends only when API/cursor terminal). Page size still adaptive.
+    const feedLimit = Math.max(10, Math.min(40, adaptiveFeedLimit || 20));
     const requestId = ++feedLoadRequestIdRef.current;
     const requestedCursor = mode === 'more' ? String(cursorRef.current || '').trim() || null : null;
     const requestStartedAt = Date.now();
@@ -3383,7 +3385,7 @@ export default function MobileFeed({
                                     controls={false}
                                     autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
                                     preload="metadata"
-                                    preloadRootMargin={constrainedForFeed ? '80px 0px 80px 0px' : '260px 0px 260px 0px'}
+                                    preloadRootMargin={constrainedForFeed ? '160px 0px 240px 0px' : '400px 0px 600px 0px'}
                                     loadingLabel="Video loading"
                                     overlay={(videoElement) => (
                                       <div className="w-full space-y-2 px-2">

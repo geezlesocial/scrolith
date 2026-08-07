@@ -29,7 +29,7 @@ import { MarketingService } from './services/marketing';
 import { resolveResponsiveAssetUrl } from './utils/assetUrl';
 import { getCanonicalAppOrigin, getCanonicalRedirectUrl } from './utils/siteUrl';
 import { isLikelyChunkLoadError, normalizeRouteHref } from './mobile/runtime/routeRecovery';
-import { applyNativeChrome } from './mobile/runtime/nativeChrome';
+import { applyNativeChrome, ensureDocumentScrollEnabled } from './mobile/runtime/nativeChrome';
 import { shouldUseMobileShellViewport } from './mobile/home/mobileShellLayout';
 import {
   FOLLOW_ONBOARDING_PATH,
@@ -812,17 +812,23 @@ const AppContent = () => {
     };
   }, []);
 
-  // Next-gen native / compact-touch chrome: safe-area, overscroll, theme-color.
+  // Next-gen native / compact-touch chrome: safe-area + theme only (never lock scroll).
   useEffect(() => {
     const dispose = applyNativeChrome({
       isNative,
       isCompactTouch: isNative || isCompactTouchRuntime() || shouldUseMobileShellViewport(),
       brandThemeColor: '#0B5FFF'
     });
+    // Re-assert document scroll on route changes (modals/sheets can leave overflow locks).
+    ensureDocumentScrollEnabled();
     return () => {
       dispose?.();
     };
   }, [isNative]);
+
+  useEffect(() => {
+    ensureDocumentScrollEnabled();
+  }, [location.pathname]);
 
   useEffect(() => {
     if (!canonicalRedirectUrl || typeof window === 'undefined') return;

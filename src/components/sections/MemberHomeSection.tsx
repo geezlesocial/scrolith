@@ -2133,7 +2133,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     return 'latest';
   })();
 
-  const adaptiveFeedPageSize = Math.max(6, Math.min(40, Number(profile.feedPageSize || 20)));
+  const adaptiveFeedPageSize = Math.max(10, Math.min(48, Number(profile.feedPageSize || 24)));
   const maxFeedItems = Math.max(4, Math.min(adaptiveFeedPageSize, Number(content?.maxFeedItems ?? adaptiveFeedPageSize) || adaptiveFeedPageSize));
   const maxStories = content?.maxStories ?? 12;
   const configuredMaxReels = Math.max(6, Number((content as any)?.maxReels ?? content?.maxStories ?? 12) || 12);
@@ -8440,7 +8440,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         <div className="absolute top-16 right-[-10%] h-80 w-80 rounded-full bg-[radial-gradient(circle_at_center,#fef3c7,transparent_70%)]" />
       </div>
 
-      <div className={enterprisePageShell} data-testid="scrolith-member-home-shell">
+      <div
+        className={`${enterprisePageShell} mobile-home-feed`}
+        data-testid="scrolith-member-home-shell"
+        style={{ touchAction: 'pan-y pinch-zoom', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+      >
         <div className={`relative z-30 mb-6 overflow-visible flex flex-col gap-4 ${enterprisePanel} ${enterprisePanelPadding} bg-white/95 rise-fade`}>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0 lg:flex-1">

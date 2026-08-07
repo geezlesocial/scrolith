@@ -64,8 +64,9 @@ html {
 }
 
 /*
- * Next-gen mobile / Capacitor shell chrome (1.1.64+)
- * Applied via applyNativeChrome() — safe-area, overscroll, touch defaults.
+ * Next-gen mobile / Capacitor shell chrome
+ * Safe-area tokens only — document vertical scroll MUST remain free
+ * (matches pre-1.1.64 behavior that scrolled correctly on member-home/community).
  */
 html.scrolith-native-shell,
 html.scrolith-compact-touch {
@@ -77,33 +78,58 @@ html.scrolith-compact-touch {
   --scrolith-bottom-nav-h: 64px;
   --scrolith-shell-header-offset: calc(var(--scrolith-header-h) + var(--scrolith-sat));
   --scrolith-shell-bottom-offset: calc(var(--scrolith-bottom-nav-h) + var(--scrolith-sab));
-  overscroll-behavior-y: none;
+  height: auto;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  touch-action: pan-y pinch-zoom;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  -webkit-overflow-scrolling: touch;
 }
 
 html.scrolith-native-shell body,
 html.scrolith-compact-touch body {
-  overscroll-behavior-y: contain;
-  touch-action: manipulation;
+  height: auto;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: visible;
+  overscroll-behavior-y: auto;
+  touch-action: pan-y pinch-zoom;
   -webkit-tap-highlight-color: transparent;
   background-color: #f8fafc;
-  min-height: 100dvh;
+  -webkit-overflow-scrolling: touch;
 }
 
+/* Buttons/links: kill tap flash without blocking parent pan-y scroll */
 html.scrolith-native-shell button,
 html.scrolith-compact-touch button,
 html.scrolith-native-shell a,
 html.scrolith-compact-touch a {
   -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
 }
 
-/* Prefer content-sized scrollers over document rubber-band on Android WebView */
+/* Root must grow with feed content so window scroll works */
 html.scrolith-native-shell #root,
 html.scrolith-compact-touch #root {
-  min-height: 100dvh;
-  isolation: isolate;
+  min-height: 100%;
+  height: auto;
+  overflow: visible;
+  touch-action: pan-y pinch-zoom;
+}
+
+/* Feed surfaces: ensure nested media doesn't trap the document scroll chain */
+html.scrolith-native-shell .mobile-home-feed,
+html.scrolith-compact-touch .mobile-home-feed,
+html.scrolith-native-shell .community-feed-surface,
+html.scrolith-compact-touch .community-feed-surface,
+html.scrolith-native-shell [data-testid='scrolith-member-home-shell'],
+html.scrolith-compact-touch [data-testid='scrolith-member-home-shell'] {
+  touch-action: pan-y pinch-zoom;
+  -webkit-overflow-scrolling: touch;
+  overflow-x: hidden;
+  overflow-y: visible;
 }
 
 /* Skip-link focus target: ensure main is focusable without layout shift */
