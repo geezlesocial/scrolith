@@ -364,13 +364,41 @@ export const getKycStatus = async (req: Request, res: Response) => {
       include: { documents: true }
     });
 
+    // Clean, unattached docs survive form remounts / reloads before submit.
+    const pendingRows = await prisma.kYCDocument.findMany({
+      where: {
+        userId,
+        submissionId: null,
+        OR: [
+          { quarantineStatus: 'CLEAN' },
+          { scanStatus: 'CLEAN' }
+        ],
+        NOT: { status: 'rejected' }
+      },
+      orderBy: { uploadedAt: 'desc' },
+      take: 24
+    });
+    const pendingDocuments = pendingRows.map((doc) => mapDocument(doc));
+
     if (!submission) {
-      return res.json({ success: true, data: { status: 'not_submitted' } });
+      return res.json({
+        success: true,
+        data: {
+          status: 'not_submitted',
+          pendingDocuments,
+          pending_documents: pendingDocuments
+        }
+      });
     }
 
     return res.json({
       success: true,
-      data: { status: apiStatusFromDb(submission.status), submission: mapSubmission(submission) }
+      data: {
+        status: apiStatusFromDb(submission.status),
+        submission: mapSubmission(submission),
+        pendingDocuments,
+        pending_documents: pendingDocuments
+      }
     });
   } catch (error: any) {
     return sendError(res, error, 'Failed to load KYC status');
