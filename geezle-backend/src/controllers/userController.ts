@@ -1289,6 +1289,21 @@ export const getUserByUsername = async (req: Request, res: Response) => {
     } catch {
       isScrolitha = String(user.username || '').toLowerCase() === 'scrolitha';
     }
+    // Best-effort: make identity photos publicly readable for /u/:username <img> tags.
+    const photoId = String(user.profilePhotoFileId || '').trim();
+    if (photoId) {
+      try {
+        const { ensurePublicIdentityPhoto } = await import('../utils/identityPhoto');
+        await ensurePublicIdentityPhoto({
+          userId: user.id,
+          profilePhotoFileId: photoId,
+          avatar: user.avatar
+        });
+      } catch {
+        // non-fatal
+      }
+    }
+
     return ok(res, {
       id: user.id,
       name: user.name || '',

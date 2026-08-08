@@ -113,3 +113,16 @@ export async function downloadBlobBufferByName(blobName: string) {
   const blobClient = container.getBlobClient(normalized);
   return blobClient.downloadToBuffer();
 }
+
+/** List blob names under a prefix (capped). Used for identity-photo recovery. */
+export async function listBlobNamesByPrefix(prefix: string, max = 20): Promise<string[]> {
+  const container = getContainerClient();
+  const normalized = normalizeBlobName(prefix);
+  const out: string[] = [];
+  for await (const item of container.listBlobsFlat({ prefix: normalized })) {
+    if (!item?.name) continue;
+    out.push(item.name);
+    if (out.length >= max) break;
+  }
+  return out;
+}

@@ -1881,20 +1881,237 @@ export const serveFileContent = async (req: Request, res: Response) => {
       return;
     }
 
-    const file = await prisma.file.findUnique({
+    const fileSelect = {
+      id: true,
+      ownerId: true,
+      filename: true,
+      originalName: true,
+      mimeType: true,
+      visibility: true,
+      storageKey: true,
+      storageProvider: true,
+      url: true
+    } as const;
+
+    let file = await prisma.file.findUnique({
       where: { id },
-      select: {
-        id: true,
-        ownerId: true,
-        filename: true,
-        originalName: true,
-        mimeType: true,
-        visibility: true,
-        storageKey: true,
-        storageProvider: true,
-        url: true
-      }
+      select: fileSelect
     });
+
+    // Recovery: dangling profilePhotoFileId / avatar content URLs where the File row
+    // was GC'd or never linked, but users still reference the id.
+    if (!file) {
+      file = await prisma.file
+        .findFirst({
+          where: {
+            OR: [
+              { storageKey: id },
+              { storageKey: { endsWith: `/${id}` } },
+              { storageKey: { contains: id } },
+              { url: { contains: id } },
+              { filename: id },
+              { filename: { startsWith: `${id}.` } }
+            ]
+          },
+          select: fileSelect,
+          orderBy: { createdAt: 'desc' }
+        })
+        .catch(() => null);
+
+      // If still missing, try Azure blob keys commonly used for uploads and
+      // recreate a PUBLIC identity File row when this id is an active profile photo.
+      if (!file && isAzureBlobConfigured()) {
+        const referencedAsIdentity = await prisma.user
+          .count({
+            where: {
+              OR: [
+                { profilePhotoFileId: id },
+                { avatar: id },
+                { avatar: { contains: id } }
+              ]
+            }
+          })
+          .catch(() => 0);
+
+        if (referencedAsIdentity > 0) {
+          const { blobExistsByName, getBlobPropertiesByName, listBlobNamesByPrefix } = await import(
+            '../services/storage/blobStorage'
+          );
+          const candidateKeys = Array.from(
+            new Set(
+              [
+                id,
+                `uploads/${id}`,
+                `${id}.jpg`,
+                `${id}.jpeg`,
+                `${id}.png`,
+                `${id}.webp`,
+                `uploads/${id}.jpg`,
+                `uploads/${id}.jpeg`,
+                `uploads/${id}.png`,
+                `uploads/${id}.webp`,
+                `media/${id}`,
+                `media/${id}/original`,
+                `media/${id}/source`
+              ].map((k) => String(k || '').replace(/^\/+/, ''))
+            )
+          );
+
+          // Prefix scan catches keys like `<uuid>-original.png` or nested upload paths.
+          try {
+            const prefixed = await listBlobNamesByPrefix(id, 10);
+            for (const name of prefixed) candidateKeys.push(name);
+            const uploadPrefixed = await listBlobNamesByPrefix(`uploads/${id}`, 10);
+            for (const name of uploadPrefixed) candidateKeys.push(name);
+          } catch {
+            // listing may be denied; exact-key probes still run
+          }
+
+          let recoveredKey = '';
+          let recoveredMime = 'image/jpeg';
+          let recoveredSize = 0;
+          for (const key of Array.from(new Set(candidateKeys))) {
+            try {
+              const exists = await blobExistsByName(key);
+              if (!exists) continue;
+              const props = await getBlobPropertiesByName(key).catch(() => null);
+              recoveredKey = key;
+              recoveredMime = String(props?.contentType || 'image/jpeg');
+              recoveredSize = Number(props?.contentLength || 0) || 0;
+              break;
+            } catch {
+              // try next key
+            }
+          }
+
+          if (recoveredKey) {
+            const owner = await prisma.user
+              .findFirst({
+                where: {
+                  OR: [
+                    { profilePhotoFileId: id },
+                    { avatar: { contains: id } }
+                  ]
+                },
+                select: { id: true, role: true }
+              })
+              .catch(() => null);
+
+            const ext =
+              recoveredMime.includes('png')
+                ? 'png'
+                : recoveredMime.includes('webp')
+                  ? 'webp'
+                  : recoveredMime.includes('gif')
+                    ? 'gif'
+                    : 'jpg';
+            const contentUrl = `${resolveFileBaseUrl(req)}/api/files/content/${encodeURIComponent(id)}`;
+            const ownerRole =
+              String(owner?.role || '').toUpperCase() === 'ADMIN'
+                ? FileOwnerRole.ADMIN
+                : String(owner?.role || '').toUpperCase() === 'FREELANCER'
+                  ? FileOwnerRole.FREELANCER
+                  : FileOwnerRole.CLIENT;
+
+            // Prefer streaming immediately so public <img> works even if File recreate races.
+            const streamRecoveredBlob = async () => {
+              const { downloadBlobBufferByName } = await import('../services/storage/blobStorage');
+              const buffer = await downloadBlobBufferByName(recoveredKey);
+              applyFileResponseHeaders(res, {
+                contentType: recoveredMime,
+                contentLength: buffer.length,
+                cacheControl: 'public, max-age=86400'
+              });
+              res.end(buffer);
+            };
+
+            try {
+              // If another File already owns this storageKey, reuse it and retarget user refs.
+              const existingByKey = await prisma.file
+                .findFirst({
+                  where: { storageKey: recoveredKey },
+                  select: fileSelect
+                })
+                .catch(() => null);
+
+              if (existingByKey) {
+                file = existingByKey;
+                if (owner?.id && existingByKey.id !== id) {
+                  await prisma.user
+                    .updateMany({
+                      where: {
+                        OR: [{ profilePhotoFileId: id }, { avatar: { contains: id } }]
+                      },
+                      data: {
+                        profilePhotoFileId: existingByKey.id,
+                        avatar: `${resolveFileBaseUrl(req)}/api/files/content/${encodeURIComponent(existingByKey.id)}`
+                      }
+                    })
+                    .catch(() => undefined);
+                }
+                await prisma.file
+                  .update({
+                    where: { id: existingByKey.id },
+                    data: { visibility: FileVisibility.PUBLIC }
+                  })
+                  .catch(() => undefined);
+                if (owner?.id) {
+                  const { syncFileUsages } = await import('../utils/fileUsage');
+                  await syncFileUsages('profile_photo', owner.id, [existingByKey.id], 'Profile Photo').catch(
+                    () => undefined
+                  );
+                  await syncFileUsages('user_avatar', owner.id, [existingByKey.id], 'User Avatar').catch(
+                    () => undefined
+                  );
+                }
+              } else {
+                // Recreate durable File row under the referenced id so future <img> hits succeed.
+                file = await prisma.file.create({
+                  data: {
+                    id,
+                    ownerId: owner?.id || null,
+                    ownerRole,
+                    filename: `${id}.${ext}`,
+                    originalName: `profile-photo.${ext}`,
+                    mimeType: recoveredMime,
+                    size: BigInt(recoveredSize || 0),
+                    url: contentUrl,
+                    storageKey: recoveredKey,
+                    storageProvider: AZURE_BLOB_STORAGE_PROVIDER,
+                    visibility: FileVisibility.PUBLIC,
+                    processingStatus: 'READY'
+                  } as any,
+                  select: fileSelect
+                });
+                if (owner?.id) {
+                  const { syncFileUsages } = await import('../utils/fileUsage');
+                  await syncFileUsages('profile_photo', owner.id, [id], 'Profile Photo').catch(() => undefined);
+                  await syncFileUsages('user_avatar', owner.id, [id], 'User Avatar').catch(() => undefined);
+                }
+              }
+              console.warn('serveFileContent recovered missing identity File from Azure blob', {
+                fileId: file?.id || id,
+                storageKey: recoveredKey,
+                ownerId: owner?.id || null
+              });
+            } catch (recoverError) {
+              console.warn('serveFileContent identity File recreate failed; streaming blob once', {
+                fileId: id,
+                storageKey: recoveredKey,
+                error: (recoverError as any)?.message || recoverError
+              });
+              try {
+                await streamRecoveredBlob();
+                return;
+              } catch {
+                // fall through to 404
+              }
+            }
+          }
+        }
+      }
+    }
+
     if (!file) {
       res.status(404).json({ success: false, error: 'File not found' });
       return;
@@ -1908,7 +2125,9 @@ export const serveFileContent = async (req: Request, res: Response) => {
           where: {
             OR: [
               { profilePhotoFileId: file.id },
-              { avatar: file.id }
+              { avatar: file.id },
+              { avatar: { contains: file.id } },
+              { avatar: { endsWith: `/api/files/content/${file.id}` } }
             ]
           }
         })

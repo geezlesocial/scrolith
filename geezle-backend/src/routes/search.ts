@@ -182,6 +182,24 @@ const searchPeople = async (q: string, limit: number, req?: Request): Promise<Se
     });
   }
 
+  // Best-effort publicize identity photos so search <img> tags work without auth.
+  await Promise.all(
+    rows.map(async (user) => {
+      const photoId = String(user.profilePhotoFileId || '').trim();
+      if (!photoId) return;
+      try {
+        const { ensurePublicIdentityPhoto } = await import('../utils/identityPhoto');
+        await ensurePublicIdentityPhoto({
+          userId: user.id,
+          profilePhotoFileId: photoId,
+          avatar: user.avatar
+        });
+      } catch {
+        // non-fatal
+      }
+    })
+  );
+
   return rows.map((user) => {
     const displayName = user.name || user.username || 'User';
     const avatar = resolvePeopleAvatar(user, photoMap, req);
