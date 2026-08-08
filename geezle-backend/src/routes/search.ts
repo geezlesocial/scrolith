@@ -124,6 +124,29 @@ const searchPosts = async (q: string, limit: number): Promise<SearchEntry[]> => 
   });
 };
 
+const resolvePeopleAvatar = (
+  user: { avatar?: string | null; profilePhotoFileId?: string | null; name?: string | null; username?: string | null },
+  photoMap: Map<string, string>,
+  req?: Request
+) => {
+  const displayName = user.name || user.username || 'User';
+  const photoId = String(user.profilePhotoFileId || '').trim();
+  if (photoId) {
+    const mapped = photoMap.get(photoId);
+    if (mapped) return mapped;
+    // Durable public identity content URL — browsers can load without bearer tokens.
+    return `${resolveFileBaseUrl(req)}/api/files/content/${encodeURIComponent(photoId)}`;
+  }
+  const direct = resolveDirectMediaUrl(user.avatar, resolveFileBaseUrl(req));
+  if (direct) return direct;
+  // Avatar string may already be a content path or file id.
+  const rawAvatar = String(user.avatar || '').trim();
+  if (rawAvatar && !rawAvatar.includes('://') && !rawAvatar.includes('/') && rawAvatar.length >= 8) {
+    return `${resolveFileBaseUrl(req)}/api/files/content/${encodeURIComponent(rawAvatar)}`;
+  }
+  return fallbackAvatar(displayName, 'User');
+};
+
 const searchPeople = async (q: string, limit: number, req?: Request): Promise<SearchEntry[]> => {
   const contains = containsFilter(q);
   const rows = await prisma.user.findMany({
@@ -133,14 +156,35 @@ const searchPeople = async (q: string, limit: number, req?: Request): Promise<Se
     },
     orderBy: { updatedAt: 'desc' },
     take: limit,
-    select: { id: true, name: true, username: true, avatar: true }
+    select: { id: true, name: true, username: true, avatar: true, profilePhotoFileId: true }
   });
+
+  const photoIds = Array.from(
+    new Set(
+      rows
+        .map((user) => String(user.profilePhotoFileId || '').trim())
+        .filter((id) => Boolean(id))
+    )
+  );
+
+  let photoMap = new Map<string, string>();
+  if (photoIds.length) {
+    const files = await prisma.file.findMany({
+      where: { id: { in: photoIds } },
+      select: { id: true, url: true, storageKey: true, storageProvider: true }
+    });
+    photoMap = new Map<string, string>();
+    files.forEach((file) => {
+      // Prefer durable content API for identity photos (works when storage URLs expire).
+      photoMap.set(file.id, `${resolveFileBaseUrl(req)}/api/files/content/${encodeURIComponent(file.id)}`);
+      const resolved = resolveFileUrl(file as SearchFileRecord, req);
+      if (resolved && !photoMap.has(file.id)) photoMap.set(file.id, resolved);
+    });
+  }
 
   return rows.map((user) => {
     const displayName = user.name || user.username || 'User';
-    const avatar =
-      resolveDirectMediaUrl(user.avatar, resolveFileBaseUrl(req)) ||
-      fallbackAvatar(displayName, 'User');
+    const avatar = resolvePeopleAvatar(user, photoMap, req);
     return {
       id: user.id,
       type: 'people',
@@ -151,7 +195,10 @@ const searchPeople = async (q: string, limit: number, req?: Request): Promise<Se
       description: user.username ? `@${user.username}` : undefined,
       url: user.username ? `/u/${encodeURIComponent(user.username)}` : `/profile/${user.id}`,
       avatarUrl: avatar,
-      image: avatar
+      image: avatar,
+      meta: user.profilePhotoFileId
+        ? { profilePhotoFileId: user.profilePhotoFileId, profile_photo_file_id: user.profilePhotoFileId }
+        : undefined
     };
   });
 };
