@@ -1918,6 +1918,44 @@ export const serveFileContent = async (req: Request, res: Response) => {
         })
         .catch(() => null);
 
+      // If the id is a dead profilePhotoFileId, serve an alternate image the user still owns.
+      if (!file) {
+        const owner = await prisma.user
+          .findFirst({
+            where: {
+              OR: [{ profilePhotoFileId: id }, { avatar: { contains: id } }]
+            },
+            select: { id: true }
+          })
+          .catch(() => null);
+        if (owner?.id) {
+          try {
+            const { findAlternateIdentityPhotoFile, ensurePublicIdentityPhoto } = await import(
+              '../utils/identityPhoto'
+            );
+            const alternate = await findAlternateIdentityPhotoFile(owner.id);
+            if (alternate?.id) {
+              await ensurePublicIdentityPhoto({
+                userId: owner.id,
+                profilePhotoFileId: alternate.id,
+                retargetUser: true
+              });
+              file = await prisma.file.findUnique({ where: { id: alternate.id }, select: fileSelect });
+              console.warn('serveFileContent retargeted dangling identity id to alternate file', {
+                requestedId: id,
+                alternateId: alternate.id,
+                ownerId: owner.id
+              });
+            }
+          } catch (altErr) {
+            console.warn('serveFileContent alternate identity lookup failed', {
+              fileId: id,
+              error: (altErr as any)?.message || altErr
+            });
+          }
+        }
+      }
+
       // If still missing, try Azure blob keys commonly used for uploads and
       // recreate a PUBLIC identity File row when this id is an active profile photo.
       if (!file && isAzureBlobConfigured()) {

@@ -1162,14 +1162,34 @@ export const getUserBasics = async (req: Request, res: Response) => {
     if (!user) return fail(res, 404, 'User not found', 'ERR_NOT_FOUND');
 
     const pro = resolveUserProStatus(user);
+    let profilePhotoFileId = user.profilePhotoFileId || null;
+    let avatar = user.avatar || '';
+    try {
+      const { ensurePublicIdentityPhoto, buildIdentityContentUrl } = await import(
+        '../utils/identityPhoto'
+      );
+      const healedId = await ensurePublicIdentityPhoto({
+        userId: user.id,
+        profilePhotoFileId,
+        avatar,
+        retargetUser: true
+      });
+      if (healedId) {
+        profilePhotoFileId = healedId;
+        avatar = buildIdentityContentUrl(healedId, 'https://api.scrolith.com') || avatar;
+      }
+    } catch {
+      // non-fatal
+    }
+
     return ok(res, {
       id: user.id,
       name: user.name || '',
       email: user.email,
       username: user.username || '',
-      avatar: user.avatar || '',
-      profile_photo_file_id: user.profilePhotoFileId || null,
-      profilePhotoFileId: user.profilePhotoFileId || null,
+      avatar: avatar || '',
+      profile_photo_file_id: profilePhotoFileId,
+      profilePhotoFileId: profilePhotoFileId,
       role: user.role,
       country: user.country || '',
       created_at: user.createdAt.toISOString(),
@@ -1289,19 +1309,25 @@ export const getUserByUsername = async (req: Request, res: Response) => {
     } catch {
       isScrolitha = String(user.username || '').toLowerCase() === 'scrolitha';
     }
-    // Best-effort: make identity photos publicly readable for /u/:username <img> tags.
-    const photoId = String(user.profilePhotoFileId || '').trim();
-    if (photoId) {
-      try {
-        const { ensurePublicIdentityPhoto } = await import('../utils/identityPhoto');
-        await ensurePublicIdentityPhoto({
-          userId: user.id,
-          profilePhotoFileId: photoId,
-          avatar: user.avatar
-        });
-      } catch {
-        // non-fatal
+    // Best-effort: publicize or retarget dangling profile photos for /u/:username <img>.
+    let profilePhotoFileId = user.profilePhotoFileId || null;
+    let avatar = user.avatar || '';
+    try {
+      const { ensurePublicIdentityPhoto, buildIdentityContentUrl } = await import(
+        '../utils/identityPhoto'
+      );
+      const healedId = await ensurePublicIdentityPhoto({
+        userId: user.id,
+        profilePhotoFileId,
+        avatar,
+        retargetUser: true
+      });
+      if (healedId) {
+        profilePhotoFileId = healedId;
+        avatar = buildIdentityContentUrl(healedId, 'https://api.scrolith.com') || avatar;
       }
+    } catch {
+      // non-fatal
     }
 
     return ok(res, {
@@ -1309,9 +1335,9 @@ export const getUserByUsername = async (req: Request, res: Response) => {
       name: user.name || '',
       email: isScrolitha ? '' : user.email,
       username: user.username || '',
-      avatar: user.avatar || '',
-      profile_photo_file_id: user.profilePhotoFileId || null,
-      profilePhotoFileId: user.profilePhotoFileId || null,
+      avatar: avatar || '',
+      profile_photo_file_id: profilePhotoFileId,
+      profilePhotoFileId: profilePhotoFileId,
       role: isScrolitha ? 'SYSTEM_AI' : user.role,
       is_scrolitha: isScrolitha,
       isScrolitha,

@@ -182,18 +182,23 @@ const searchPeople = async (q: string, limit: number, req?: Request): Promise<Se
     });
   }
 
-  // Best-effort publicize identity photos so search <img> tags work without auth.
+  // Best-effort publicize / retarget dangling identity photos for search <img> tags.
+  const healedPhotoIds = new Map<string, string>();
   await Promise.all(
     rows.map(async (user) => {
-      const photoId = String(user.profilePhotoFileId || '').trim();
-      if (!photoId) return;
       try {
         const { ensurePublicIdentityPhoto } = await import('../utils/identityPhoto');
-        await ensurePublicIdentityPhoto({
+        const healed = await ensurePublicIdentityPhoto({
           userId: user.id,
-          profilePhotoFileId: photoId,
-          avatar: user.avatar
+          profilePhotoFileId: user.profilePhotoFileId,
+          avatar: user.avatar,
+          retargetUser: true
         });
+        if (healed) {
+          healedPhotoIds.set(user.id, healed);
+          // Refresh photo map entry for content URL resolution.
+          photoMap.set(healed, `${resolveFileBaseUrl(req)}/api/files/content/${encodeURIComponent(healed)}`);
+        }
       } catch {
         // non-fatal
       }
@@ -202,7 +207,12 @@ const searchPeople = async (q: string, limit: number, req?: Request): Promise<Se
 
   return rows.map((user) => {
     const displayName = user.name || user.username || 'User';
-    const avatar = resolvePeopleAvatar(user, photoMap, req);
+    const healedId = healedPhotoIds.get(user.id) || user.profilePhotoFileId || null;
+    const avatar = resolvePeopleAvatar(
+      { ...user, profilePhotoFileId: healedId },
+      photoMap,
+      req
+    );
     return {
       id: user.id,
       type: 'people',
@@ -214,8 +224,8 @@ const searchPeople = async (q: string, limit: number, req?: Request): Promise<Se
       url: user.username ? `/u/${encodeURIComponent(user.username)}` : `/profile/${user.id}`,
       avatarUrl: avatar,
       image: avatar,
-      meta: user.profilePhotoFileId
-        ? { profilePhotoFileId: user.profilePhotoFileId, profile_photo_file_id: user.profilePhotoFileId }
+      meta: healedId
+        ? { profilePhotoFileId: healedId, profile_photo_file_id: healedId }
         : undefined
     };
   });
