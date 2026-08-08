@@ -390,12 +390,19 @@ const normalizeKycFormConfig = (raw: any): KYCFormConfig => {
 };
 
 export const kycApi = {
-  getKYCStatus: async (): Promise<{ status: KYCStatus; submission?: KYCSubmission }> => {
+  getKYCStatus: async (): Promise<{
+    status: KYCStatus;
+    submission?: KYCSubmission;
+    /** Clean uploads not yet attached to a submission (draft retention). */
+    pendingDocuments?: KYCDocument[];
+  }> => {
     const response = await api.get<ApiResponse<{ status: KYCStatus; submission?: KYCSubmission }>>('/kyc/me');
     const data = handleApiResponse<any>(response);
+    const pendingRaw = data.pendingDocuments || data.pending_documents || [];
     return {
       status: data.status,
-      submission: data.submission ? mapSubmission(data.submission) : undefined
+      submission: data.submission ? mapSubmission(data.submission) : undefined,
+      pendingDocuments: Array.isArray(pendingRaw) ? pendingRaw.map(mapDocument) : []
     };
   },
 
