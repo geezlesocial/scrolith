@@ -138,15 +138,19 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
     fileUrl?: string | null;
     scanStatus?: string | null;
     fileName?: string | null;
+    uploadError?: string | null;
   };
 
   const [documents, setDocuments] = useState<DraftDocument[]>([]);
   const [consentAccepted, setConsentAccepted] = useState(false);
   const [uploadingType, setUploadingType] = useState<string | null>(null);
+  const [slotErrors, setSlotErrors] = useState<Record<string, string>>({});
   const secureFileInputRef = React.useRef<HTMLInputElement | null>(null);
   /** Avoid stale selectedDocumentType when the file dialog resolves before re-render. */
   const pendingUploadTypeRef = React.useRef<string | null>(null);
   const draftHydratedRef = React.useRef(false);
+  /** Always-current docs for submit (avoids stale empty closure). */
+  const documentsRef = React.useRef<DraftDocument[]>([]);
 
   const draftStorageKey = user?.id ? `scrolith:kyc-draft:${user.id}` : '';
 
@@ -398,6 +402,7 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
 
   // Persist draft whenever documents change after initial hydrate.
   useEffect(() => {
+    documentsRef.current = documents;
     if (!draftHydratedRef.current) return;
     writeDraftDocuments(documents);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -454,14 +459,25 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
 
   const handleSecureFileChosen = async (fileList: FileList | null) => {
     const file = fileList?.[0];
+    // Always prefer the slot key captured at open — never rely on server type renames.
     const type = String(pendingUploadTypeRef.current || selectedDocumentType || '').trim();
     if (!file || !type) {
       if (file && !type) {
-        showNotification('error', 'Upload failed', 'Document type was lost. Please tap the document slot again and re-select the file.');
+        showNotification(
+          'error',
+          'Upload failed',
+          'Document type was lost. Please tap the document slot again and re-select the file.'
+        );
       }
       return;
     }
+    const typeKey = normalizeDocType(type);
     setUploadingType(type);
+    setSlotErrors((prev) => {
+      const next = { ...prev };
+      delete next[typeKey];
+      return next;
+    });
     try {
       const uploaded = await kycApi.uploadSecureDocument(type, file, file.name);
       const documentId = String(
@@ -470,28 +486,35 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
       if (!documentId) {
         throw new Error('Upload completed without a document id. Please retry.');
       }
+      // Keep form option key as type so UI matching + submit validation stay aligned.
       const next: DraftDocument = {
-        type: String(uploaded?.type || type).trim() || type,
+        type,
         documentId,
-        scanStatus: uploaded.scanStatus || 'CLEAN',
-        fileName: file.name || null
+        scanStatus: String(uploaded.scanStatus || 'CLEAN').toUpperCase(),
+        fileName: file.name || null,
+        uploadError: null
       };
       setDocuments((prev) => {
-        const merged = mergeDocumentsByType(prev, [next]);
+        const withoutType = prev.filter((doc) => normalizeDocType(doc.type) !== typeKey);
+        const merged = mergeDocumentsByType(withoutType, [next]);
+        documentsRef.current = merged;
         writeDraftDocuments(merged);
         return merged;
       });
       showNotification(
         'success',
         'Document saved',
-        `${file.name || 'Document'} passed security checks and is kept on this form until you submit.`
+        `${file.name || 'Document'} is saved on this form. Upload all required slots, then submit.`
       );
     } catch (error: any) {
-      showNotification('error', 'Upload failed', friendlyUploadError(error));
+      const msg = friendlyUploadError(error);
+      setSlotErrors((prev) => ({ ...prev, [typeKey]: msg }));
+      showNotification('error', 'Upload failed', msg);
     } finally {
       setUploadingType(null);
       setSelectedDocumentType(null);
       setSelectedDocumentConfig(null);
+      // Keep pendingUploadTypeRef until input is cleared so rapid re-picks still work mid-flight.
       pendingUploadTypeRef.current = null;
       if (secureFileInputRef.current) secureFileInputRef.current.value = '';
     }
@@ -502,6 +525,11 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
     pendingUploadTypeRef.current = normalized;
     setSelectedDocumentType(normalized);
     setSelectedDocumentConfig(option || null);
+    setSlotErrors((prev) => {
+      const next = { ...prev };
+      delete next[normalizeDocType(normalized)];
+      return next;
+    });
     // Prefer native file input for private KYC path (not generic FilePicker public media)
     window.setTimeout(() => secureFileInputRef.current?.click(), 0);
   };
@@ -510,7 +538,13 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
     const key = normalizeDocType(type);
     setDocuments((prev) => {
       const next = prev.filter((doc) => normalizeDocType(doc.type) !== key);
+      documentsRef.current = next;
       writeDraftDocuments(next);
+      return next;
+    });
+    setSlotErrors((prev) => {
+      const next = { ...prev };
+      delete next[key];
       return next;
     });
   };
@@ -527,8 +561,12 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
       }
     }
 
-    const documentGroups = Array.isArray(formConfig?.documentGroups) ? formConfig.documentGroups : [];
-    const docsForSubmit = documents.filter((doc) => Boolean(String(doc.documentId || '').trim()));
+    const documentGroups = Array.isArray(formConfig?.documentGroups)
+      ? formConfig.documentGroups
+      : FALLBACK_KYC_FORM_CONFIG.documentGroups;
+    // Prefer ref so submit never reads a stale empty render snapshot.
+    const liveDocs = documentsRef.current.length ? documentsRef.current : documents;
+    const docsForSubmit = liveDocs.filter((doc) => Boolean(String(doc.documentId || '').trim()));
     for (const group of documentGroups) {
       const options = Array.isArray(group.options) ? group.options : [];
       const selectedCount = options.filter((option) =>
@@ -548,14 +586,22 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
         showNotification(
           'error',
           'Validation Error',
-          `Please upload required documents in "${group.label}". ${docsForSubmit.length ? `(${docsForSubmit.length} file(s) currently saved on this form)` : ''}`
+          `Please upload required documents in "${group.label}". ${
+            docsForSubmit.length
+              ? `(${docsForSubmit.length} file(s) currently saved on this form)`
+              : 'No files are saved yet — wait for “Saved on form” after each upload.'
+          }`
         );
         return;
       }
     }
 
     if (!docsForSubmit.length) {
-      showNotification('error', 'Validation Error', 'Upload at least one document before submitting.');
+      showNotification(
+        'error',
+        'Validation Error',
+        'Upload at least one document before submitting. After each file is accepted you should see a green “Saved on form” label on that slot.'
+      );
       return;
     }
 
@@ -766,8 +812,32 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
         cancelLabel="Cancel"
         variant="info"
         loading={submitting}
+        size="xl"
+        contentClassName="max-h-[min(70vh,40rem)] overflow-y-auto pr-1"
       >
-        <div className="mt-6 space-y-6 max-h-96 overflow-y-auto">
+        <div className="mt-2 space-y-6">
+          {/* Live document readiness strip */}
+          <div
+            className={`rounded-lg border px-3 py-2 text-sm ${
+              documents.length
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                : 'border-amber-200 bg-amber-50 text-amber-900'
+            }`}
+            data-testid="kyc-docs-status"
+          >
+            {documents.length ? (
+              <>
+                <span className="font-semibold">{documents.length} document(s) saved on this form.</span>{' '}
+                {documents.map((d) => d.fileName || d.type).join(' · ')}
+              </>
+            ) : (
+              <span className="font-semibold">
+                No documents saved yet. Tap a document slot, choose a file, and wait for “Saved on form” before
+                submitting.
+              </span>
+            )}
+          </div>
+
           {/* Personal Information */}
           <div>
             <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
@@ -974,26 +1044,36 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
                     ) : null}
                     <div className={`grid grid-cols-1 ${columnsClass} gap-3`}>
                       {options.map((option) => {
+                        const optionKey = String(option.key || '').trim();
                         const existingDoc = documents.find(
-                          (doc) => normalizeDocType(doc.type) === normalizeDocType(option.key)
+                          (doc) => normalizeDocType(doc.type) === normalizeDocType(optionKey)
                         );
+                        const slotError = slotErrors[normalizeDocType(optionKey)];
                         const scanClean =
                           String(existingDoc?.scanStatus || '').toUpperCase() === 'CLEAN';
+                        const isUploadingThis =
+                          normalizeDocType(uploadingType) === normalizeDocType(optionKey);
                         return (
                           <div
-                            key={option.key}
+                            key={optionKey}
+                            data-testid={`kyc-doc-slot-${optionKey}`}
+                            data-saved={existingDoc ? 'true' : 'false'}
                             className={`p-3 border rounded-lg text-left transition-colors ${
-                              existingDoc ? 'border-green-300 bg-green-50' : 'border-gray-300'
+                              existingDoc
+                                ? 'border-green-300 bg-green-50'
+                                : slotError
+                                  ? 'border-red-300 bg-red-50'
+                                  : 'border-gray-300 hover:border-indigo-300'
                             }`}
                           >
                             <button
                               type="button"
                               disabled={Boolean(uploadingType)}
-                              onClick={() => openSecureUpload(String(option.key), option)}
+                              onClick={() => openSecureUpload(optionKey, option)}
                               className="w-full text-left disabled:opacity-60"
                             >
                               <div className="flex items-center space-x-2">
-                                {uploadingType === String(option.key) ? (
+                                {isUploadingThis ? (
                                   <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
                                 ) : existingDoc ? (
                                   <CheckCircle className="w-4 h-4 text-green-600" />
@@ -1002,12 +1082,20 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
                                 )}
                                 <span className="text-sm font-medium">{option.label}</span>
                               </div>
-                              {existingDoc ? (
-                                <p className="mt-2 text-xs text-green-800 font-medium">
-                                  Saved on form
-                                  {existingDoc.fileName ? `: ${existingDoc.fileName}` : ''}
-                                  {scanClean ? ' · security scan passed' : ''}
+                              {isUploadingThis ? (
+                                <p className="mt-2 text-xs font-medium text-indigo-700">
+                                  Uploading and scanning… please wait
                                 </p>
+                              ) : null}
+                              {existingDoc ? (
+                                <p className="mt-2 text-xs text-green-800 font-semibold">
+                                  ✓ Saved on form
+                                  {existingDoc.fileName ? `: ${existingDoc.fileName}` : ''}
+                                  {scanClean ? ' · security checks complete' : ''}
+                                </p>
+                              ) : null}
+                              {slotError ? (
+                                <p className="mt-2 text-xs font-medium text-red-700">{slotError}</p>
                               ) : null}
                               {option.cameraOnly ? (
                                 <p className="mt-2 text-xs text-amber-700">Camera-only capture required</p>
@@ -1019,7 +1107,7 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
                                   type="button"
                                   className="text-xs font-semibold text-indigo-700 hover:underline"
                                   disabled={Boolean(uploadingType)}
-                                  onClick={() => openSecureUpload(String(option.key), option)}
+                                  onClick={() => openSecureUpload(optionKey, option)}
                                 >
                                   Replace
                                 </button>
@@ -1027,7 +1115,7 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
                                   type="button"
                                   className="text-xs font-semibold text-red-600 hover:underline"
                                   disabled={Boolean(uploadingType)}
-                                  onClick={() => removeDraftDocument(String(option.key))}
+                                  onClick={() => removeDraftDocument(optionKey)}
                                 >
                                   Remove
                                 </button>

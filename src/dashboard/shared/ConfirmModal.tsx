@@ -14,6 +14,10 @@ interface ConfirmModalProps {
   variant?: 'danger' | 'warning' | 'info';
   loading?: boolean;
   children?: React.ReactNode;
+  /** Wider dialog for multi-section enterprise forms (e.g. KYC). */
+  size?: 'md' | 'lg' | 'xl';
+  /** Allow long forms to scroll inside the dialog. */
+  contentClassName?: string;
 }
 
 export const ConfirmModal: React.FC<ConfirmModalProps> = ({
@@ -28,7 +32,9 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   cancelLabel = 'Cancel',
   variant = 'danger',
   loading = false,
-  children
+  children,
+  size = 'md',
+  contentClassName = ''
 }) => {
   const visible = typeof isOpen === 'boolean' ? isOpen : Boolean(open);
   if (!visible) return null;
@@ -38,11 +44,13 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
     warning: 'bg-orange-600 hover:bg-orange-700 focus:ring-orange-500',
     info: 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500'
   };
+  const widthClass =
+    size === 'xl' ? 'max-w-4xl' : size === 'lg' ? 'max-w-2xl' : 'max-w-md';
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
-        <div className="p-6">
+      <div className={`bg-white rounded-xl shadow-2xl w-full ${widthClass} max-h-[92vh] flex flex-col`}>
+        <div className="p-6 overflow-y-auto flex-1 min-h-0">
           <div className="flex items-start">
             <div className={`flex-shrink-0 mx-auto flex items-center justify-center h-12 w-12 rounded-full ${
               variant === 'danger' ? 'bg-red-100' : variant === 'warning' ? 'bg-orange-100' : 'bg-blue-100'
@@ -59,7 +67,9 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
                 <p className="text-sm text-gray-500">{message || description}</p>
               </div>
             )}
-            {children && <div className="mt-4 text-left">{children}</div>}
+            {children && (
+              <div className={`mt-4 text-left ${contentClassName || ''}`.trim()}>{children}</div>
+            )}
           </div>
         </div>
         <div className="bg-gray-50 px-6 py-4 rounded-b-xl flex items-center justify-end space-x-3">
