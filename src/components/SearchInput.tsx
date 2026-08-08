@@ -19,6 +19,9 @@ import {
 import { SearchSuggestion } from '../types';
 import { useUser } from '../context/UserContext';
 import { CompassIcon as Compass, ShoppingCartIcon as ShoppingCart, UserIcon as User, UsersIcon as Users } from './icons/ShellIcons';
+import { resolveUserAvatarUrl } from '../utils/userAvatar';
+import { resolvePostAttachmentMediaUrl } from '../utils/postAttachmentMedia';
+import { resolveAssetUrl } from '../utils/assetUrl';
 
 interface SearchInputProps {
     placeholder?: string;
@@ -73,15 +76,43 @@ const normalizeSuggestionVisualType = (suggestion: SearchSuggestion): SearchSugg
     return 'keyword';
 };
 
-const resolveSuggestionImage = (suggestion: SearchSuggestion) =>
-    String(
+const resolveSuggestionImage = (suggestion: SearchSuggestion) => {
+    const meta = (suggestion as any)?.meta || {};
+    const fileId = String(
+        meta.profilePhotoFileId ||
+          meta.profile_photo_file_id ||
+          meta.avatarFileId ||
+          meta.logoFileId ||
+          (suggestion as any)?.profilePhotoFileId ||
+          (suggestion as any)?.profile_photo_file_id ||
+          ''
+    ).trim();
+    const fromFile =
+        (fileId
+            ? resolvePostAttachmentMediaUrl({ fileId }) ||
+              resolveUserAvatarUrl({ profilePhotoFileId: fileId })
+            : '') || '';
+    const raw = String(
         suggestion.avatarUrl ||
-        suggestion.image ||
-        suggestion.thumbnailUrl ||
-        (suggestion as any)?.avatar ||
-        (suggestion as any)?.thumbnail ||
-        ''
-    ).trim() || null;
+          suggestion.image ||
+          suggestion.thumbnailUrl ||
+          (suggestion as any)?.avatar ||
+          (suggestion as any)?.thumbnail ||
+          ''
+    ).trim();
+    const resolved =
+        fromFile ||
+        resolveUserAvatarUrl({
+            avatarUrl: raw,
+            avatar: raw,
+            profilePhotoFileId: fileId || undefined,
+            ...meta
+        }) ||
+        resolvePostAttachmentMediaUrl({ url: raw, fileId }) ||
+        resolveAssetUrl(raw) ||
+        raw;
+    return resolved || null;
+};
 
 const suggestionVisualConfig: Record<SearchSuggestionVisualType, { icon: React.ComponentType<{ className?: string }>; shell: string; badge: string; shape: string }> = {
     people: {
@@ -248,6 +279,12 @@ const SearchInput: React.FC<SearchInputProps> = ({
                                 image: item?.image || item?.avatarUrl || null,
                                 avatarUrl: item?.avatarUrl || item?.image || null,
                                 thumbnailUrl: item?.thumbnailUrl || item?.image || item?.avatarUrl || null,
+                                meta: item?.meta || undefined,
+                                profilePhotoFileId:
+                                    item?.meta?.profilePhotoFileId ||
+                                    item?.profilePhotoFileId ||
+                                    item?.profile_photo_file_id ||
+                                    undefined,
                                 description:
                                     item.subtitle ||
                                     item.description ||

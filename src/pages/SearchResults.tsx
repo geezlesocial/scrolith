@@ -30,6 +30,9 @@ import {
   type GlobalSearchGroups,
   type GlobalSearchItem
 } from '../services/globalSearch';
+import { resolveUserAvatarUrl } from '../utils/userAvatar';
+import { resolvePostAttachmentMediaUrl } from '../utils/postAttachmentMedia';
+import { resolveAssetUrl } from '../utils/assetUrl';
 
 type SearchFilter = 'all' | GlobalSearchGroupKey;
 
@@ -348,7 +351,29 @@ function ResultCard({
             : FileText;
   const title = getTitle(item);
   const subtitle = getSubtitle(item, type);
-  const image = item.avatarUrl || item.image || null;
+  const fileId = String(
+    item.meta?.profilePhotoFileId ||
+      item.meta?.profile_photo_file_id ||
+      item.meta?.avatarFileId ||
+      item.meta?.logoFileId ||
+      ''
+  ).trim();
+  const rawImage = String(item.avatarUrl || item.image || '').trim();
+  const image =
+    (fileId
+      ? resolvePostAttachmentMediaUrl({ fileId }) ||
+        resolveUserAvatarUrl({ profilePhotoFileId: fileId })
+      : '') ||
+    resolveUserAvatarUrl({
+      avatarUrl: rawImage,
+      avatar: rawImage,
+      profilePhotoFileId: fileId || undefined,
+      ...(item.meta || {})
+    }) ||
+    resolvePostAttachmentMediaUrl({ url: rawImage, fileId }) ||
+    resolveAssetUrl(rawImage) ||
+    rawImage ||
+    null;
   const url = getUrl(item, type);
 
   return (

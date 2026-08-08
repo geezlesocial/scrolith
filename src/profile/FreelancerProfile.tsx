@@ -16,6 +16,7 @@ import { ReviewsService, Review } from '../services/reviews';
 import { resolveVerificationLevel } from '../utils/verification';
 import { resolveAssetUrl } from '../utils/assetUrl';
 import { resolvePostAttachmentMediaUrl } from '../utils/postAttachmentMedia';
+import { resolveUserAvatarUrl } from '../utils/userAvatar';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../community/storyStyles';
 import { getPublicAppOrigin } from '../utils/siteUrl';
 import ProfessionalIntegrationStrip from '../components/discovery/ProfessionalIntegrationStrip';
@@ -132,6 +133,8 @@ const FreelancerProfile = () => {
     id?: string;
     name?: string;
     avatar?: string;
+    profilePhotoFileId?: string;
+    profile_photo_file_id?: string;
     isProFreelancer?: boolean;
     isVerified?: boolean;
     verificationLevel?: string;
@@ -269,10 +272,19 @@ const FreelancerProfile = () => {
             ReputationService.getTrustScore(userId)
           ]);
           if (!mounted) return;
+          const profilePhotoFileId = String(
+            (baseUser as any)?.profilePhotoFileId ||
+              (baseUser as any)?.profile_photo_file_id ||
+              (baseUser as any)?.avatarFileId ||
+              (baseUser as any)?.avatar_file_id ||
+              ''
+          ).trim();
           setPublicUser({
             id: baseUser.id,
             name: baseUser.name,
             avatar: baseUser.avatar,
+            profilePhotoFileId: profilePhotoFileId || undefined,
+            profile_photo_file_id: profilePhotoFileId || undefined,
             username: (baseUser as any)?.username,
             isProFreelancer: Boolean((baseUser as any)?.isProFreelancer ?? (baseUser as any)?.is_pro_freelancer),
             isVerified: Boolean((baseUser as any)?.isVerified ?? (baseUser as any)?.is_verified),
@@ -281,7 +293,7 @@ const FreelancerProfile = () => {
               (baseUser as any)?.verification_level ||
               (baseUser as any)?.badgeType ||
               (baseUser as any)?.badge_type
-          });
+          } as any);
           setProfile(profileData);
           setTrustScore(trust);
           setStorefrontLoading(true);
@@ -555,7 +567,12 @@ const FreelancerProfile = () => {
       try {
           const conversationId = await MessagingService.createConversation([
               { id: user.id, name: user.name || 'You', avatar: user.avatar, role: user.role },
-              { id: publicUser.id, name: publicUser?.name || 'User', avatar: publicUser?.avatar }
+              {
+                id: publicUser.id,
+                name: publicUser?.name || 'User',
+                avatar: publicUser?.avatar,
+                profilePhotoFileId: publicUser?.profilePhotoFileId || publicUser?.profile_photo_file_id
+              }
           ]);
           window.location.href = `/messages/${conversationId}`;
       } catch (error: any) {
@@ -749,7 +766,11 @@ const FreelancerProfile = () => {
                                     className={`!h-24 !w-24 border-4 border-white shadow-md sm:!h-28 sm:!w-28 md:!h-32 md:!w-32 ${
                                       stories.length > 0 ? 'ring-4 ring-emerald-400 ring-offset-2 ring-offset-white' : ''
                                     }`}
-                                    src={resolveAssetUrl(String(publicUser?.avatar || '')) || undefined}
+                                    src={
+                                      resolveUserAvatarUrl(publicUser) ||
+                                      resolveAssetUrl(String(publicUser?.avatar || '')) ||
+                                      undefined
+                                    }
                                     name={publicUser?.name || publicUser?.username || 'Profile'}
                                     user={publicUser}
                                     size="xl"
@@ -1519,7 +1540,11 @@ const FreelancerProfile = () => {
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-3">
                                 <EnterpriseAvatar
-                                  src={resolveAssetUrl(review.author?.avatar) || undefined}
+                                  src={
+                                    resolveUserAvatarUrl(review.author) ||
+                                    resolveAssetUrl(review.author?.avatar) ||
+                                    undefined
+                                  }
                                   name={review.author?.name || 'Reviewer'}
                                   user={review.author}
                                   size="md"
@@ -1561,7 +1586,11 @@ const FreelancerProfile = () => {
                             <div key={follower.id} className="flex items-center justify-between rounded-lg border border-gray-200 p-3">
                               <Link to={follower.username ? `/u/${follower.username}` : `/profile/${follower.id}`} className="flex items-center gap-3 min-w-0">
                                 <EnterpriseAvatar
-                                  src={resolveAssetUrl(follower.avatar) || undefined}
+                                  src={
+                                    resolveUserAvatarUrl(follower) ||
+                                    resolveAssetUrl(follower.avatar) ||
+                                    undefined
+                                  }
                                   name={follower.name}
                                   user={follower}
                                   size="md"
