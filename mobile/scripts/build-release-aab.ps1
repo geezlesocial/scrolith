@@ -1,4 +1,4 @@
-﻿# Phase 21.1 â€” production Android App Bundle builder
+# Phase 21.1 - production Android App Bundle builder
 # Usage (from C:\Projects\mobile):
 #   powershell -ExecutionPolicy Bypass -File scripts\build-release-aab.ps1
 $ErrorActionPreference = 'Stop'
@@ -6,9 +6,9 @@ $ErrorActionPreference = 'Stop'
 $MobileRoot = Split-Path -Parent $PSScriptRoot
 $GeezleRoot = Join-Path (Split-Path -Parent $MobileRoot) 'geezle'
 $AndroidRoot = Join-Path $MobileRoot 'android'
-$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.60'
-$VersionCode = 70
-$VersionName = '1.1.60'
+$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.68'
+$VersionCode = 79
+$VersionName = '1.1.69'
 $WebCommit = (git -C $GeezleRoot rev-parse --short HEAD 2>$null)
 if (-not $WebCommit) { $WebCommit = 'unknown' }
 
@@ -125,12 +125,12 @@ $meta = @{
   webCommit = $WebCommit
   minifyEnabled = $true
   shrinkResources = $true
-  phase = 'follow-onboarding-logo-bundle'
+  phase = 'kyc-draft-avatar-fix'
   targetSdk = 36
   compileSdk = 36
   minSdk = 24
-  productionBackendRevision = 'ca-scrolith-backend--media-be382acc'
-  productionFrontendRevision = 'ca-scrolith-frontend--onboard-logo-49847918'
+  productionBackendRevision = 'ca-scrolith-backend--kyc-draft-cea708ad'
+  productionFrontendRevision = 'ca-scrolith-frontend--kyc-draft-aeebd3a2'
   productionApi = 'https://api.scrolith.com'
   productionAppUrl = 'https://scrolith.com'
   googlePlayUploadPerformed = $false
