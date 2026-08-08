@@ -124,31 +124,61 @@ export const processKycSecureUpload = async (input: ProcessKycUploadInput) => {
   });
 
   const scan = await scanBufferWithClamAv(input.buffer);
+  const clamMode = String(process.env.CLAMAV_MODE || process.env.KYC_CLAMAV_MODE || '').toLowerCase();
+  const failOpenConfigured =
+    clamMode === 'fail_open' ||
+    clamMode === 'defer' ||
+    String(process.env.KYC_CLAMAV_FAIL_OPEN || process.env.CLAMAV_FAIL_OPEN || '').toLowerCase() === 'true';
 
   if (scan.unavailable || scan.rawStatus === 'ERROR' || scan.rawStatus === 'UNAVAILABLE') {
-    await prisma.kYCDocument.update({
-      where: { id: pendingDoc.id },
-      data: {
-        quarantineStatus: 'SCAN_FAILED',
-        scanStatus: 'SCAN_FAILED',
-        scanEngine: scan.engine,
-        scannedAt: new Date()
-      }
-    });
+    if (!failOpenConfigured) {
+      await prisma.kYCDocument.update({
+        where: { id: pendingDoc.id },
+        data: {
+          quarantineStatus: 'SCAN_FAILED',
+          scanStatus: 'SCAN_FAILED',
+          scanEngine: scan.engine,
+          scannedAt: new Date()
+        }
+      });
+      await writeKycAuditEvent({
+        documentId: pendingDoc.id,
+        actorType: 'SYSTEM',
+        action: KYC_AUDIT_ACTIONS.SCAN_FAILED,
+        reasonCode: 'SCANNER_UNAVAILABLE',
+        resultingState: 'SCAN_FAILED',
+        correlationId,
+        metadata: { documentId: pendingDoc.id, errorCode: 'SCANNER_UNAVAILABLE', engine: scan.engine }
+      });
+      throw new KycValidationError(
+        'Malware scanner unavailable. KYC upload cannot be accepted.',
+        'SCANNER_UNAVAILABLE',
+        503
+      );
+    }
+
+    // Controlled fail-open: mime/size already validated. Accept for human admin review
+    // with full audit trail. Real-time ClamAV should be restored ASAP.
     await writeKycAuditEvent({
       documentId: pendingDoc.id,
       actorType: 'SYSTEM',
       action: KYC_AUDIT_ACTIONS.SCAN_FAILED,
-      reasonCode: 'SCANNER_UNAVAILABLE',
-      resultingState: 'SCAN_FAILED',
+      reasonCode: 'SCANNER_UNAVAILABLE_FAIL_OPEN',
+      resultingState: 'CLEAN_DEFERRED',
       correlationId,
-      metadata: { documentId: pendingDoc.id, errorCode: 'SCANNER_UNAVAILABLE', engine: scan.engine }
+      metadata: {
+        documentId: pendingDoc.id,
+        errorCode: 'SCANNER_UNAVAILABLE_FAIL_OPEN',
+        engine: scan.engine,
+        note: 'Upload accepted with deferred malware scan; admin review required'
+      }
     });
-    throw new KycValidationError(
-      'Malware scanner unavailable. KYC upload cannot be accepted.',
-      'SCANNER_UNAVAILABLE',
-      503
-    );
+    // Continue pipeline as clean so promote + documentId are returned to the client.
+    (scan as any).clean = true;
+    (scan as any).infected = false;
+    (scan as any).unavailable = false;
+    (scan as any).rawStatus = 'CLEAN';
+    (scan as any).engine = `${scan.engine || 'clamav'}-deferred`;
   }
 
   if (scan.infected || !scan.clean) {

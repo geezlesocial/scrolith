@@ -22,8 +22,21 @@ const trim = (value: unknown) => String(value || '').trim();
 
 const resolveMode = () => {
   // mock_clean / mock_infected for unit tests only.
+  // fail_open / defer: when clamd is unreachable, allow validated uploads with deferred scan audit.
   const mode = trim(process.env.CLAMAV_MODE || process.env.KYC_CLAMAV_MODE).toLowerCase();
-  if (mode === 'mock_clean' || mode === 'mock_infected' || mode === 'disabled') return mode;
+  if (
+    mode === 'mock_clean' ||
+    mode === 'mock_infected' ||
+    mode === 'disabled' ||
+    mode === 'fail_open' ||
+    mode === 'defer'
+  ) {
+    return mode;
+  }
+  // Explicit opt-in via boolean when mode stays tcp but scanner host is not provisioned.
+  if (trim(process.env.KYC_CLAMAV_FAIL_OPEN || process.env.CLAMAV_FAIL_OPEN).toLowerCase() === 'true') {
+    return 'fail_open';
+  }
   return 'tcp';
 };
 
