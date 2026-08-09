@@ -2,6 +2,9 @@ import { Preferences } from '@capacitor/preferences';
 import api from './api';
 
 const DEVICE_ID_KEY = 'Scrolith.device.id';
+const DEVICE_KEY_DB = 'ScrolithDeviceSecurity';
+const DEVICE_KEY_STORE = 'keys';
+const DEVICE_PRIVATE_KEY = 'device-private-key';
 
 const isNativeRuntime = () => {
   try {
@@ -21,6 +24,117 @@ const randomId = () => {
     // fallback below
   }
   return `sd_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 14)}`;
+};
+
+const bufferToBase64Url = (buffer: ArrayBuffer) => {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+};
+
+const openKeyDb = () =>
+  new Promise<IDBDatabase>((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('IndexedDB unavailable'));
+      return;
+    }
+    const request = indexedDB.open(DEVICE_KEY_DB, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(DEVICE_KEY_STORE)) {
+        db.createObjectStore(DEVICE_KEY_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('Unable to open device key store'));
+  });
+
+const readPrivateKey = async () => {
+  try {
+    const db = await openKeyDb();
+    return await new Promise<CryptoKey | null>((resolve, reject) => {
+      const tx = db.transaction(DEVICE_KEY_STORE, 'readonly');
+      const request = tx.objectStore(DEVICE_KEY_STORE).get(DEVICE_PRIVATE_KEY);
+      request.onsuccess = () => resolve((request.result as CryptoKey) || null);
+      request.onerror = () => reject(request.error || new Error('Unable to read device key'));
+      tx.oncomplete = () => db.close();
+      tx.onerror = () => db.close();
+    });
+  } catch {
+    return null;
+  }
+};
+
+const writePrivateKey = async (key: CryptoKey) => {
+  const db = await openKeyDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(DEVICE_KEY_STORE, 'readwrite');
+    tx.objectStore(DEVICE_KEY_STORE).put(key, DEVICE_PRIVATE_KEY);
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error || new Error('Unable to store device key'));
+    };
+  });
+};
+
+const getOrCreateDeviceKeyPair = async () => {
+  if (!crypto?.subtle) return null;
+  const existingPrivateKey = await readPrivateKey();
+  if (existingPrivateKey) {
+    return { privateKey: existingPrivateKey, publicKey: null as CryptoKey | null };
+  }
+  const pair = await crypto.subtle.generateKey(
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    false,
+    ['sign', 'verify']
+  );
+  await writePrivateKey(pair.privateKey);
+  return { privateKey: pair.privateKey, publicKey: pair.publicKey };
+};
+
+const ensurePublicKey = async (privateKey: CryptoKey, generatedPublicKey: CryptoKey | null) => {
+  if (!generatedPublicKey) {
+    const cached = await readStorage(`${DEVICE_ID_KEY}.publicKey`);
+    if (cached) return cached;
+    return null;
+  }
+  const exported = await crypto.subtle.exportKey('jwk', generatedPublicKey);
+  const serialized = JSON.stringify(exported);
+  await writeStorage(`${DEVICE_ID_KEY}.publicKey`, serialized);
+  return serialized;
+};
+
+const createPossessionProof = async (deviceId: string) => {
+  try {
+    const keyPair = await getOrCreateDeviceKeyPair();
+    if (!keyPair) return { publicKey: null, possessionProof: null };
+    const publicKey = await ensurePublicKey(keyPair.privateKey, keyPair.publicKey);
+    if (!publicKey) return { publicKey: null, possessionProof: null };
+    const timestamp = Date.now();
+    const payload = `scrolith-device-proof:v1\n${deviceId}\n${timestamp}`;
+    const signature = await crypto.subtle.sign(
+      { name: 'ECDSA', hash: 'SHA-256' },
+      keyPair.privateKey,
+      new TextEncoder().encode(payload)
+    );
+    return {
+      publicKey,
+      possessionProof: {
+        algorithm: 'ECDSA_P256_SHA256',
+        timestamp,
+        signature: bufferToBase64Url(signature)
+      }
+    };
+  } catch {
+    return { publicKey: null, possessionProof: null };
+  }
 };
 
 const readStorage = async (key: string) => {
@@ -64,6 +178,7 @@ export const getOrCreateDeviceId = async () => {
 
 export const getDeviceMetadata = async () => {
   const deviceId = await getOrCreateDeviceId();
+  const proof = await createPossessionProof(deviceId);
   const runtime = (window as any)?.Capacitor;
   const platform = (() => {
     try {
@@ -75,6 +190,8 @@ export const getDeviceMetadata = async () => {
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
   return {
     deviceId,
+    ...(proof.publicKey ? { publicKey: proof.publicKey } : {}),
+    ...(proof.possessionProof ? { possessionProof: proof.possessionProof } : {}),
     platform,
     deviceType: isNativeRuntime() ? 'mobile_app' : 'browser',
     browserName: ua.includes('Chrome') ? 'Chrome' : ua.includes('Firefox') ? 'Firefox' : ua.includes('Safari') ? 'Safari' : 'Browser',
