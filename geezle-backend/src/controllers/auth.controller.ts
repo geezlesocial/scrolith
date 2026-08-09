@@ -561,13 +561,21 @@ export const login = async (req: Request, res: Response) => {
     }
 
     const deviceGate = await evaluateLoginDevice(user, req);
+    const deviceGateResult = deviceGate as any;
+    if (deviceGateResult.denied) {
+      return res.status(deviceGateResult.status || 403).json({
+        success: false,
+        error: deviceGateResult.message || 'Device security verification failed',
+        code: deviceGateResult.code || 'DEVICE_SECURITY_FAILED'
+      });
+    }
     if (!deviceGate.approved) {
       return res.status(202).json({
         success: true,
         requiresLoginApproval: true,
         code: 'LOGIN_APPROVAL_REQUIRED',
         message: 'Approve this login from an existing trusted Scrolith session.',
-        loginApproval: deviceGate.attempt,
+        loginApproval: deviceGateResult.attempt,
         user: { id: user.id, email: user.email, role: user.role }
       });
     }
@@ -595,7 +603,7 @@ export const login = async (req: Request, res: Response) => {
     return sendSessionResponse(res, user, token, {
       forcePasswordReset: Boolean(staffProfile?.forcePasswordReset),
       deviceTrusted: Boolean(deviceGate.device),
-      deviceTrustBootstrapped: Boolean(deviceGate.bootstrapped)
+      deviceTrustBootstrapped: Boolean(deviceGateResult.bootstrapped)
     });
   } catch (error) {
     console.error('Login error:', error, (error as any)?.stack);

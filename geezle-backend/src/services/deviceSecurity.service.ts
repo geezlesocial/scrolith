@@ -15,6 +15,11 @@ type UserForSession = {
 export type DeviceMetadata = {
   deviceId: string;
   publicKey?: string | null;
+  possessionProof?: {
+    algorithm?: string | null;
+    timestamp?: string | number | null;
+    signature?: string | null;
+  } | null;
   label?: string | null;
   platform?: string | null;
   deviceType?: string | null;
@@ -37,6 +42,64 @@ const hashToken = (token: string) => crypto.createHash('sha256').update(token).d
 
 const randomToken = (bytes = 32) => crypto.randomBytes(bytes).toString('base64url');
 
+const DEVICE_PROOF_TTL_MS = Math.max(
+  60_000,
+  Math.min(15 * 60_000, Number(process.env.LOGIN_DEVICE_PROOF_TTL_MS || 5 * 60_000))
+);
+
+const UNKNOWN_DEVICE_PREFIX = 'unidentified:';
+
+const proofPayload = (deviceId: string, timestamp: string | number) =>
+  `scrolith-device-proof:v1\n${deviceId}\n${String(timestamp)}`;
+
+const normalizePublicKey = (value?: string | null) => {
+  const raw = clean(value, 4096);
+  if (!raw) return null;
+  try {
+    return JSON.stringify(JSON.parse(raw));
+  } catch {
+    return raw;
+  }
+};
+
+const parseProofTimestamp = (value: unknown) => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return 0;
+};
+
+const parsePublicKeyObject = (publicKey: string) => {
+  const parsed = JSON.parse(publicKey);
+  if (!parsed || typeof parsed !== 'object') throw new Error('Invalid device public key');
+  return crypto.createPublicKey({ key: parsed, format: 'jwk' as const });
+};
+
+export const verifyDevicePossessionProof = (
+  device: Pick<DeviceMetadata, 'deviceId' | 'publicKey' | 'possessionProof'>,
+  expectedPublicKey?: string | null
+) => {
+  const publicKey = normalizePublicKey(expectedPublicKey || device.publicKey);
+  const proof = device.possessionProof;
+  const timestamp = parseProofTimestamp(proof?.timestamp);
+  const signature = clean(proof?.signature, 2048);
+  if (!device.deviceId || !publicKey || !timestamp || !signature) return false;
+  if (Math.abs(Date.now() - timestamp) > DEVICE_PROOF_TTL_MS) return false;
+  try {
+    const keyObject = parsePublicKeyObject(publicKey);
+    return crypto.verify(
+      'sha256',
+      Buffer.from(proofPayload(device.deviceId, timestamp)),
+      { key: keyObject, dsaEncoding: 'ieee-p1363' },
+      Buffer.from(signature, 'base64url')
+    );
+  } catch {
+    return false;
+  }
+};
+
 export const getClientMeta = (req: Request) => {
   const headers = req.headers || {};
   const forwarded = String(headers['x-forwarded-for'] || '');
@@ -57,7 +120,29 @@ export const extractDeviceMetadata = (req: Request): DeviceMetadata | null => {
 
   return {
     deviceId,
-    publicKey: clean(bodyDevice.publicKey || bodyDevice.public_key, 4096),
+    publicKey: normalizePublicKey(bodyDevice.publicKey || bodyDevice.public_key),
+    possessionProof:
+      bodyDevice.possessionProof || bodyDevice.possession_proof || bodyDevice.proof
+        ? {
+            algorithm: clean(
+              bodyDevice.possessionProof?.algorithm ||
+                bodyDevice.possession_proof?.algorithm ||
+                bodyDevice.proof?.algorithm,
+              80
+            ),
+            timestamp:
+              bodyDevice.possessionProof?.timestamp ||
+              bodyDevice.possession_proof?.timestamp ||
+              bodyDevice.proof?.timestamp ||
+              null,
+            signature: clean(
+              bodyDevice.possessionProof?.signature ||
+                bodyDevice.possession_proof?.signature ||
+                bodyDevice.proof?.signature,
+              2048
+            )
+          }
+        : null,
     label: clean(bodyDevice.label || bodyDevice.deviceName || bodyDevice.device_name, 120),
     platform: clean(bodyDevice.platform || headers['x-scrolith-platform'], 80),
     deviceType: clean(bodyDevice.deviceType || bodyDevice.device_type, 80),
@@ -163,29 +248,102 @@ const notifyTrustedDevices = async (user: UserForSession, attempt: any) => {
   }).catch(() => null);
 };
 
+const createPendingLoginApproval = async (
+  user: UserForSession,
+  req: Request,
+  device: DeviceMetadata | null,
+  reason: string
+) => {
+  const meta = getClientMeta(req);
+  const approvalToken = randomToken();
+  const challenge = randomToken(18);
+  const expiresAt = new Date(Date.now() + APPROVAL_TTL_MINUTES * 60 * 1000);
+  const newDeviceId = device?.deviceId || `${UNKNOWN_DEVICE_PREFIX}${crypto.randomUUID()}`;
+  const attempt = await (prisma as any).loginApprovalAttempt.create({
+    data: {
+      id: crypto.randomUUID(),
+      userId: user.id,
+      newDeviceId,
+      approvalTokenHash: hashToken(approvalToken),
+      challenge,
+      expiresAt,
+      requestIp: meta.ip,
+      userAgent: meta.userAgent,
+      platform: device?.platform || null,
+      deviceModel: device?.deviceModel || device?.label || null,
+      appVersion: device?.appVersion || null,
+      metadata: {
+        reason,
+        browserName: device?.browserName || null,
+        osVersion: device?.osVersion || null,
+        deviceType: device?.deviceType || null,
+        hasDeviceId: Boolean(device?.deviceId),
+        hasPublicKey: Boolean(device?.publicKey),
+        hasPossessionProof: Boolean(device?.possessionProof?.signature)
+      }
+    }
+  });
+
+  await Promise.resolve(prisma.authAuditLog.create({
+    data: {
+      userId: user.id,
+      email: user.email || null,
+      event: 'login.device_approval_required',
+      ip: meta.ip,
+      userAgent: meta.userAgent,
+      meta: { attemptId: attempt.id, deviceId: newDeviceId, platform: device?.platform || null, reason }
+    }
+  })).catch(() => null);
+
+  await notifyTrustedDevices(user, attempt);
+
+  return {
+    approved: false,
+    device,
+    attempt: {
+      id: attempt.id,
+      approvalToken,
+      challenge,
+      expiresAt
+    }
+  };
+};
+
 export const evaluateLoginDevice = async (user: UserForSession, req: Request) => {
   const device = extractDeviceMetadata(req);
   const meta = getClientMeta(req);
-
-  if (!device) {
-    await Promise.resolve(prisma.authAuditLog.create({
-      data: {
-        userId: user.id,
-        email: user.email || null,
-        event: 'login.device_unidentified_allowed',
-        ip: meta.ip,
-        userAgent: meta.userAgent,
-        meta: { reason: 'missing_device_id' }
-      }
-    })).catch(() => null);
-    return { approved: true, device: null, bootstrapped: false };
-  }
 
   const existingTrustedCount = await (prisma as any).trustedDevice.count({
     where: { userId: user.id, trustStatus: 'TRUSTED', revokedAt: null }
   });
 
+  if (!device) {
+    if (existingTrustedCount > 0) {
+      return createPendingLoginApproval(user, req, null, 'missing_device_identity_enrolled_account');
+    }
+    await Promise.resolve(prisma.authAuditLog.create({
+      data: {
+        userId: user.id,
+        email: user.email || null,
+        event: 'login.device_bootstrap_deferred_legacy_client',
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+        meta: { reason: 'missing_device_identity_zero_trusted_devices' }
+      }
+    })).catch(() => null);
+    return { approved: true, device: null, bootstrapped: false, legacyBootstrapDeferred: true };
+  }
+
   if (existingTrustedCount === 0) {
+    if (!verifyDevicePossessionProof(device)) {
+      return {
+        approved: false,
+        denied: true,
+        status: 428,
+        code: 'DEVICE_KEY_REQUIRED',
+        message: 'This sign-in needs a device-bound security key. Update Scrolith and try again.'
+      };
+    }
     await ensureTrustedDevice(user.id, device, req);
     await Promise.resolve(prisma.authAuditLog.create({
       data: {
@@ -210,6 +368,30 @@ export const evaluateLoginDevice = async (user: UserForSession, req: Request) =>
   });
 
   if (trusted) {
+    if (!trusted.publicKey || !verifyDevicePossessionProof(device, trusted.publicKey)) {
+      await Promise.resolve(prisma.authAuditLog.create({
+        data: {
+          userId: user.id,
+          email: user.email || null,
+          event: 'login.device_possession_failed',
+          ip: meta.ip,
+          userAgent: meta.userAgent,
+          meta: {
+            deviceId: device.deviceId,
+            hasStoredPublicKey: Boolean(trusted.publicKey),
+            hasPresentedPublicKey: Boolean(device.publicKey),
+            hasPossessionProof: Boolean(device.possessionProof?.signature)
+          }
+        }
+      })).catch(() => null);
+      return {
+        approved: false,
+        denied: true,
+        status: 403,
+        code: 'DEVICE_POSSESSION_REQUIRED',
+        message: 'Trusted-device verification failed. Approve this sign-in from another trusted session.'
+      };
+    }
     await (prisma as any).trustedDevice.update({
       where: { id: trusted.id },
       data: {
@@ -218,59 +400,12 @@ export const evaluateLoginDevice = async (user: UserForSession, req: Request) =>
         lastUserAgent: meta.userAgent,
         appVersion: device.appVersion || trusted.appVersion,
         osVersion: device.osVersion || trusted.osVersion,
-        publicKey: device.publicKey || trusted.publicKey
+        publicKey: trusted.publicKey
       }
     }).catch(() => null);
     return { approved: true, device, bootstrapped: false };
   }
-
-  const approvalToken = randomToken();
-  const challenge = randomToken(18);
-  const expiresAt = new Date(Date.now() + APPROVAL_TTL_MINUTES * 60 * 1000);
-  const attempt = await (prisma as any).loginApprovalAttempt.create({
-    data: {
-      id: crypto.randomUUID(),
-      userId: user.id,
-      newDeviceId: device.deviceId,
-      approvalTokenHash: hashToken(approvalToken),
-      challenge,
-      expiresAt,
-      requestIp: meta.ip,
-      userAgent: meta.userAgent,
-      platform: device.platform || null,
-      deviceModel: device.deviceModel || device.label || null,
-      appVersion: device.appVersion || null,
-      metadata: {
-        browserName: device.browserName || null,
-        osVersion: device.osVersion || null,
-        deviceType: device.deviceType || null
-      }
-    }
-  });
-
-  await Promise.resolve(prisma.authAuditLog.create({
-    data: {
-      userId: user.id,
-      email: user.email || null,
-      event: 'login.device_approval_required',
-      ip: meta.ip,
-      userAgent: meta.userAgent,
-      meta: { attemptId: attempt.id, deviceId: device.deviceId, platform: device.platform }
-    }
-  })).catch(() => null);
-
-  await notifyTrustedDevices(user, attempt);
-
-  return {
-    approved: false,
-    device,
-    attempt: {
-      id: attempt.id,
-      approvalToken,
-      challenge,
-      expiresAt
-    }
-  };
+  return createPendingLoginApproval(user, req, device, 'untrusted_device');
 };
 
 export const listTrustedDevices = async (userId: string) => {
@@ -371,7 +506,12 @@ export const consumeApprovedLogin = async (attemptId: string, approvalToken: str
   });
   if (!attempt) return null;
 
-  const device = extractDeviceMetadata(req) || { deviceId: attempt.newDeviceId };
+  const device = extractDeviceMetadata(req);
+  if (!device || !verifyDevicePossessionProof(device)) return null;
+  const expectedDeviceId = String(attempt.newDeviceId || '');
+  if (expectedDeviceId && !expectedDeviceId.startsWith(UNKNOWN_DEVICE_PREFIX) && expectedDeviceId !== device.deviceId) {
+    return null;
+  }
   const consumed = await (prisma as any).loginApprovalAttempt.updateMany({
     where: {
       id: attempt.id,

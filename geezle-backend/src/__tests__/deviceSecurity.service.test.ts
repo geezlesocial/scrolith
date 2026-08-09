@@ -54,24 +54,54 @@ import {
   consumeApprovedLogin,
   evaluateLoginDevice,
   getApprovalStatus,
-  rejectLoginAttempt
+  rejectLoginAttempt,
+  verifyDevicePossessionProof
 } from '../services/deviceSecurity.service';
 
-const requestForDevice = (deviceId = 'device-1') =>
-  ({
+const signedDevice = (deviceId = 'device-1') => {
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+  const publicJwk = publicKey.export({ format: 'jwk' });
+  const publicKeyJson = JSON.stringify(publicJwk);
+  const timestamp = Date.now();
+  const payload = `scrolith-device-proof:v1\n${deviceId}\n${timestamp}`;
+  const signature = crypto
+    .sign('sha256', Buffer.from(payload), { key: privateKey, dsaEncoding: 'ieee-p1363' })
+    .toString('base64url');
+  return {
+    deviceId,
+    publicKey: publicKeyJson,
+    platform: 'android',
+    deviceType: 'mobile',
+    deviceModel: 'Pixel',
+    appVersion: '1.1.70',
+    possessionProof: {
+      algorithm: 'ECDSA_P256_SHA256',
+      timestamp,
+      signature
+    }
+  };
+};
+
+const requestForDevice = (deviceId = 'device-1') => {
+  const device = signedDevice(deviceId);
+  return {
     body: {
-      device: {
-        deviceId,
-        publicKey: 'public-key',
-        platform: 'android',
-        deviceType: 'mobile',
-        deviceModel: 'Pixel',
-        appVersion: '1.1.70'
-      }
+      device
     },
     headers: {
       'user-agent': 'Scrolith Android',
       'x-forwarded-for': '203.0.113.10'
+    },
+    ip: '127.0.0.1'
+  } as any;
+};
+
+const requestWithoutDevice = () =>
+  ({
+    body: {},
+    headers: {
+      'user-agent': 'Legacy Scrolith Client',
+      'x-forwarded-for': '203.0.113.11'
     },
     ip: '127.0.0.1'
   }) as any;
@@ -111,6 +141,54 @@ describe('deviceSecurity.service', () => {
     );
   });
 
+  test('allows zero-trusted legacy clients without enrolling a device', async () => {
+    mockTrustedDevice.count.mockResolvedValue(0);
+
+    const result = await evaluateLoginDevice(user, requestWithoutDevice());
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        approved: true,
+        device: null,
+        bootstrapped: false,
+        legacyBootstrapDeferred: true
+      })
+    );
+    expect(mockTrustedDevice.upsert).not.toHaveBeenCalled();
+    expect(mockPrisma.authAuditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ event: 'login.device_bootstrap_deferred_legacy_client' })
+      })
+    );
+  });
+
+  test('requires approval when enrolled account omits device metadata', async () => {
+    mockTrustedDevice.count.mockResolvedValue(1);
+    mockLoginApprovalAttempt.create.mockResolvedValue({
+      id: 'attempt-missing-device',
+      newDeviceId: 'unidentified:one',
+      platform: null,
+      deviceModel: null,
+      expiresAt: new Date(Date.now() + 60_000)
+    });
+
+    const result = await evaluateLoginDevice(user, requestWithoutDevice());
+
+    expect(result.approved).toBe(false);
+    expect((result as any).attempt).toEqual(expect.objectContaining({ id: 'attempt-missing-device' }));
+    expect(mockLoginApprovalAttempt.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          newDeviceId: expect.stringMatching(/^unidentified:/),
+          metadata: expect.objectContaining({
+            reason: 'missing_device_identity_enrolled_account',
+            hasDeviceId: false
+          })
+        })
+      })
+    );
+  });
+
   test('creates a pending approval for an untrusted device when trusted devices exist', async () => {
     mockTrustedDevice.count.mockResolvedValue(1);
     mockTrustedDevice.findFirst.mockResolvedValue(null);
@@ -125,7 +203,7 @@ describe('deviceSecurity.service', () => {
     const result = await evaluateLoginDevice(user, requestForDevice('new-device'));
 
     expect(result.approved).toBe(false);
-    expect(result.attempt).toEqual(
+    expect((result as any).attempt).toEqual(
       expect.objectContaining({
         id: 'attempt-1',
         approvalToken: expect.any(String),
@@ -134,13 +212,57 @@ describe('deviceSecurity.service', () => {
     );
     const storedHash = mockLoginApprovalAttempt.create.mock.calls[0][0].data.approvalTokenHash;
     expect(storedHash).toBe(
-      crypto.createHash('sha256').update(result.attempt.approvalToken).digest('hex')
+      crypto.createHash('sha256').update((result as any).attempt.approvalToken).digest('hex')
     );
     expect(mockEmitToUser).toHaveBeenCalledWith(
       'user-1',
       'security:login_approval_required',
       expect.objectContaining({ attemptId: 'attempt-1' })
     );
+  });
+
+  test('trusted device login requires possession proof for stored public key', async () => {
+    const req = requestForDevice('trusted-device');
+    const device = req.body.device;
+    mockTrustedDevice.count.mockResolvedValue(1);
+    mockTrustedDevice.findFirst.mockResolvedValue({
+      id: 'trusted-1',
+      deviceId: 'trusted-device',
+      publicKey: device.publicKey,
+      appVersion: '1.1.69',
+      osVersion: 'Android'
+    });
+    mockTrustedDevice.update.mockResolvedValue({ id: 'trusted-1' });
+
+    const result = await evaluateLoginDevice(user, req);
+
+    expect(verifyDevicePossessionProof(device, device.publicKey)).toBe(true);
+    expect(result).toEqual(expect.objectContaining({ approved: true, bootstrapped: false }));
+    expect(mockLoginApprovalAttempt.create).not.toHaveBeenCalled();
+  });
+
+  test('spoofed trusted device id without the stored key is rejected', async () => {
+    const realTrustedDevice = signedDevice('trusted-device');
+    const spoofedReq = requestForDevice('trusted-device');
+    mockTrustedDevice.count.mockResolvedValue(1);
+    mockTrustedDevice.findFirst.mockResolvedValue({
+      id: 'trusted-1',
+      deviceId: 'trusted-device',
+      publicKey: realTrustedDevice.publicKey
+    });
+
+    const result = await evaluateLoginDevice(user, spoofedReq);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        approved: false,
+        denied: true,
+        status: 403,
+        code: 'DEVICE_POSSESSION_REQUIRED'
+      })
+    );
+    expect(mockLoginApprovalAttempt.create).not.toHaveBeenCalled();
+    expect(mockTrustedDevice.update).not.toHaveBeenCalled();
   });
 
   test('approve uses a single pending-row update before notifying', async () => {
@@ -210,6 +332,24 @@ describe('deviceSecurity.service', () => {
     const result = await consumeApprovedLogin('attempt-1', 'approval-token', requestForDevice('new-device'));
 
     expect(result).toBeNull();
+    expect(mockTrustedDevice.upsert).not.toHaveBeenCalled();
+    expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
+  });
+
+  test('approved login exchange rejects missing or tampered device proof', async () => {
+    mockLoginApprovalAttempt.findFirst.mockResolvedValue({
+      id: 'attempt-1',
+      userId: 'user-1',
+      newDeviceId: 'new-device',
+      status: 'APPROVED',
+      consumedAt: null,
+      expiresAt: new Date(Date.now() + 60_000)
+    });
+
+    const result = await consumeApprovedLogin('attempt-1', 'approval-token', requestWithoutDevice());
+
+    expect(result).toBeNull();
+    expect(mockLoginApprovalAttempt.updateMany).toHaveBeenCalledTimes(1);
     expect(mockTrustedDevice.upsert).not.toHaveBeenCalled();
     expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
   });

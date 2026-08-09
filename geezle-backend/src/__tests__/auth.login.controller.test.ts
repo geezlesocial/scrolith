@@ -20,6 +20,20 @@ jest.mock('../utils/prismaClient', () => {
     },
     authAuditLog: {
       create: jest.fn()
+    },
+    trustedDevice: {
+      count: jest.fn(),
+      upsert: jest.fn(),
+      findFirst: jest.fn(),
+      update: jest.fn()
+    },
+    loginApprovalAttempt: {
+      create: jest.fn(),
+      updateMany: jest.fn(),
+      findFirst: jest.fn()
+    },
+    notification: {
+      create: jest.fn()
     }
   };
 
@@ -37,6 +51,20 @@ const mockPrisma = prisma as unknown as {
   staffUser: {
     findUnique: jest.Mock;
     update: jest.Mock;
+  };
+  trustedDevice: {
+    count: jest.Mock;
+    upsert: jest.Mock;
+    findFirst: jest.Mock;
+    update: jest.Mock;
+  };
+  loginApprovalAttempt: {
+    create: jest.Mock;
+    updateMany: jest.Mock;
+    findFirst: jest.Mock;
+  };
+  notification: {
+    create: jest.Mock;
   };
 };
 
@@ -67,6 +95,12 @@ describe('auth login controller', () => {
     process.env.JWT_SECRET = 'dev_jwt_secret';
     mockPrisma.staffUser.findUnique.mockResolvedValue(null);
     mockPrisma.user.update.mockResolvedValue({});
+    mockPrisma.trustedDevice.count.mockResolvedValue(0);
+    mockPrisma.trustedDevice.upsert.mockResolvedValue({});
+    mockPrisma.trustedDevice.findFirst.mockResolvedValue(null);
+    mockPrisma.trustedDevice.update.mockResolvedValue({});
+    mockPrisma.loginApprovalAttempt.updateMany.mockResolvedValue({ count: 0 });
+    mockPrisma.notification.create.mockResolvedValue({});
   });
 
   test('missing login fields returns 400', async () => {
