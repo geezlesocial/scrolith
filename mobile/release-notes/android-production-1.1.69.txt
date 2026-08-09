@@ -1,0 +1,17 @@
+Scrolith Android 1.1.69 (79)
+
+What's new in Scrolith
+
+- Added secure new-device sign-in approval so you can approve or reject new login attempts from a trusted device.
+- Enhanced Fingerprint Unlock with native Android biometric protection.
+- Improved Login Alerts for new sign-in activity.
+- Added trusted-device management and stronger device and session security.
+- Strengthened account protection, authentication reliability, and device safeguards.
+- Includes performance improvements and stability fixes.
+
+Scrolith - Connecting People and Creating Opportunities.
+
+Short version:
+Improves account security with trusted-device sign-in approval, Fingerprint Unlock, Login Alerts, stronger session safeguards, and stability improvements.
+
+Google Play upload not performed by this build.

@@ -4,9 +4,14 @@
 $ErrorActionPreference = 'Stop'
 
 $MobileRoot = Split-Path -Parent $PSScriptRoot
-$GeezleRoot = Join-Path (Split-Path -Parent $MobileRoot) 'geezle'
+$DefaultGeezleRoot = Join-Path (Split-Path -Parent $MobileRoot) 'geezle'
+$GeezleRoot = if ($env:SCROLITH_RELEASE_GEEZLE_ROOT) {
+  (Resolve-Path -LiteralPath $env:SCROLITH_RELEASE_GEEZLE_ROOT).Path
+} else {
+  $DefaultGeezleRoot
+}
 $AndroidRoot = Join-Path $MobileRoot 'android'
-$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.68'
+$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.69'
 $VersionCode = 79
 $VersionName = '1.1.69'
 $WebCommit = (git -C $GeezleRoot rev-parse --short HEAD 2>$null)
@@ -29,6 +34,9 @@ $env:VITE_LOG_LEVEL = 'error'
 $env:VITE_SOCKET_TRACE = 'false'
 $env:VITE_MESSAGES_TRACE_DEBUG = 'false'
 $env:VITE_ALLOW_LOCAL_API_IN_PROD = 'false'
+$env:VITE_FORCE_MOBILE_API_OVERRIDE = 'false'
+$env:VITE_MOBILE_API_URL = 'https://api.scrolith.com/api'
+$env:VITE_MOBILE_API_BASE_URL = 'https://api.scrolith.com/api'
 $env:VITE_SCROLITH_MOBILE_APP = 'true'
 # Match production web / Cloud Run FE (Phase 29.7)
 $env:VITE_API_URL = 'https://api.scrolith.com/api'
@@ -39,20 +47,48 @@ $env:VITE_NATIVE_PROD_API_URL = 'https://api.scrolith.com/api'
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $LogDir = Join-Path $OutDir 'logs'
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+$ReleaseWebDir = Join-Path $OutDir 'web-dist'
+$RelativeReleaseWebDir = 'release-artifacts/android-1.1.69/web-dist'
+$env:SCROLITH_CAPACITOR_WEB_DIR = $RelativeReleaseWebDir
 
 # npm/vite write warnings to stderr; do not treat native stderr as terminating errors.
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 
 Write-Host "==> Building production web assets (geezle @ $WebCommit)"
+$GeezleEnvLocal = Join-Path $GeezleRoot '.env.local'
+$GeezleEnvLocalDisabled = Join-Path $GeezleRoot ".env.local.release-disabled.$PID"
+if (Test-Path -LiteralPath $GeezleEnvLocal) {
+  Move-Item -LiteralPath $GeezleEnvLocal -Destination $GeezleEnvLocalDisabled
+}
 Push-Location $GeezleRoot
-cmd /c "npm run build > `"$LogDir\frontend-build.log`" 2>&1"
-$feCode = $LASTEXITCODE
-Pop-Location
+try {
+  cmd /c "npm run build > `"$LogDir\frontend-build.log`" 2>&1"
+  $feCode = $LASTEXITCODE
+} finally {
+  Pop-Location
+  if (Test-Path -LiteralPath $GeezleEnvLocalDisabled) {
+    Move-Item -LiteralPath $GeezleEnvLocalDisabled -Destination $GeezleEnvLocal
+  }
+}
 if ($feCode -ne 0) {
   Get-Content (Join-Path $LogDir 'frontend-build.log') -Tail 40
   throw "geezle build failed (exit $feCode)"
 }
+
+$GeezleDist = Join-Path $GeezleRoot 'dist'
+if (-not (Test-Path -LiteralPath $GeezleDist)) {
+  throw "geezle dist missing after production build: $GeezleDist"
+}
+if (Test-Path -LiteralPath $ReleaseWebDir) {
+  $resolvedReleaseWebDir = (Resolve-Path -LiteralPath $ReleaseWebDir).Path
+  $resolvedOutDir = (Resolve-Path -LiteralPath $OutDir).Path
+  if (-not $resolvedReleaseWebDir.StartsWith($resolvedOutDir, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refusing to clear web assets outside release output: $resolvedReleaseWebDir"
+  }
+  Remove-Item -LiteralPath $ReleaseWebDir -Recurse -Force
+}
+Copy-Item -LiteralPath $GeezleDist -Destination $ReleaseWebDir -Recurse -Force
 
 Write-Host "==> Capacitor sync android"
 Push-Location $MobileRoot
@@ -125,12 +161,12 @@ $meta = @{
   webCommit = $WebCommit
   minifyEnabled = $true
   shrinkResources = $true
-  phase = 'kyc-draft-avatar-fix'
+  phase = 'device-security-login-approval'
   targetSdk = 36
   compileSdk = 36
   minSdk = 24
-  productionBackendRevision = 'ca-scrolith-backend--kyc-draft-cea708ad'
-  productionFrontendRevision = 'ca-scrolith-frontend--kyc-draft-aeebd3a2'
+  productionBackendRevision = 'ca-scrolith-backend--device-security-4dc5f3e0'
+  productionFrontendRevision = 'ca-scrolith-frontend--device-security-dce92f8b'
   productionApi = 'https://api.scrolith.com'
   productionAppUrl = 'https://scrolith.com'
   googlePlayUploadPerformed = $false

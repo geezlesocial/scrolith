@@ -1,18 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-  <!--
-    Production release hardening:
-    - Release builds set usesCleartextTraffic=false via manifest placeholder.
-    - The production bundle trusts only stable Scrolith public domains.
-    - Local, emulator, candidate, and revision-specific hosts must stay out of
-      the release AAB.
-  -->
   <base-config cleartextTrafficPermitted="false">
     <trust-anchors>
       <certificates src="system" />
     </trust-anchors>
   </base-config>
-  <!-- Local dev hosts (emulator/device) — not used by production release traffic -->
+  <domain-config cleartextTrafficPermitted="true">
+    <domain includeSubdomains="true">192.168.1.168</domain>
+    <domain includeSubdomains="true">10.0.2.2</domain>
+    <domain includeSubdomains="true">localhost</domain>
+    <domain includeSubdomains="true">127.0.0.1</domain>
+  </domain-config>
   <domain-config cleartextTrafficPermitted="false">
     <domain includeSubdomains="true">scrolith.com</domain>
     <domain includeSubdomains="true">www.scrolith.com</domain>

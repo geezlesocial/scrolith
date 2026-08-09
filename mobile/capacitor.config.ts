@@ -32,13 +32,15 @@ const productionServerConfig = !devServerUrl && !allowCleartext
     }
   : undefined;
 
+const webDir = process.env.SCROLITH_CAPACITOR_WEB_DIR || '../geezle/dist';
+
 const config: CapacitorConfig = {
   // Keep in sync with `mobile/android/app/build.gradle` applicationId/namespace.
   // This also aligns with the existing Firebase Android app entry you created.
   appId: 'com.scrolith.scrolith',
   appName: 'Scrolith',
-  // The web app lives in ../geezle and outputs build artifacts to ../geezle/dist
-  webDir: '../geezle/dist',
+  // The web app normally lives in ../geezle; release builds may provide an isolated production worktree.
+  webDir,
   bundledWebRuntime: false,
   ...(serverConfig ? { server: serverConfig } : productionServerConfig ? { server: productionServerConfig } : {}),
   ios: {
@@ -55,4 +57,3 @@ const config: CapacitorConfig = {
 };
 
 export default config;
-
