@@ -20,6 +20,7 @@ import LanguageMultiSelect from '../../components/language/LanguageMultiSelect';
 import { LanguagePreferencesService, type UserLanguagePreferences } from '../../services/languagePreferences';
 import { listOnboardingLanguages } from '../../utils/supportedLanguages';
 import UserTwoFactorPanel from './UserTwoFactorPanel';
+import { DeviceSecurityService } from '../../services/deviceSecurity';
 
 const normalizeSettings = (value: UserSettings): UserSettings => ({
     email_notifications: value.emailNotifications ?? value.email_notifications ?? true,
@@ -238,6 +239,9 @@ const SettingsModule = () => {
     const [biometricsAvailable, setBiometricsAvailable] = useState(false);
     const [biometryLabel, setBiometryLabel] = useState('Biometric');
     const [biometricsBusy, setBiometricsBusy] = useState(false);
+    const [trustedDevices, setTrustedDevices] = useState<any[]>([]);
+    const [pendingLoginApprovals, setPendingLoginApprovals] = useState<any[]>([]);
+    const [loginApprovalBusy, setLoginApprovalBusy] = useState<string | null>(null);
     const [langPrefs, setLangPrefs] = useState<UserLanguagePreferences | null>(null);
     const [langSaving, setLangSaving] = useState(false);
     const onboardingLanguages = useMemo(() => listOnboardingLanguages(), []);
@@ -295,6 +299,35 @@ const SettingsModule = () => {
             mounted = false;
         };
     }, [user, showNotification]);
+
+    useEffect(() => {
+        if (!user) return;
+        let mounted = true;
+        const loadDeviceSecurity = async () => {
+            try {
+                const overview = await DeviceSecurityService.overview();
+                if (!mounted) return;
+                setTrustedDevices(Array.isArray(overview?.devices) ? overview.devices : []);
+                setPendingLoginApprovals(Array.isArray(overview?.pendingApprovals) ? overview.pendingApprovals : []);
+            } catch {
+                if (mounted) {
+                    setTrustedDevices([]);
+                    setPendingLoginApprovals([]);
+                }
+            }
+        };
+        void loadDeviceSecurity();
+        const onPending = () => void loadDeviceSecurity();
+        window.addEventListener('security:login_approval_required', onPending as EventListener);
+        window.addEventListener('security:login_approval_updated', onPending as EventListener);
+        const timer = window.setInterval(loadDeviceSecurity, 15000);
+        return () => {
+            mounted = false;
+            window.removeEventListener('security:login_approval_required', onPending as EventListener);
+            window.removeEventListener('security:login_approval_updated', onPending as EventListener);
+            window.clearInterval(timer);
+        };
+    }, [user?.id]);
 
     useEffect(() => {
         if (!user) return;
@@ -536,6 +569,32 @@ const SettingsModule = () => {
 
         window.dispatchEvent(new Event('Scrolith:biometric_pref_changed'));
         setBiometricsBusy(false);
+    };
+
+    const handleLoginApproval = async (attemptId: string, action: 'approve' | 'reject') => {
+        if (!attemptId || loginApprovalBusy) return;
+        setLoginApprovalBusy(attemptId);
+        try {
+            if (action === 'approve') {
+                if (biometricsEnabled && biometricsAvailable && isNativePlatform()) {
+                    const auth = await authenticateBiometrics('Approve this Scrolith sign-in request');
+                    if (!auth.ok) {
+                        showNotification('alert', 'Biometric Approval Required', auth.error || 'Authentication is required before approving this login.');
+                        return;
+                    }
+                }
+                await DeviceSecurityService.approveLogin(attemptId);
+                showNotification('success', 'Login Approved', 'The new device can now complete sign-in.');
+            } else {
+                await DeviceSecurityService.rejectLogin(attemptId);
+                showNotification('success', 'Login Rejected', 'The pending sign-in was rejected.');
+            }
+            setPendingLoginApprovals((current) => current.filter((entry) => entry.id !== attemptId));
+        } catch (error: any) {
+            showNotification('alert', 'Login Approval Failed', error?.response?.data?.error || error?.message || 'Unable to update login approval.');
+        } finally {
+            setLoginApprovalBusy(null);
+        }
     };
 
     useEffect(() => {
@@ -933,6 +992,93 @@ const SettingsModule = () => {
                                         )
                                     }
                                 />
+
+                                <div className="pt-6 border-t border-gray-200">
+                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                        <div>
+                                            <h4 className="font-bold text-gray-900 flex items-center">
+                                                <Shield className="w-4 h-4 mr-2 text-blue-600" />
+                                                Trusted Devices
+                                            </h4>
+                                            <p className="text-sm text-gray-500 mt-1">
+                                                Approve new sign-ins and review devices trusted for this account.
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => DeviceSecurityService.registerCurrentDevice()
+                                                .then(() => DeviceSecurityService.overview())
+                                                .then((overview) => {
+                                                    setTrustedDevices(Array.isArray(overview?.devices) ? overview.devices : []);
+                                                    setPendingLoginApprovals(Array.isArray(overview?.pendingApprovals) ? overview.pendingApprovals : []);
+                                                    showNotification('success', 'Device Trusted', 'This device is registered for login approval.');
+                                                })
+                                                .catch((error: any) => showNotification('alert', 'Device Trust Failed', error?.response?.data?.error || error?.message || 'Unable to trust this device.'))}
+                                            className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                                        >
+                                            Trust this device
+                                        </button>
+                                    </div>
+
+                                    {pendingLoginApprovals.length ? (
+                                        <div className="mt-4 space-y-3">
+                                            {pendingLoginApprovals.map((attempt) => (
+                                                <div key={attempt.id} className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                                        <div>
+                                                            <p className="text-sm font-semibold text-amber-950">
+                                                                New login request
+                                                            </p>
+                                                            <p className="mt-1 text-xs text-amber-800">
+                                                                {(attempt.platform || 'Unknown platform')} · {(attempt.deviceModel || 'Unknown device')} · expires {attempt.expiresAt ? new Date(attempt.expiresAt).toLocaleTimeString() : 'soon'}
+                                                            </p>
+                                                        </div>
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                type="button"
+                                                                disabled={loginApprovalBusy === attempt.id}
+                                                                onClick={() => handleLoginApproval(attempt.id, 'reject')}
+                                                                className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+                                                            >
+                                                                Reject
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                disabled={loginApprovalBusy === attempt.id}
+                                                                onClick={() => handleLoginApproval(attempt.id, 'approve')}
+                                                                className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                                                            >
+                                                                Approve
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : null}
+
+                                    {trustedDevices.length ? (
+                                        <div className="mt-4 divide-y divide-gray-100 rounded-xl border border-gray-200">
+                                            {trustedDevices.slice(0, 5).map((device) => (
+                                                <div key={device.id} className="flex items-center justify-between gap-3 p-3">
+                                                    <div className="min-w-0">
+                                                        <p className="truncate text-sm font-semibold text-gray-900">{device.label || device.deviceModel || device.platform || 'Trusted device'}</p>
+                                                        <p className="text-xs text-gray-500">
+                                                            Last seen {device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleString() : 'recently'}
+                                                        </p>
+                                                    </div>
+                                                    <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                                                        Trusted
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="mt-3 rounded-lg bg-gray-50 p-3 text-xs text-gray-500">
+                                            No trusted devices are listed yet. Your first successful device login will be trusted automatically.
+                                        </p>
+                                    )}
+                                </div>
 
                                 <div className="pt-6 border-t border-gray-200">
                                      <div className="flex items-center justify-between">

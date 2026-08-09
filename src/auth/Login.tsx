@@ -85,6 +85,11 @@ const Login = () => {
   const [twoFACode, setTwoFACode] = useState('');
   const [hvToken, setHvToken] = useState<string | null>(null);
   const [hvRequired, setHvRequired] = useState(false);
+  const [loginApproval, setLoginApproval] = useState<{
+    id: string;
+    approvalToken: string;
+    expiresAt?: string;
+  } | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -157,6 +162,51 @@ const Login = () => {
     }
   };
 
+  useEffect(() => {
+    if (!loginApproval?.id || !loginApproval.approvalToken) return;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const { DeviceSecurityService } = await import('../services/deviceSecurity');
+        const { AuthService } = await import('../services/authService');
+        const status = await DeviceSecurityService.getApprovalStatus(loginApproval.id, loginApproval.approvalToken);
+        const current = String(status?.status || '').toUpperCase();
+        if (stopped) return;
+        if (current === 'APPROVED') {
+          setLoading(true);
+          const exchanged = await AuthService.exchangeApprovedLogin(loginApproval.id, loginApproval.approvalToken);
+          if (exchanged.success && exchanged.user) {
+            window.dispatchEvent(new Event('scrolith:auth-changed'));
+            window.location.assign(resolveAuthenticatedEntryPath(exchanged.user as any));
+            return;
+          }
+          setError(exchanged.error || 'Unable to complete approved login.');
+          setLoginApproval(null);
+        } else if (current === 'REJECTED') {
+          setError('This login was rejected from your trusted session.');
+          setLoginApproval(null);
+        } else if (current === 'EXPIRED') {
+          setError('This login approval expired. Please sign in again.');
+          setLoginApproval(null);
+        }
+      } catch (err: any) {
+        if (!stopped && err?.response?.status !== 404) {
+          setError(err?.response?.data?.error || err?.message || 'Unable to check login approval.');
+        }
+      } finally {
+        if (!stopped) setLoading(false);
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => {
+      void poll();
+    }, 3000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [loginApproval]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -200,6 +250,15 @@ const Login = () => {
       if ((raw as any).requires2FA && (raw as any).challengeToken) {
         setTwoFAChallenge(String((raw as any).challengeToken));
         setTwoFACode('');
+        setError('');
+        return;
+      }
+      if ((raw as any).requiresLoginApproval && (raw as any).loginApproval?.id) {
+        setLoginApproval({
+          id: String((raw as any).loginApproval.id),
+          approvalToken: String((raw as any).loginApproval.approvalToken || ''),
+          expiresAt: (raw as any).loginApproval.expiresAt
+        });
         setError('');
         return;
       }
@@ -291,6 +350,30 @@ const Login = () => {
             </div>
 
           <div className="space-y-6">
+          {loginApproval ? (
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-left shadow-sm">
+              <div className="flex items-start gap-3">
+                <ShieldCheck className="mt-0.5 h-5 w-5 text-blue-700" />
+                <div>
+                  <p className="text-sm font-bold text-blue-950">Waiting for trusted-device approval</p>
+                  <p className="mt-1 text-xs leading-5 text-blue-800">
+                    Open Scrolith on a device that is already signed in, go to Settings &gt; Security, then approve this login.
+                    {loginApproval.expiresAt ? ` This request expires at ${new Date(loginApproval.expiresAt).toLocaleTimeString()}.` : ''}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLoginApproval(null);
+                      setError('');
+                    }}
+                    className="mt-3 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                  >
+                    Cancel approval request
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
           <AuthSocialButtons mode="login" config={socialConfig || undefined} />
           <form className="space-y-6" onSubmit={handleSubmit}>
           {resetSuccess && (
