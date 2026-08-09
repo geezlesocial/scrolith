@@ -23,6 +23,7 @@ import homepageRoutes from './routes/homepage.routes';
 import adminRoutes from './routes/admin';
 import appsRoutes from './routes/apps.routes';
 import authRoutes from './routes/auth.routes';
+import deviceSecurityRoutes from './routes/deviceSecurity.routes';
 import devRoutes from './routes/dev.routes';
 import oauthDevRoutes from './routes/oauth.dev.routes';
 import userRoutes from './routes/user';
@@ -4454,6 +4455,7 @@ app.use('/api/admin/fx', authMiddleware, adminMiddleware, fxAdminRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/apps', appsRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/security', deviceSecurityRoutes);
 // Soft KYC gate for sensitive writes when Enforce KYC is enabled (does not require auth globally).
 import { kycEnforceMiddleware } from './middleware/kycEnforce.middleware';
 app.use('/api', kycEnforceMiddleware);
