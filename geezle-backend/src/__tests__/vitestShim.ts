@@ -10,7 +10,7 @@ import {
   test
 } from '@jest/globals';
 
-const vi = {
+const vi: any = {
   fn: jest.fn,
   spyOn: jest.spyOn,
   mock: jest.mock,

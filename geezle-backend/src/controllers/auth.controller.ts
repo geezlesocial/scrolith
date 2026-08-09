@@ -13,6 +13,12 @@ import {
 } from '../services/followOnboarding.service';
 import { sendSystemMessage } from '../services/systemMessaging';
 import { toAbsoluteFrontendUrl } from '../services/notificationActionUrl.service';
+import {
+  consumeApprovedLogin,
+  evaluateLoginDevice,
+  extractDeviceMetadata,
+  ensureTrustedDevice
+} from '../services/deviceSecurity.service';
 import prisma from '../utils/prismaClient';
 
 const minimalLoginSelect = {
@@ -248,6 +254,31 @@ const isStrongPassword = (value: string) => {
   const hasNumber = /\d/.test(value);
   return hasLetter && hasNumber;
 };
+
+const signSessionToken = (user: any, res: Response) => {
+  console.log('[auth.login] signing token with JWT_SECRET present?', !!JWT_SECRET);
+  const token = (jwt as any).sign(
+    { id: user.id, email: user.email, role: user.role },
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRES_IN as string }
+  );
+  res.cookie('Scrolith_token', token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/'
+  });
+  return token;
+};
+
+const sendSessionResponse = (res: Response, user: any, token: string, extras: Record<string, unknown> = {}) =>
+  res.status(200).json({
+    success: true,
+    user: mapUserPayload(user),
+    token,
+    accessToken: token,
+    ...extras
+  });
 
 // Registration Controller
 export const register = async (req: Request, res: Response) => {
@@ -529,15 +560,21 @@ export const login = async (req: Request, res: Response) => {
       });
     }
 
-    // Generate JWT token
-    console.log('[auth.login] signing token with JWT_SECRET present?', !!JWT_SECRET);
+    const deviceGate = await evaluateLoginDevice(user, req);
+    if (!deviceGate.approved) {
+      return res.status(202).json({
+        success: true,
+        requiresLoginApproval: true,
+        code: 'LOGIN_APPROVAL_REQUIRED',
+        message: 'Approve this login from an existing trusted Scrolith session.',
+        loginApproval: deviceGate.attempt,
+        user: { id: user.id, email: user.email, role: user.role }
+      });
+    }
+
     let token = '';
     try {
-      token = (jwt as any).sign(
-        { id: user.id, email: user.email, role: user.role },
-        JWT_SECRET,
-        { expiresIn: JWT_EXPIRES_IN as string }
-      );
+      token = signSessionToken(user, res);
     } catch (signError) {
       console.error('[auth.login] JWT signing failed', {
         userId: user.id,
@@ -551,22 +588,14 @@ export const login = async (req: Request, res: Response) => {
       });
     }
 
-    // Persist token in an HttpOnly cookie so sessions survive reloads even if
-    // browser storage is blocked/cleared.
-    res.cookie('Scrolith_token', token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/'
-    });
+    if (deviceGate.device) {
+      void ensureTrustedDevice(user.id, deviceGate.device, req).catch(() => null);
+    }
 
-    // Send success response with user data and token
-    return res.status(200).json({
-      success: true,
-      user: mapUserPayload(user),
-      token,
-      accessToken: token,
+    return sendSessionResponse(res, user, token, {
       forcePasswordReset: Boolean(staffProfile?.forcePasswordReset),
+      deviceTrusted: Boolean(deviceGate.device),
+      deviceTrustBootstrapped: Boolean(deviceGate.bootstrapped)
     });
   } catch (error) {
     console.error('Login error:', error, (error as any)?.stack);
@@ -574,6 +603,61 @@ export const login = async (req: Request, res: Response) => {
       success: false,
       error: 'Internal server error during login',
       code: 'LOGIN_INTERNAL'
+    });
+  }
+};
+
+export const exchangeApprovedLogin = async (req: Request, res: Response) => {
+  try {
+    const attemptId = String(req.body?.attemptId || req.body?.attempt_id || '').trim();
+    const approvalToken = String(req.body?.approvalToken || req.body?.approval_token || '').trim();
+    if (!attemptId || !approvalToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'Login approval attempt and token are required',
+        code: 'MISSING_LOGIN_APPROVAL'
+      });
+    }
+
+    const user = await consumeApprovedLogin(attemptId, approvalToken, req);
+    if (!user || (user as any).isActive === false) {
+      return res.status(403).json({
+        success: false,
+        error: 'Login approval is invalid, expired, or already used',
+        code: 'LOGIN_APPROVAL_INVALID'
+      });
+    }
+
+    let token = '';
+    try {
+      token = signSessionToken(user, res);
+    } catch (signError) {
+      console.error('[auth.loginApproval.exchange] JWT signing failed', {
+        userId: (user as any).id,
+        message: (signError as any)?.message || signError
+      });
+      return res.status(500).json({
+        success: false,
+        error: 'Unable to complete login. Please try again shortly.',
+        code: 'TOKEN_SIGN_FAILED'
+      });
+    }
+
+    const device = extractDeviceMetadata(req);
+    if (device) {
+      void ensureTrustedDevice((user as any).id, device, req).catch(() => null);
+    }
+
+    return sendSessionResponse(res, user, token, {
+      loginApprovalConsumed: true,
+      forcePasswordReset: false
+    });
+  } catch (error) {
+    console.error('Login approval exchange error:', error, (error as any)?.stack);
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error during login approval exchange',
+      code: 'LOGIN_APPROVAL_EXCHANGE_INTERNAL'
     });
   }
 };
