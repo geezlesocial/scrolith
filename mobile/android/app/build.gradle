@@ -14,8 +14,8 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // 1.1.69 - KYC upload visibility + "Saved on form", ClamAV fail-open cutover, AAB rebuild.
-        versionCode 79
-        versionName "1.1.69"
+        versionCode 80
+        versionName "1.1.70"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]
