@@ -871,6 +871,12 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
     return matchesStatus && matchesSearch;
   });
 
+  const getUserForSubscriber = (subscriber: Subscriber) => {
+    const email = subscriber.email?.trim().toLowerCase();
+    if (!email) return undefined;
+    return users.find((u) => u.email?.trim().toLowerCase() === email);
+  };
+
   const editingWallet = editingUser?.id ? getUserWallet(editingUser.id) : undefined;
   const editingGcoinWallet = editingUser?.id ? getGcoinWallet(editingUser.id) : undefined;
 
@@ -1216,8 +1222,8 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
             </div>
           )}
 
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden animate-fade-in">
-            <table className="w-full text-sm text-left">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto animate-fade-in">
+            <table className="min-w-[1120px] w-full text-sm text-left">
               <thead className="bg-gray-50 text-gray-500">
                 <tr>
                   <th className="px-6 py-3 w-12">
@@ -1235,7 +1241,7 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                   <th className="px-6 py-3">Wallet Balance</th>
                   <th className="px-6 py-3">Gcoin Balance</th>
                   <th className="px-6 py-3">Joined</th>
-                  <th className="px-6 py-3 text-right">Actions</th>
+                  <th className="sticky right-0 z-20 bg-gray-50 px-6 py-3 text-right shadow-[-8px_0_16px_-16px_rgba(15,23,42,0.65)]">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
@@ -1270,15 +1276,28 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                           className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                         />
                       </td>
-                      <td className="px-6 py-4 flex items-center">
-                        <img
-                          src={u.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name || 'User')}&background=0D8ABC&color=fff`}
-                          className="w-8 h-8 rounded-full mr-3 border border-gray-200 object-cover"
-                          alt={`${u.name}'s avatar`}
-                        />
-                        <div>
-                          <div className="font-medium text-gray-900">{u.name || u.username}</div>
-                          <div className="text-xs text-gray-500">{u.email}</div>
+                      <td className="px-6 py-4">
+                        <div className="flex items-start gap-3">
+                          <img
+                            src={u.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name || 'User')}&background=0D8ABC&color=fff`}
+                            className="w-8 h-8 rounded-full border border-gray-200 object-cover"
+                            alt={`${u.name}'s avatar`}
+                          />
+                          <div className="min-w-0">
+                            <div className="font-medium text-gray-900">{u.name || u.username}</div>
+                            <div className="break-all text-xs text-gray-500">{u.email}</div>
+                            <button
+                              type="button"
+                              onClick={() => handleEditUser(u)}
+                              className="mt-2 inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                              title="Manage this user account"
+                              data-testid={`admin-user-inline-manage-${u.id}`}
+                              aria-label={`Manage ${userLabel}`}
+                            >
+                              <Edit3 className="h-3.5 w-3.5" />
+                              Manage
+                            </button>
+                          </div>
                         </div>
                       </td>
                       <td className="px-6 py-4 capitalize">
@@ -1353,7 +1372,7 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                       <td className="px-6 py-4 text-gray-500 text-sm">
                         {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : 'N/A'}
                       </td>
-                      <td className="px-6 py-4 text-right space-x-1">
+                      <td className="sticky right-0 z-10 space-x-1 whitespace-nowrap bg-white/95 px-6 py-4 text-right shadow-[-8px_0_16px_-16px_rgba(15,23,42,0.65)] backdrop-blur">
                         <button
                           className={
                             isInactive || isSuspended
@@ -1498,8 +1517,8 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
             </div>
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <table className="w-full text-sm text-left">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
+            <table className="min-w-[980px] w-full text-sm text-left">
               <thead className="bg-gray-50 text-gray-500">
                 <tr>
                   <th className="px-6 py-4">Email</th>
@@ -1507,11 +1526,13 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                   <th className="px-6 py-4">Source</th>
                   <th className="px-6 py-4">Status</th>
                   <th className="px-6 py-4">Subscribed Date</th>
-                  <th className="px-6 py-4 text-right">Actions</th>
+                  <th className="sticky right-0 z-20 bg-gray-50 px-6 py-4 text-right shadow-[-8px_0_16px_-16px_rgba(15,23,42,0.65)]">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {filteredSubscribers.map(s => (
+                {filteredSubscribers.map(s => {
+                  const linkedUser = getUserForSubscriber(s);
+                  return (
                   <tr key={s.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 font-medium">{s.email}</td>
                     <td className="px-6 py-4">{s.name || 'Unknown'}</td>
@@ -1537,7 +1558,25 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                       </span>
                     </td>
                     <td className="px-6 py-4 text-gray-500">{new Date(s.subscribedAt).toLocaleDateString()}</td>
-                    <td className="px-6 py-4 text-right space-x-2">
+                    <td className="sticky right-0 z-10 space-x-2 whitespace-nowrap bg-white/95 px-6 py-4 text-right shadow-[-8px_0_16px_-16px_rgba(15,23,42,0.65)] backdrop-blur">
+                      {linkedUser ? (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                          title="Manage linked user account"
+                          onClick={() => handleEditUser(linkedUser)}
+                          data-testid={`admin-subscriber-manage-user-${s.id}`}
+                          aria-label={`Manage linked user for ${s.email}`}
+                        >
+                          <Edit3 className="h-3.5 w-3.5" />
+                          Manage user
+                        </button>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-xs font-medium text-gray-500">
+                          <User className="h-3.5 w-3.5" />
+                          No account
+                        </span>
+                      )}
                       <button
                         className="text-blue-600 hover:text-blue-800 p-1"
                         title="Send Email"
@@ -1554,7 +1593,8 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                       </button>
                     </td>
                   </tr>
-                ))}
+                );
+                })}
                 {filteredSubscribers.length === 0 && (
                   <tr>
                     <td colSpan={6} className="text-center py-12 text-gray-500">
