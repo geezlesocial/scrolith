@@ -62,6 +62,7 @@ export const ANDROID_CHANNEL_IDS = {
   payments: 'scrolith_payments_v2',
   admin: 'scrolith_admin_v2',
   security: 'scrolith_security_v2',
+  securityLogin: 'scrolith_security_login',
   system: 'scrolith_system_v2',
   /** AI assistant */
   scrolitha: 'scrolith_scrolitha_v2',
@@ -580,6 +581,10 @@ export const buildEnterprisePushDeepLink = (data: Record<string, unknown> | null
   if (type.includes('support') || type.includes('ticket')) {
     return entityId ? `/support?ticket=${encodeURIComponent(entityId)}` : '/support';
   }
+  if (type.includes('login_approval')) {
+    const attemptId = String(data.attemptId || data.attempt_id || entityId || '').trim();
+    return attemptId ? `/settings/security?approval=${encodeURIComponent(attemptId)}` : '/settings/security';
+  }
   if (type.includes('security')) {
     return '/settings/notifications?tab=privacy';
   }
@@ -817,11 +822,19 @@ export const ANDROID_CHANNEL_DEFINITIONS: Array<{
     soundPolicy: 'high'
   },
   {
+    id: ANDROID_CHANNEL_IDS.securityLogin,
+    name: 'Security & Login Approvals',
+    description: 'High-priority private alerts for new sign-in approval requests',
+    importance: 5,
+    visibility: 0,
+    soundPolicy: 'high'
+  },
+  {
     id: ANDROID_CHANNEL_IDS.security,
     name: 'Security',
     description: 'Login, password, and account security alerts',
     importance: 5,
-    visibility: 1,
+    visibility: 0,
     soundPolicy: 'high'
   },
   {

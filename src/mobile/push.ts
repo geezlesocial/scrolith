@@ -171,6 +171,10 @@ const buildFallbackPathFromPushData = (data: any): string | null => {
   if (type.includes('support') || type.includes('ticket')) {
     return '/support';
   }
+  if (type.includes('login_approval')) {
+    const attemptId = String(data?.attemptId || data?.attempt_id || data?.entityId || '').trim();
+    return attemptId ? `/settings/security?approval=${encodeURIComponent(attemptId)}` : '/settings/security';
+  }
   if (type.includes('security')) {
     return '/settings/notifications';
   }

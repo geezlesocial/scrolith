@@ -204,6 +204,9 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'cart:updated', fn: forward('cart:updated') }
       ,{ ev: 'favorites:updated', fn: forward('favorites:updated') }
       ,{ ev: 'notifications:new', fn: forward('notifications:new') }
+      ,{ ev: 'security.login_approval.requested', fn: forward('security.login_approval.requested') }
+      ,{ ev: 'security.login_approval.updated', fn: forward('security.login_approval.updated') }
+      ,{ ev: 'security.login_approval.resolved', fn: forward('security.login_approval.resolved') }
       ,{ ev: 'security:login_approval_required', fn: forward('security:login_approval_required') }
       ,{ ev: 'security:login_approval_updated', fn: forward('security:login_approval_updated') }
       ,{ ev: 'community:post_report_submitted', fn: forward('community:post_report_submitted') }

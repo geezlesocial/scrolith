@@ -24,6 +24,7 @@ import { SocketProvider } from './context/SocketContext';
 import { PreloaderProvider } from './context/PreloaderContext';
 import { I18nProvider } from './i18n/I18nProvider';
 import GlobalPreloader from './components/GlobalPreloader';
+import { LoginApprovalOverlay } from './components/security/LoginApprovalOverlay';
 import { AlertTriangleIcon } from './components/icons/ShellIcons';
 import { MarketingService } from './services/marketing';
 import { resolveResponsiveAssetUrl } from './utils/assetUrl';
@@ -2212,6 +2213,7 @@ function App() {
                             <AuthenticatedRuntimeBoundary>
                               <GlobalPreloader />
                               <AppContent />
+                              <LoginApprovalOverlay />
                             </AuthenticatedRuntimeBoundary>
                           </LiveFeatureProvider>
                         </CartProvider>
