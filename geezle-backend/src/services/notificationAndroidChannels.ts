@@ -24,6 +24,7 @@ export const ANDROID_CHANNEL_IDS = {
   payments: 'scrolith_payments_v2',
   admin: 'scrolith_admin_v2',
   security: 'scrolith_security_v2',
+  securityLogin: 'scrolith_security_login',
   system: 'scrolith_system_v2',
   scrolitha: 'scrolith_scrolitha_v2',
   /** Legacy umbrella social */
