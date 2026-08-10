@@ -3,6 +3,7 @@ import { Request } from 'express';
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
 import { sendPushToUser } from './pushNotifications';
+import { ANDROID_CHANNEL_IDS } from './notificationAndroidChannels';
 
 type UserForSession = {
   id: string;
@@ -48,6 +49,10 @@ const DEVICE_PROOF_TTL_MS = Math.max(
 );
 
 const UNKNOWN_DEVICE_PREFIX = 'unidentified:';
+const LOGIN_APPROVAL_EVENT_PREFIX = 'login-approval';
+const LOGIN_APPROVAL_REQUESTED_TYPE = 'security.login_approval.requested';
+const LOGIN_APPROVAL_UPDATED_TYPE = 'security.login_approval.updated';
+const LOGIN_APPROVAL_RESOLVED_TYPE = 'security.login_approval.resolved';
 
 const proofPayload = (deviceId: string, timestamp: string | number) =>
   `scrolith-device-proof:v1\n${deviceId}\n${String(timestamp)}`;
@@ -175,6 +180,37 @@ const trustedDevicePayload = (device: DeviceMetadata, meta: ReturnType<typeof ge
   metadata: device.metadata || undefined
 });
 
+const loginApprovalDedupeKey = (attemptId: string) => `${LOGIN_APPROVAL_EVENT_PREFIX}:${attemptId}`;
+
+const sanitizeAttemptForTrustedClients = (attempt: any, status = attempt?.status || 'PENDING') => ({
+  attemptId: attempt.id,
+  status,
+  expiresAt: attempt.expiresAt,
+  createdAt: attempt.createdAt,
+  platform: attempt.platform || null,
+  deviceModel: attempt.deviceModel || null,
+  appVersion: attempt.appVersion || null,
+  browserName: attempt.metadata?.browserName || null,
+  osVersion: attempt.metadata?.osVersion || null,
+  deviceType: attempt.metadata?.deviceType || null,
+  eventId: loginApprovalDedupeKey(attempt.id),
+  deepLink: `/settings/security?approval=${encodeURIComponent(attempt.id)}`
+});
+
+const emitLoginApprovalEvent = (userId: string, event: string, attempt: any, status = attempt?.status || 'PENDING') => {
+  const payload = sanitizeAttemptForTrustedClients(attempt, status);
+  realtime.emitToUser(userId, event, payload);
+};
+
+const emitLoginApprovalResolved = (userId: string, attempt: any, status: 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'CONSUMED') => {
+  emitLoginApprovalEvent(userId, LOGIN_APPROVAL_RESOLVED_TYPE, attempt, status);
+  realtime.emitToUser(userId, 'security:login_approval_updated', {
+    attemptId: attempt.id,
+    status,
+    eventId: loginApprovalDedupeKey(attempt.id)
+  });
+};
+
 export const ensureTrustedDevice = async (userId: string, device: DeviceMetadata, req: Request) => {
   const meta = getClientMeta(req);
   return (prisma as any).trustedDevice.upsert({
@@ -192,27 +228,31 @@ export const ensureTrustedDevice = async (userId: string, device: DeviceMetadata
 };
 
 const notifyTrustedDevices = async (user: UserForSession, attempt: any) => {
-  const title = 'Approve new Scrolith login';
-  const body = `A new ${attempt.platform || 'device'} wants to access your account.`;
+  const title = 'New sign-in request';
+  const body = 'A new device is trying to sign in to your Scrolith account.';
+  const deepLink = `/settings/security?approval=${encodeURIComponent(attempt.id)}`;
+  const eventId = loginApprovalDedupeKey(attempt.id);
+  const safeAttempt = sanitizeAttemptForTrustedClients(attempt);
   const notification = await prisma.notification
     .create({
       data: {
         userId: user.id,
-        type: 'security.login_approval_required',
+        type: LOGIN_APPROVAL_REQUESTED_TYPE,
         title,
         body,
         category: 'security',
         priority: 'critical',
-        deepLink: `/settings/security?approval=${encodeURIComponent(attempt.id)}`,
+        deepLink,
         entityType: 'login_approval',
         entityId: attempt.id,
-        idempotencyKey: `login-approval:${attempt.id}`,
+        idempotencyKey: eventId,
         meta: {
+          ...safeAttempt,
           attemptId: attempt.id,
           deviceId: attempt.newDeviceId,
-          platform: attempt.platform,
-          deviceModel: attempt.deviceModel,
-          expiresAt: attempt.expiresAt
+          channelId: ANDROID_CHANNEL_IDS.securityLogin,
+          androidChannelId: ANDROID_CHANNEL_IDS.securityLogin,
+          action: 'login_approval'
         }
       }
     })
@@ -225,25 +265,28 @@ const notifyTrustedDevices = async (user: UserForSession, attempt: any) => {
     body,
     category: 'security',
     priority: 'critical',
-    deepLink: `/settings/security?approval=${encodeURIComponent(attempt.id)}`,
-    meta: { attemptId: attempt.id }
+    deepLink,
+    meta: safeAttempt
   };
-  realtime.emitToUser(user.id, 'security:login_approval_required', {
-    attemptId: attempt.id,
-    expiresAt: attempt.expiresAt,
-    platform: attempt.platform,
-    deviceModel: attempt.deviceModel
-  });
+  emitLoginApprovalEvent(user.id, LOGIN_APPROVAL_REQUESTED_TYPE, attempt);
+  realtime.emitToUser(user.id, 'security:login_approval_required', safeAttempt);
   realtime.emitToUser(user.id, 'notifications:new', payload);
   void sendPushToUser(user.id, {
     id: String((payload as any).id || attempt.id),
-    type: 'security.login_approval_required',
+    type: LOGIN_APPROVAL_REQUESTED_TYPE,
     title,
     body,
-    deepLink: `/settings/security?approval=${encodeURIComponent(attempt.id)}`,
+    deepLink,
     data: {
+      ...safeAttempt,
+      type: LOGIN_APPROVAL_REQUESTED_TYPE,
       attemptId: attempt.id,
-      category: 'security'
+      category: 'security',
+      channelId: ANDROID_CHANNEL_IDS.securityLogin,
+      androidChannelId: ANDROID_CHANNEL_IDS.securityLogin,
+      notificationType: LOGIN_APPROVAL_REQUESTED_TYPE,
+      eventId,
+      action: 'login_approval'
     }
   }).catch(() => null);
 };
@@ -450,10 +493,20 @@ export const listPendingApprovals = async (userId: string) => {
 };
 
 export const expireOldApprovals = async () => {
-  await (prisma as any).loginApprovalAttempt.updateMany({
+  const expired = await Promise.resolve(
+    (prisma as any).loginApprovalAttempt.findMany({
+      where: { status: 'PENDING', expiresAt: { lte: new Date() } },
+      select: { id: true, userId: true, expiresAt: true, createdAt: true, platform: true, deviceModel: true, appVersion: true, status: true, metadata: true }
+    })
+  ).catch(() => []);
+  const updated = await (prisma as any).loginApprovalAttempt.updateMany({
     where: { status: 'PENDING', expiresAt: { lte: new Date() } },
     data: { status: 'EXPIRED' }
-  }).catch(() => null);
+  }).catch(() => ({ count: 0 }));
+  if (!updated?.count) return;
+  for (const attempt of expired || []) {
+    emitLoginApprovalResolved(attempt.userId, attempt, 'EXPIRED');
+  }
 };
 
 export const approveLoginAttempt = async (userId: string, attemptId: string) => {
@@ -466,7 +519,10 @@ export const approveLoginAttempt = async (userId: string, attemptId: string) => 
   const updated = await (prisma as any).loginApprovalAttempt.findFirst({
     where: { id: attemptId, userId }
   });
-  realtime.emitToUser(userId, 'security:login_approval_updated', { attemptId, status: 'APPROVED' });
+  if (updated) {
+    emitLoginApprovalEvent(userId, LOGIN_APPROVAL_UPDATED_TYPE, updated, 'APPROVED');
+    emitLoginApprovalResolved(userId, updated, 'APPROVED');
+  }
   return updated;
 };
 
@@ -480,7 +536,10 @@ export const rejectLoginAttempt = async (userId: string, attemptId: string) => {
   const updated = await (prisma as any).loginApprovalAttempt.findFirst({
     where: { id: attemptId, userId }
   });
-  realtime.emitToUser(userId, 'security:login_approval_updated', { attemptId, status: 'REJECTED' });
+  if (updated) {
+    emitLoginApprovalEvent(userId, LOGIN_APPROVAL_UPDATED_TYPE, updated, 'REJECTED');
+    emitLoginApprovalResolved(userId, updated, 'REJECTED');
+  }
   return updated;
 };
 
@@ -523,6 +582,7 @@ export const consumeApprovedLogin = async (attemptId: string, approvalToken: str
   });
   if (consumed.count !== 1) return null;
   await ensureTrustedDevice(attempt.userId, device, req);
+  emitLoginApprovalResolved(attempt.userId, attempt, 'CONSUMED');
   return prisma.user.findUnique({ where: { id: attempt.userId } });
 };
 

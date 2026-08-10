@@ -216,9 +216,34 @@ describe('deviceSecurity.service', () => {
     );
     expect(mockEmitToUser).toHaveBeenCalledWith(
       'user-1',
-      'security:login_approval_required',
-      expect.objectContaining({ attemptId: 'attempt-1' })
+      'security.login_approval.requested',
+      expect.objectContaining({
+        attemptId: 'attempt-1',
+        status: 'PENDING',
+        eventId: 'login-approval:attempt-1'
+      })
     );
+    expect(mockEmitToUser).toHaveBeenCalledWith(
+      'user-1',
+      'security:login_approval_required',
+      expect.objectContaining({ attemptId: 'attempt-1', eventId: 'login-approval:attempt-1' })
+    );
+    expect(mockSendPushToUser).toHaveBeenCalledWith(
+      'user-1',
+      expect.objectContaining({
+        type: 'security.login_approval.requested',
+        title: 'New sign-in request',
+        body: 'A new device is trying to sign in to your Scrolith account.',
+        data: expect.objectContaining({
+          attemptId: 'attempt-1',
+          eventId: 'login-approval:attempt-1',
+          category: 'security',
+          channelId: 'scrolith_security_login'
+        })
+      })
+    );
+    const pushPayload = mockSendPushToUser.mock.calls[0][1];
+    expect(JSON.stringify(pushPayload)).not.toContain((result as any).attempt.approvalToken);
   });
 
   test('trusted device login requires possession proof for stored public key', async () => {
@@ -283,7 +308,12 @@ describe('deviceSecurity.service', () => {
     expect(mockEmitToUser).toHaveBeenCalledWith(
       'user-1',
       'security:login_approval_updated',
-      { attemptId: 'attempt-1', status: 'APPROVED' }
+      expect.objectContaining({ attemptId: 'attempt-1', status: 'APPROVED' })
+    );
+    expect(mockEmitToUser).toHaveBeenCalledWith(
+      'user-1',
+      'security.login_approval.resolved',
+      expect.objectContaining({ attemptId: 'attempt-1', status: 'APPROVED' })
     );
   });
 
@@ -296,6 +326,11 @@ describe('deviceSecurity.service', () => {
     expect(mockEmitToUser).not.toHaveBeenCalledWith(
       'user-1',
       'security:login_approval_updated',
+      expect.anything()
+    );
+    expect(mockEmitToUser).not.toHaveBeenCalledWith(
+      'user-1',
+      'security.login_approval.resolved',
       expect.anything()
     );
   });
