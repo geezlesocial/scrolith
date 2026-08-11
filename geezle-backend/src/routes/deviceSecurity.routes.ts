@@ -16,7 +16,14 @@ const router = express.Router();
 const approvalMutationLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 30 });
 const approvalStatusLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 90 });
 
-router.get('/login-approvals/:attemptId/status', approvalStatusLimiter, getLoginApprovalStatusController);
+router.get('/login-approvals/:attemptId/status', approvalStatusLimiter, (_req, res) =>
+  res.status(405).json({
+    success: false,
+    error: 'Use POST for login approval status checks.',
+    code: 'METHOD_NOT_ALLOWED'
+  })
+);
+router.post('/login-approvals/:attemptId/status', approvalStatusLimiter, getLoginApprovalStatusController);
 
 router.use(authMiddleware);
 

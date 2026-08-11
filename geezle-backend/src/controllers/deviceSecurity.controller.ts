@@ -113,7 +113,12 @@ export const rejectLoginApprovalController = async (req: Request, res: Response)
 
 export const getLoginApprovalStatusController = async (req: Request, res: Response) => {
   const attemptId = String(req.params.attemptId || '').trim();
-  const approvalToken = String(req.query.approvalToken || req.query.approval_token || '').trim();
+  const approvalToken = String(
+    req.body?.approvalToken ||
+    req.body?.approval_token ||
+    req.headers['x-scrolith-login-approval-token'] ||
+    ''
+  ).trim();
   if (!attemptId || !approvalToken) {
     return res.status(400).json({ success: false, error: 'Approval attempt and token are required' });
   }

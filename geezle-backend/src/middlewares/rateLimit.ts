@@ -6,6 +6,9 @@ export const createRateLimiter = (opts?: any) =>
       {
         windowMs: 60 * 1000,
         max: 60,
+        standardHeaders: 'draft-7',
+        legacyHeaders: false,
+        skip: (req: any) => req?.method === 'OPTIONS',
       },
       opts || {}
     )
