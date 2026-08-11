@@ -21,9 +21,11 @@ import { FileVisibility, FileOwnerRole } from '@prisma/client';
 import prisma from '../utils/prismaClient';
 import { resolveFileBaseUrl } from '../utils/mediaUrl';
 import {
+  createBlobReadStreamByName,
   downloadBlobByName,
   deleteBlobByName,
   extractBlobNameFromUrl,
+  getBlobPropertiesByName,
   isAzureBlobConfigured,
   uploadBufferToBlob
 } from '../services/storage/blobStorage';
@@ -1678,26 +1680,22 @@ const tryServeManagedStorageUploadAsset = async (relativePath: string, req: Requ
 
   if (isAzureBlobConfigured()) {
     try {
-      const blobResponse = await downloadBlobByName(normalizedPath);
+      const blobProperties = await getBlobPropertiesByName(normalizedPath);
       const contentType =
-        blobResponse.contentType ||
+        blobProperties.contentType ||
         getMimeTypeFromFilename(normalizedPath);
-      applyFileResponseHeaders(res, {
+      const size = Number(blobProperties.contentLength || 0) || 0;
+      const { serveRangedObject } = require('../utils/httpRange') as typeof import('../utils/httpRange');
+      serveRangedObject({
+        req,
+        res,
+        size,
         contentType,
-        contentLength: blobResponse.contentLength,
-        cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL
+        cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL,
+        etag: blobProperties.etag || null,
+        lastModified: blobProperties.lastModified || null,
+        openStream: (start, end) => createBlobReadStreamByName(normalizedPath, { start, end })
       });
-      const stream = blobResponse.readableStreamBody;
-      if (!stream) return false;
-      stream.on('error', (streamError) => {
-        console.error('Azure blob stream error (direct legacy upload):', streamError);
-        if (!res.headersSent) {
-          res.status(500).end();
-        } else {
-          res.end();
-        }
-      });
-      stream.pipe(res);
       return true;
     } catch (error: any) {
       const statusCode = Number(error?.statusCode || 0);
@@ -2501,29 +2499,20 @@ export const serveFileContent = async (req: Request, res: Response) => {
       }
 
       try {
-        const blobResponse = await downloadBlobByName(file.storageKey);
-        const contentType = blobResponse.contentType || file.mimeType || 'application/octet-stream';
-        applyFileResponseHeaders(res, {
+        const blobProperties = await getBlobPropertiesByName(file.storageKey);
+        const contentType = blobProperties.contentType || file.mimeType || 'application/octet-stream';
+        const size = Number(blobProperties.contentLength || 0) || 0;
+        const { serveRangedObject } = require('../utils/httpRange') as typeof import('../utils/httpRange');
+        serveRangedObject({
+          req,
+          res,
+          size,
           contentType,
-          contentLength: blobResponse.contentLength,
-          cacheControl
+          cacheControl,
+          etag: blobProperties.etag || null,
+          lastModified: blobProperties.lastModified || null,
+          openStream: (start, end) => createBlobReadStreamByName(file.storageKey!, { start, end })
         });
-
-        const stream = blobResponse.readableStreamBody;
-        if (!stream) {
-          res.status(404).json({ success: false, error: 'File not found in storage' });
-          return;
-        }
-
-        stream.on('error', (streamError) => {
-          console.error('Azure blob stream error:', streamError);
-          if (!res.headersSent) {
-            res.status(500).end();
-          } else {
-            res.end();
-          }
-        });
-        stream.pipe(res);
         return;
       } catch (error: any) {
         const statusCode = Number(error?.statusCode || 0);
@@ -2956,29 +2945,23 @@ export const serveLegacyUploadAsset = async (req: Request, res: Response) => {
 
       for (const blobName of blobCandidates) {
         try {
-          const blobResponse = await downloadBlobByName(blobName);
+          const blobProperties = await getBlobPropertiesByName(blobName);
           const contentType =
-            blobResponse.contentType ||
+            blobProperties.contentType ||
             legacyMatch.mimeType ||
             getMimeTypeFromFilename(legacyMatch.filename || baseName);
-
-          applyFileResponseHeaders(res, {
+          const size = Number(blobProperties.contentLength || 0) || 0;
+          const { serveRangedObject } = require('../utils/httpRange') as typeof import('../utils/httpRange');
+          serveRangedObject({
+            req,
+            res,
+            size,
             contentType,
-            contentLength: blobResponse.contentLength,
-            cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL
+            cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL,
+            etag: blobProperties.etag || null,
+            lastModified: blobProperties.lastModified || null,
+            openStream: (start, end) => createBlobReadStreamByName(blobName, { start, end })
           });
-
-          const stream = blobResponse.readableStreamBody;
-          if (!stream) continue;
-          stream.on('error', (streamError) => {
-            console.error('Azure blob stream error (legacy upload):', streamError);
-            if (!res.headersSent) {
-              res.status(500).end();
-            } else {
-              res.end();
-            }
-          });
-          stream.pipe(res);
           return;
         } catch (error: any) {
           const statusCode = Number(error?.statusCode || 0);

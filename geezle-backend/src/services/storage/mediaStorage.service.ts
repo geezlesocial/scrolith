@@ -35,8 +35,10 @@ import {
   uploadBufferToFirebaseStorage
 } from './firebaseStorage';
 import {
+  createBlobReadStreamByName,
   deleteBlobByName,
   downloadBlobByName,
+  getBlobPropertiesByName,
   isAzureBlobConfigured,
   uploadBufferToBlob
 } from './blobStorage';
@@ -442,12 +444,17 @@ export const generateSignedUrl = async (
 export const createReadStreamForProvider = (params: {
   storageProvider?: string | null;
   storageKey?: string | null;
+  start?: number;
+  end?: number;
 }) => {
   const provider = String(params.storageProvider || DEFAULT_PROVIDER).toLowerCase();
   const key = String(params.storageKey || '').trim();
   if (!key) return null;
   if (provider === GCS_PROVIDER || provider === 'gcs') {
-    return createGcsMediaReadStream(key);
+    return createGcsMediaReadStream(key, { start: params.start, end: params.end });
+  }
+  if (provider === AZURE_PROVIDER) {
+    return createBlobReadStreamByName(key, { start: params.start, end: params.end });
   }
   return null;
 };
@@ -462,6 +469,19 @@ export const getObjectMetadataForProvider = async (params: {
   if (provider === GCS_PROVIDER || provider === 'gcs') {
     try {
       return await getGcsMediaMetadata(key);
+    } catch {
+      return null;
+    }
+  }
+  if (provider === AZURE_PROVIDER) {
+    try {
+      const properties = await getBlobPropertiesByName(key);
+      return {
+        contentType: properties.contentType,
+        size: properties.contentLength,
+        etag: properties.etag,
+        updated: properties.lastModified
+      };
     } catch {
       return null;
     }

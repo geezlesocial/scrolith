@@ -100,11 +100,30 @@ export async function getBlobPropertiesByName(blobName: string) {
   return container.getBlobClient(normalized).getProperties();
 }
 
-export async function downloadBlobByName(blobName: string) {
+export async function downloadBlobByName(
+  blobName: string,
+  options?: { offset?: number; count?: number }
+) {
   const container = getContainerClient();
   const normalized = normalizeBlobName(blobName);
   const blobClient = container.getBlobClient(normalized);
-  return blobClient.download();
+  const offset = Number(options?.offset || 0);
+  const count = Number(options?.count || 0);
+  return count > 0 ? blobClient.download(offset, count) : blobClient.download(offset);
+}
+
+export function createBlobReadStreamByName(
+  blobName: string,
+  options?: { start?: number; end?: number }
+) {
+  const container = getContainerClient();
+  const normalized = normalizeBlobName(blobName);
+  const blobClient = container.getBlobClient(normalized);
+  const start = Math.max(0, Number(options?.start || 0));
+  const end = Number(options?.end);
+  const count = Number.isFinite(end) && end >= start ? end - start + 1 : undefined;
+  const response = count && count > 0 ? blobClient.download(start, count) : blobClient.download(start);
+  return response.then((download) => download.readableStreamBody || null);
 }
 
 export async function downloadBlobBufferByName(blobName: string) {

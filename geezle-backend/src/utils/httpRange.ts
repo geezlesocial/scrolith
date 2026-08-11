@@ -97,7 +97,7 @@ export type ServeRangedObjectOptions = {
   etag?: string | null;
   lastModified?: string | Date | null;
   /** Open a readable stream for inclusive byte window [start, end]. For full body, start=0 end=size-1. */
-  openStream: (start: number, end: number) => NodeJS.ReadableStream;
+  openStream: (start: number, end: number) => NodeJS.ReadableStream | Promise<NodeJS.ReadableStream | null | undefined>;
 };
 
 const safeDestroyStream = (stream: NodeJS.ReadableStream | null | undefined) => {
@@ -179,18 +179,20 @@ export const serveRangedObject = (options: ServeRangedObjectOptions): void => {
     return;
   }
 
-  const stream = openStream(start, end);
+  const streamOrPromise = openStream(start, end);
   let cleaned = false;
+  let stream: NodeJS.ReadableStream | null | undefined = null;
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
     safeDestroyStream(stream);
   };
 
-  stream.on('error', (streamError: any) => {
+  const handleStreamError = (streamError: any) => {
     cleanup();
-    const code = Number(streamError?.code || 0);
-    if (code === 404 || String(streamError?.code || '').toLowerCase() === 'notfound') {
+    const code = Number(streamError?.code || streamError?.statusCode || 0);
+    const textCode = String(streamError?.code || '').toLowerCase();
+    if (code === 404 || textCode === 'notfound' || textCode === 'blobnotfound') {
       if (!res.headersSent) {
         res.status(404).end();
       } else {
@@ -201,6 +203,7 @@ export const serveRangedObject = (options: ServeRangedObjectOptions): void => {
     // Do not log storage keys, buckets, or signed URLs.
     console.error('Ranged object stream error:', {
       code: streamError?.code,
+      statusCode: streamError?.statusCode,
       message: String(streamError?.message || streamError)
     });
     if (!res.headersSent) {
@@ -208,7 +211,7 @@ export const serveRangedObject = (options: ServeRangedObjectOptions): void => {
     } else {
       res.end();
     }
-  });
+  };
 
   // Client abort / response close: destroy upstream GCS stream to avoid leaks.
   if (typeof req.on === 'function') {
@@ -220,5 +223,23 @@ export const serveRangedObject = (options: ServeRangedObjectOptions): void => {
     res.on('finish', cleanup);
   }
 
-  stream.pipe(res as any);
+  Promise.resolve(streamOrPromise)
+    .then((openedStream) => {
+      stream = openedStream;
+      if (!stream) {
+        if (!res.headersSent) {
+          res.status(404).end();
+        } else {
+          res.end();
+        }
+        return;
+      }
+      stream.on('error', handleStreamError);
+      if (cleaned) {
+        safeDestroyStream(stream);
+        return;
+      }
+      stream.pipe(res as any);
+    })
+    .catch(handleStreamError);
 };
