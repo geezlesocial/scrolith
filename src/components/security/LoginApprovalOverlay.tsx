@@ -1,10 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, Loader2, ShieldCheck, XCircle } from 'lucide-react';
 import { useNotification } from '../../context/NotificationContext';
 import { useUser } from '../../context/UserContext';
 import { DeviceSecurityService } from '../../services/deviceSecurity';
 import { authenticateBiometrics, checkBiometrics, getBiometricPreference, isNativePlatform } from '../../mobile/biometrics';
+import {
+  getLoginApprovalAttemptId,
+  isLoginApprovalNotification,
+  LOGIN_APPROVAL_OPEN_EVENT
+} from '../../utils/notificationRouting';
 
 type ApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'CONSUMED';
 
@@ -25,7 +30,8 @@ type LoginApprovalRequest = {
 const REQUEST_EVENTS = [
   'security.login_approval.requested',
   'security:login_approval_required',
-  'mobile:push-notification-received'
+  'mobile:push-notification-received',
+  LOGIN_APPROVAL_OPEN_EVENT
 ];
 
 const RESOLUTION_EVENTS = [
@@ -42,7 +48,7 @@ const normalizeStatus = (value: unknown): ApprovalStatus => {
 
 const normalizeAttempt = (raw: any): LoginApprovalRequest | null => {
   const source = raw?.data && typeof raw.data === 'object' ? { ...raw.data, ...raw } : raw;
-  const attemptId = String(source?.attemptId || source?.attempt_id || source?.id || '').trim();
+  const attemptId = String(getLoginApprovalAttemptId(source) || source?.id || '').trim();
   if (!attemptId) return null;
   const type = String(source?.type || source?.notificationType || source?.category || '').toLowerCase();
   if (type && !type.includes('login_approval') && !type.includes('security')) return null;
@@ -95,7 +101,6 @@ const describeDevice = (request: LoginApprovalRequest) => {
 export const LoginApprovalOverlay: React.FC = () => {
   const { isAuthenticated } = useUser();
   const { showNotification, refreshNotifications } = useNotification();
-  const navigate = useNavigate();
   const location = useLocation();
   const [active, setActive] = useState<LoginApprovalRequest | null>(null);
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null);
@@ -135,7 +140,7 @@ export const LoginApprovalOverlay: React.FC = () => {
           'warning',
           'New sign-in request',
           'Review this new-device sign-in before allowing access.',
-          `/settings/security?approval=${encodeURIComponent(request.attemptId)}`,
+          undefined,
           9000
         );
       }
@@ -149,7 +154,11 @@ export const LoginApprovalOverlay: React.FC = () => {
             });
             note.onclick = () => {
               window.focus();
-              navigate(`/settings/security?approval=${encodeURIComponent(request.attemptId)}`);
+              window.dispatchEvent(
+                new CustomEvent(LOGIN_APPROVAL_OPEN_EVENT, {
+                  detail: { attemptId: request.attemptId, eventId: request.eventId || `login-approval:${request.attemptId}` }
+                })
+              );
             };
             browserNotificationRef.current = note;
           }
@@ -158,7 +167,26 @@ export const LoginApprovalOverlay: React.FC = () => {
         }
       }
     },
-    [navigate, remember, showNotification]
+    [remember, showNotification]
+  );
+
+  const openPendingByAttemptId = useCallback(
+    async (attemptId: string, options: { toast?: boolean; browserNotify?: boolean } = {}) => {
+      const target = String(attemptId || '').trim();
+      if (!target) return;
+      try {
+        const rows = await DeviceSecurityService.listPendingApprovals();
+        const match = Array.isArray(rows) ? rows.map(fromPendingRow).find((row) => row?.attemptId === target) : null;
+        if (match && match.status === 'PENDING' && !hasExpired(match)) {
+          openRequest(match, options);
+        } else if (match) {
+          setActive((current) => (current?.attemptId === target ? { ...current, status: match.status } : current));
+        }
+      } catch {
+        // Stored notification clicks are best-effort; stale or unavailable requests are ignored.
+      }
+    },
+    [openRequest]
   );
 
   useEffect(() => {
@@ -169,8 +197,16 @@ export const LoginApprovalOverlay: React.FC = () => {
     const handlers = REQUEST_EVENTS.map((eventName) => {
       const handler = (event: Event) => {
         const detail = (event as CustomEvent).detail;
+        if (eventName === LOGIN_APPROVAL_OPEN_EVENT) {
+          const attemptId = getLoginApprovalAttemptId(detail);
+          if (attemptId) {
+            void openPendingByAttemptId(attemptId, { toast: false });
+          }
+          return;
+        }
         const request = normalizeAttempt(detail);
         if (!request) return;
+        if (eventName === 'mobile:push-notification-received' && !isLoginApprovalNotification(detail)) return;
         openRequest(request, { toast: eventName !== 'mobile:push-notification-received', browserNotify: true });
         void refreshNotifications({ force: true }).catch(() => undefined);
       };
@@ -178,7 +214,7 @@ export const LoginApprovalOverlay: React.FC = () => {
       return () => window.removeEventListener(eventName, handler as EventListener);
     });
     return () => handlers.forEach((cleanup) => cleanup());
-  }, [isAuthenticated, openRequest, refreshNotifications]);
+  }, [isAuthenticated, openPendingByAttemptId, openRequest, refreshNotifications]);
 
   useEffect(() => {
     if (!isAuthenticated) return undefined;
@@ -208,17 +244,13 @@ export const LoginApprovalOverlay: React.FC = () => {
     const attemptId = new URLSearchParams(location.search).get('approval');
     if (!attemptId) return;
     let cancelled = false;
-    DeviceSecurityService.listPendingApprovals()
-      .then((rows) => {
-        if (cancelled) return;
-        const match = Array.isArray(rows) ? rows.map(fromPendingRow).find((row) => row?.attemptId === attemptId) : null;
-        if (match) openRequest(match, { toast: false });
-      })
-      .catch(() => undefined);
+    void openPendingByAttemptId(attemptId, { toast: false }).finally(() => {
+      if (cancelled) return;
+    });
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, location.search, openRequest]);
+  }, [isAuthenticated, location.search, openPendingByAttemptId]);
 
   useEffect(() => {
     if (!active || !active.expiresAt || active.status !== 'PENDING') return undefined;

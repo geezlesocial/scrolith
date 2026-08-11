@@ -7,7 +7,9 @@ import {
   getNotificationActionUrl,
   getNotificationBucket,
   getNotificationCategoryLabel,
-  isExternalNotificationUrl
+  isExternalNotificationUrl,
+  isLoginApprovalNotification,
+  openLoginApprovalNotification
 } from '../../../utils/notificationRouting';
 import {
   groupNotificationsForDisplay,
@@ -273,6 +275,10 @@ export default function MobileNotificationsScreen({
                       String(n?.type || '').toLowerCase() === 'app_campaign' || Boolean(metadata?.campaignId);
                     if (isCampaign) {
                       setSelectedCampaign(n);
+                      return;
+                    }
+                    if (isLoginApprovalNotification(n)) {
+                      openLoginApprovalNotification(n);
                       return;
                     }
                     if (actionUrl) {

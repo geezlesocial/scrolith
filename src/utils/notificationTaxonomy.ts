@@ -582,8 +582,7 @@ export const buildEnterprisePushDeepLink = (data: Record<string, unknown> | null
     return entityId ? `/support?ticket=${encodeURIComponent(entityId)}` : '/support';
   }
   if (type.includes('login_approval')) {
-    const attemptId = String(data.attemptId || data.attempt_id || entityId || '').trim();
-    return attemptId ? `/settings/security?approval=${encodeURIComponent(attemptId)}` : '/settings/security';
+    return null;
   }
   if (type.includes('security')) {
     return '/settings/notifications?tab=privacy';

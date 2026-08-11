@@ -10,7 +10,12 @@ import { SupportService } from '../services/support';
 import { AdminService } from '../services/admin';
 
 import { useT } from '../i18n/useT';
-import { getNotificationActionUrl, getNotificationBucket } from '../utils/notificationRouting';
+import {
+    getNotificationActionUrl,
+    getNotificationBucket,
+    isLoginApprovalNotification,
+    openLoginApprovalNotification
+} from '../utils/notificationRouting';
 
 const Overview = React.lazy(() => import('./admin/Overview'));
 const ListingsManagementTab = React.lazy(() => import('./admin/GigsJobs'));
@@ -210,6 +215,10 @@ const AdminDashboard: React.FC = () => {
                 : {};
         const campaignId = String(metadata?.campaignId || metadata?.campaign_id || '');
         const type = String(notif?.type || notif?.notificationType || '').toLowerCase();
+        if (isLoginApprovalNotification(notif)) {
+            openLoginApprovalNotification(notif);
+            return;
+        }
         if (type === 'app_campaign' && campaignId) {
             window.location.href = `/admin/dashboard?tab=apps&campaignId=${encodeURIComponent(campaignId)}`;
             return;

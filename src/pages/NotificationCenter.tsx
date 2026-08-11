@@ -27,7 +27,9 @@ import {
 import {
   getNotificationActionUrl,
   getNotificationCategoryLabel,
-  isExternalNotificationUrl
+  isExternalNotificationUrl,
+  isLoginApprovalNotification,
+  openLoginApprovalNotification
 } from '../utils/notificationRouting';
 import { getNotificationCategoryMeta } from '../utils/notificationTaxonomy';
 
@@ -315,6 +317,10 @@ const NotificationCenter: React.FC = () => {
       } catch {
         // continue navigation
       }
+    }
+    if (isLoginApprovalNotification(n)) {
+      openLoginApprovalNotification(n);
+      return;
     }
     const url = getNotificationActionUrl(n) || n.deepLink || n.actionUrl || n.action_url;
     if (!url) return;

@@ -13,7 +13,7 @@ import {
 } from '../../mobile/notificationSync';
 
 describe('Phase 32.6 deep-link matrix', () => {
-  const cases: Array<{ name: string; data: Record<string, unknown>; expectPath: string | RegExp }> = [
+  const cases: Array<{ name: string; data: Record<string, unknown>; expectPath: string | RegExp | null }> = [
     {
       name: 'direct message',
       data: { type: 'messaging.direct_message', conversationId: 'c1' },
@@ -33,6 +33,11 @@ describe('Phase 32.6 deep-link matrix', () => {
       name: 'security login',
       data: { type: 'security.new_login' },
       expectPath: '/settings/notifications?tab=privacy'
+    },
+    {
+      name: 'login approval opens in place',
+      data: { type: 'security.login_approval.requested', attemptId: 'attempt-1' },
+      expectPath: null
     },
     {
       name: 'support ticket',
@@ -79,9 +84,12 @@ describe('Phase 32.6 deep-link matrix', () => {
   for (const c of cases) {
     test(c.name, () => {
       const path = buildEnterprisePushDeepLink(c.data);
-      expect(path).toBeTruthy();
-      if (c.expectPath instanceof RegExp) expect(path!).toMatch(c.expectPath);
-      else expect(path).toBe(c.expectPath);
+      if (c.expectPath === null) expect(path).toBeNull();
+      else {
+        expect(path).toBeTruthy();
+        if (c.expectPath instanceof RegExp) expect(path!).toMatch(c.expectPath);
+        else expect(path).toBe(c.expectPath);
+      }
     });
   }
 });

@@ -9,6 +9,7 @@ import {
   formatNotificationTitleWithCategory,
   getNotificationCategoryMeta
 } from '../utils/notificationTaxonomy';
+import { isLoginApprovalNotification, openLoginApprovalNotification } from '../utils/notificationRouting';
 
 type NotificationItem = Notification & {
   dismissed?: boolean;
@@ -310,6 +311,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       persist: true,
       localOnly: true
     });
+    if (isLoginApprovalNotification({ ...payload, metadata: data })) {
+      openLoginApprovalNotification({ ...payload, metadata: data });
+    }
   }, [addNotification, showMessageReceiptNotification]);
 
   useEffect(() => {
@@ -424,6 +428,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         toast: normalizedType !== 'message' && normalizedType !== 'new_message',
         persist: true
       });
+      if (isLoginApprovalNotification(normalized)) {
+        openLoginApprovalNotification(normalized);
+      }
     };
 
     const onMessagesNew = (payload: any) => {

@@ -13,6 +13,10 @@ import {
   SCROLITH_NOTIFICATION_SOUND,
   buildEnterprisePushDeepLink
 } from '../utils/notificationTaxonomy';
+import {
+  isLoginApprovalNotification,
+  openLoginApprovalNotification
+} from '../utils/notificationRouting';
 
 let initialized = false;
 let listenersAttached = false;
@@ -172,8 +176,7 @@ const buildFallbackPathFromPushData = (data: any): string | null => {
     return '/support';
   }
   if (type.includes('login_approval')) {
-    const attemptId = String(data?.attemptId || data?.attempt_id || data?.entityId || '').trim();
-    return attemptId ? `/settings/security?approval=${encodeURIComponent(attemptId)}` : '/settings/security';
+    return null;
   }
   if (type.includes('security')) {
     return '/settings/notifications';
@@ -652,6 +655,25 @@ const attachPushListeners = (navigate?: (path: string) => void) => {
       notificationData?.action_url ||
       notificationData?.url ||
       event.notification?.link;
+
+    if (isLoginApprovalNotification(notificationData)) {
+      void reportPushTrackingEvent('push_notification_opened', {
+        notificationId,
+        path: null,
+        actionId,
+        type: 'login_approval'
+      });
+      void import('./notificationSync').then(({ recordLifecycleReceipt }) => {
+        void recordLifecycleReceipt({
+          notificationId: notificationId ? String(notificationId) : null,
+          lifecycle: 'opened',
+          channel: 'push'
+        });
+      });
+      openLoginApprovalNotification(notificationData);
+      return;
+    }
+
     // Prefer action-specific deep link from actions JSON
     let path = normalizePushActionPath(action) || buildFallbackPathFromPushData(notificationData);
     try {

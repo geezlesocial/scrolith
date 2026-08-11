@@ -1,4 +1,5 @@
 export type NotificationBucket = 'home' | 'community';
+export const LOGIN_APPROVAL_OPEN_EVENT = 'security:login_approval.open';
 
 export {
   getNotificationCategoryLabel,
@@ -14,6 +15,78 @@ export type { NotificationCategoryKey, NotificationCategoryMeta } from './notifi
 const coerceString = (value: unknown) => String(value ?? '').trim();
 const isAbsoluteHttpUrl = (value: string) => /^https?:\/\//i.test(value);
 const isAppDeepLink = (value: string) => /^scrolith:\/\//i.test(value);
+
+const readNotificationMetadata = (notification: any): Record<string, any> =>
+  notification?.metadata && typeof notification.metadata === 'object'
+    ? notification.metadata
+    : notification?.meta && typeof notification.meta === 'object'
+      ? notification.meta
+      : {};
+
+const lowerSignals = (notification: any) => {
+  const metadata = readNotificationMetadata(notification);
+  return [
+    notification?.type,
+    notification?.notificationType,
+    notification?.notification_type,
+    notification?.category,
+    notification?.entityType,
+    notification?.entity_type,
+    metadata?.type,
+    metadata?.notificationType,
+    metadata?.notification_type,
+    metadata?.category,
+    metadata?.entityType,
+    metadata?.entity_type
+  ]
+    .map((value) => coerceString(value).toLowerCase())
+    .filter(Boolean);
+};
+
+export const getLoginApprovalAttemptId = (notification: any): string | undefined => {
+  if (!notification) return undefined;
+  const metadata = readNotificationMetadata(notification);
+  const id = coerceString(
+    notification?.attemptId ??
+      notification?.attempt_id ??
+      notification?.loginApprovalId ??
+      notification?.login_approval_id ??
+      metadata?.attemptId ??
+      metadata?.attempt_id ??
+      metadata?.loginApprovalId ??
+      metadata?.login_approval_id ??
+      notification?.entityId ??
+      notification?.entity_id ??
+      metadata?.entityId ??
+      metadata?.entity_id
+  );
+  return id || undefined;
+};
+
+export const isLoginApprovalNotification = (notification: any): boolean => {
+  const attemptId = getLoginApprovalAttemptId(notification);
+  if (!attemptId) return false;
+  const signals = lowerSignals(notification);
+  return signals.some((signal) => {
+    const normalized = signal.replace(/[:.-]/g, '_');
+    return normalized.includes('login_approval') || normalized === 'loginapproval';
+  });
+};
+
+export const openLoginApprovalNotification = (notification: any): boolean => {
+  const attemptId = getLoginApprovalAttemptId(notification);
+  if (!attemptId || typeof window === 'undefined') return false;
+  window.dispatchEvent(
+    new CustomEvent(LOGIN_APPROVAL_OPEN_EVENT, {
+      detail: {
+        attemptId,
+        eventId: coerceString(notification?.eventId ?? notification?.event_id) || `login-approval:${attemptId}`,
+        notificationId: coerceString(notification?.id) || undefined
+      }
+    })
+  );
+  return true;
+};
 
 const isInternalHost = (hostname: string) => {
   const normalized = coerceString(hostname).toLowerCase();
@@ -192,6 +265,8 @@ export const isExternalNotificationUrl = (urlValue?: string): boolean => {
 };
 
 export const getNotificationBucket = (notification: any): NotificationBucket => {
+  if (isLoginApprovalNotification(notification)) return 'home';
+
   const raw = getRawNotificationActionUrl(notification);
   const normalized = raw ? normalizeInternalUrl(raw) || raw : '';
   const path = coerceString(normalized).split('?')[0].split('#')[0];
@@ -206,6 +281,8 @@ export const getNotificationBucket = (notification: any): NotificationBucket => 
 };
 
 export const getNotificationActionUrl = (notification: any): string | undefined => {
+  if (isLoginApprovalNotification(notification)) return undefined;
+
   const raw = getRawNotificationActionUrl(notification);
   if (raw) {
     const rewritten = rewriteLegacyCommunityPostUrl(raw);
