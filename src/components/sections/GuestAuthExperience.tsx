@@ -15,6 +15,13 @@ import {
   UserRole
 } from "../../types";
 import { buildScrolithaPath } from "../../utils/scrolithaLaunch";
+import { resolveAuthenticatedEntryPath } from "../../utils/authRedirect";
+
+type LoginApprovalState = {
+  id: string;
+  approvalToken: string;
+  expiresAt?: string | null;
+};
 
 const sanitizeLines = (value: any): string[] =>
   Array.isArray(value)
@@ -30,6 +37,13 @@ export const isInlineGuestAuthUrl = (url?: string): boolean => {
 };
 
 const isExternalUrl = (url?: string): boolean => /^https?:\/\//i.test(String(url || "").trim());
+
+const formatLoginApprovalExpiry = (value?: string | null) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+};
 
 const scheduleGuestIdleTask = (callback: () => void, timeout = 1200) => {
   if (typeof window === "undefined") return () => {};
@@ -111,6 +125,9 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
   const [loginHvRequired, setLoginHvRequired] = React.useState(false);
   const [signupHvToken, setSignupHvToken] = React.useState<string | null>(null);
   const [signupHvRequired, setSignupHvRequired] = React.useState(false);
+  const [loginApproval, setLoginApproval] = React.useState<LoginApprovalState | null>(null);
+  const approvalStatusInFlightRef = React.useRef(false);
+  const approvalExchangeInFlightRef = React.useRef(false);
   const embeddedModalSurface = hideStandaloneLinks;
   const formSpacingClass = embeddedModalSurface ? "space-y-3" : "space-y-4";
   const inputPaddingClass = embeddedModalSurface && !compactSurface ? "py-2.5" : "py-3";
@@ -118,6 +135,11 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
   React.useEffect(() => {
     setActiveTab(normalizeGuestAuthTab(defaultTab || content?.defaultTab));
   }, [content?.defaultTab, defaultTab]);
+
+  React.useEffect(() => {
+    approvalStatusInFlightRef.current = false;
+    approvalExchangeInFlightRef.current = false;
+  }, [loginApproval?.id]);
 
   React.useEffect(() => {
     let mounted = true;
@@ -135,6 +157,90 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
       cancel();
     };
   }, []);
+
+  React.useEffect(() => {
+    if (!loginApproval?.id || !loginApproval.approvalToken) return undefined;
+
+    let stopped = false;
+
+    const pollApproval = async () => {
+      if (approvalStatusInFlightRef.current || approvalExchangeInFlightRef.current) return;
+      approvalStatusInFlightRef.current = true;
+
+      try {
+        const { DeviceSecurityService } = await import("../../services/deviceSecurity");
+        const status = await DeviceSecurityService.getApprovalStatus(
+          loginApproval.id,
+          loginApproval.approvalToken
+        );
+        if (stopped) return;
+
+        const current = String(status?.status || "").toUpperCase();
+        if (!current || current === "PENDING") return;
+
+        if (current === "APPROVED") {
+          approvalExchangeInFlightRef.current = true;
+          setLoginLoading(true);
+          const { AuthService } = await import("../../services/authService");
+          const exchanged = await AuthService.exchangeApprovedLogin(
+            loginApproval.id,
+            loginApproval.approvalToken
+          );
+          if (stopped) return;
+
+          if (exchanged.success && exchanged.user) {
+            try {
+              window.dispatchEvent(new Event("scrolith:auth-changed"));
+            } catch {
+              // Best-effort app state refresh before the full navigation.
+            }
+            window.location.assign(resolveAuthenticatedEntryPath(exchanged.user as any));
+            return;
+          }
+
+          setLoginApproval(null);
+          setLoginError(exchanged.error || "Unable to complete approved login.");
+          return;
+        }
+
+        if (current === "REJECTED") {
+          setLoginApproval(null);
+          setLoginError("This login was rejected from your trusted session.");
+          return;
+        }
+
+        if (current === "EXPIRED") {
+          setLoginApproval(null);
+          setLoginError("This login approval expired. Please sign in again.");
+        }
+      } catch (error: any) {
+        if (!stopped) {
+          setLoginApproval(null);
+          setLoginError(
+            error?.response?.data?.error ||
+              error?.response?.data?.message ||
+              error?.message ||
+              "Unable to check login approval."
+          );
+        }
+      } finally {
+        approvalStatusInFlightRef.current = false;
+        if (!stopped && approvalExchangeInFlightRef.current) {
+          setLoginLoading(false);
+        }
+      }
+    };
+
+    void pollApproval();
+    const timer = window.setInterval(() => {
+      void pollApproval();
+    }, 3000);
+
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [loginApproval]);
 
   const socialConfig = authConfig?.social_auth ?? (authConfig as any)?.socialAuth;
   const signupContent = authConfig?.signup;
@@ -164,16 +270,23 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
   const handleLoginSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setLoginError("");
+    if (loginApproval) return;
     if (loginHvRequired && !loginHvToken) {
       setLoginError("Please complete human verification to continue.");
       return;
     }
     setLoginLoading(true);
+    let approvalRequired = false;
     try {
       const ok = await login(loginForm.email.trim(), loginForm.password, {
-        humanVerificationToken: loginHvToken || undefined
+        humanVerificationToken: loginHvToken || undefined,
+        onLoginApprovalRequired: (approval) => {
+          approvalRequired = true;
+          setLoginApproval(approval);
+          setLoginError("");
+        }
       });
-      if (!ok) setLoginError("Invalid credentials. Please try again.");
+      if (!ok && !approvalRequired) setLoginError("Invalid credentials. Please try again.");
     } catch (error: any) {
       setLoginError(error?.message || "Unable to sign in.");
     } finally {
@@ -276,6 +389,31 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
           {loginError ? (
             <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{loginError}</div>
           ) : null}
+          {loginApproval ? (
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
+              <p className="font-semibold text-blue-950">Waiting for trusted-device approval</p>
+              <p className="mt-1 leading-6">
+                Open Scrolith on a device that is already signed in, go to Settings &gt; Security, then approve this login.
+              </p>
+              {formatLoginApprovalExpiry(loginApproval.expiresAt) ? (
+                <p className="mt-1 text-xs font-medium text-blue-800">
+                  Expires at {formatLoginApprovalExpiry(loginApproval.expiresAt)}
+                </p>
+              ) : null}
+              <button
+                type="button"
+                disabled={loginLoading}
+                onClick={() => {
+                  if (loginLoading) return;
+                  setLoginApproval(null);
+                  setLoginError("");
+                }}
+                className="mt-3 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loginLoading ? "Completing approved login..." : "Cancel approval request"}
+              </button>
+            </div>
+          ) : null}
           <input
             type="email"
             required
@@ -325,10 +463,10 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
           <div className={embeddedModalSurface ? "pt-1" : ""}>
             <button
               type="submit"
-              disabled={loginLoading || (loginHvRequired && !loginHvToken)}
+              disabled={loginLoading || Boolean(loginApproval) || (loginHvRequired && !loginHvToken)}
               className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loginLoading ? "Signing in..." : content?.loginCtaLabel || "Login"}
+              {loginApproval ? "Waiting for approval..." : loginLoading ? "Signing in..." : content?.loginCtaLabel || "Login"}
             </button>
           </div>
           {!hideStandaloneLinks ? (
