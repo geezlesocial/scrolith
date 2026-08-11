@@ -40,9 +40,9 @@ const buildResponsiveSources = (
   });
   const candidateWidths = Array.from(
     new Set(
-      [normalizedWidth * 0.75, normalizedWidth, normalizedWidth * 1.5, normalizedWidth * 2]
+      [320, 480, 640, 768, 960, 1280, normalizedWidth, normalizedWidth * 1.5, normalizedWidth * 2]
         .map((value) => normalizeDimension(value))
-        .filter((value) => value >= 96)
+        .filter((value) => value >= 96 && value <= Math.min(2048, normalizedWidth * 2))
     )
   ).sort((a, b) => a - b);
   const variants = candidateWidths
@@ -84,7 +84,7 @@ export default function OptimizedImage({
   loading = 'lazy',
   decoding = 'async',
   sizes,
-  fetchPriority = 'auto',
+  fetchPriority,
   disableSrcSet = false,
   onError,
   ...rest
@@ -123,6 +123,7 @@ export default function OptimizedImage({
   }, [disableSrcSet, resolvedSources.baseSrc, resolvedSources.srcSet, fallback]);
 
   const computedSizes = currentSrcSet ? sizes || `${normalizedWidth}px` : undefined;
+  const computedFetchPriority = fetchPriority || (loading === 'eager' ? 'auto' : 'low');
 
   // Never render empty src — leaves broken icon in some browsers.
   if (!currentSrc && !fallback) {
@@ -140,7 +141,7 @@ export default function OptimizedImage({
       height={normalizedHeight}
       loading={loading}
       decoding={decoding}
-      fetchPriority={fetchPriority}
+      fetchPriority={computedFetchPriority}
       onError={(event) => {
         // 1) Prefer original untransformed content URL when responsive variants fail
         // (missing transform, cache-key miss, or backend 404 on ?w=&h=).

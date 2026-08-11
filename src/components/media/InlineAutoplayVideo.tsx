@@ -32,6 +32,7 @@ type InlineAutoplayVideoProps = {
 };
 
 const activeAutoplayVideos = new Set<HTMLVideoElement>();
+const OFFSCREEN_RELEASE_DELAY_MS = 12000;
 
 const canUseNavigatorConnection = () =>
   typeof navigator !== 'undefined' && 'connection' in navigator;
@@ -293,13 +294,12 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
 
     if (!autoplayEnabled || !active || !isInView || document.hidden) {
       pauseProgrammatically();
-      if (!active || document.hidden) return;
       offscreenReleaseTimerRef.current = window.setTimeout(() => {
         const current = videoRef.current;
-        if (!current || isInViewRef.current || userPausedRef.current) return;
+        if (!current || (activeRef.current && isInViewRef.current && !document.hidden) || userPausedRef.current) return;
         releaseVideoBuffer(current);
         setShouldLoadSource(false);
-      }, 45000);
+      }, OFFSCREEN_RELEASE_DELAY_MS);
       return;
     }
 
@@ -461,7 +461,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
   ]);
 
   const effectivePreload: 'none' | 'metadata' | 'auto' =
-    shouldLoadSource && active && isInView ? (autoplayEnabled ? 'auto' : preload) : shouldLoadSource ? 'metadata' : 'none';
+    shouldLoadSource && active && isInView ? preload : shouldLoadSource ? 'metadata' : 'none';
 
   useEffect(() => {
     const node = videoRef.current;

@@ -1417,7 +1417,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
     const urls: string[] = [];
     for (let i = activeIndex + 1; i <= activeIndex + 2 && i < items.length; i += 1) {
       const media = resolveInlineMedia(items[i]?.media || items[i], { typeHint: 'video' });
-      if (media?.src) urls.push(media.src);
+      if (media?.poster) urls.push(media.poster);
     }
     prefetchScrollMediaUrls(urls, profile.dataSaver ? 1 : 2);
   }, [activeIndex, items, profile.dataSaver]);

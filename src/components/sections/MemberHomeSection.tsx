@@ -7307,11 +7307,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     controls={false}
                     loop
                     autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
-                    eagerLoad={isSingleAttachment}
-                    preload={isSingleAttachment ? 'auto' : 'metadata'}
+                    preload="metadata"
                     threshold={0.2}
                     rootMargin="120px 0px 120px 0px"
-                    preloadRootMargin="280px 0px 280px 0px"
+                    preloadRootMargin="160px 0px 220px 0px"
                     loadingLabel="Video loading"
                     overlay={() => (
                       <div className="w-full px-2 pb-8 sm:px-3 sm:pb-9">

@@ -46,8 +46,7 @@ export const resolveScrollPreloadMode = (input: {
   const network = input.networkClass || detectNetworkClass();
   if (input.isActive) {
     if (!input.autoplayEnabled) return 'metadata';
-    if (network === 'slow') return 'metadata';
-    return 'auto';
+    return 'metadata';
   }
   if (input.isNeighbor) {
     if (network === 'slow') return 'none';
@@ -167,10 +166,14 @@ export const estimateBufferHealth = (video: HTMLMediaElement | null | undefined)
   return 0;
 };
 
-/** Prefetch next N media URLs via lightweight link tags / Image warmup for posters. */
+const VIDEO_URL_PATTERN = /\.(mp4|webm|mov|m4v|mkv|avi|wmv|flv|m3u8)(?:$|[?#])/i;
+
+/** Prefetch next N poster/image URLs. Never prefetch full videos from scroll. */
 export const prefetchScrollMediaUrls = (urls: string[], limit = 2) => {
   if (typeof document === 'undefined') return;
-  const list = Array.from(new Set(urls.map((u) => String(u || '').trim()).filter(Boolean))).slice(0, limit);
+  const list = Array.from(new Set(urls.map((u) => String(u || '').trim()).filter(Boolean)))
+    .filter((url) => !VIDEO_URL_PATTERN.test(url))
+    .slice(0, limit);
   list.forEach((url) => {
     const existing = Array.from(document.head.querySelectorAll('link[data-scroll-prefetch]')).some(
       (node) => node.getAttribute('data-scroll-prefetch') === url
@@ -178,7 +181,7 @@ export const prefetchScrollMediaUrls = (urls: string[], limit = 2) => {
     if (existing) return;
     const link = document.createElement('link');
     link.rel = 'prefetch';
-    link.as = 'video';
+    link.as = 'image';
     link.href = url;
     link.setAttribute('data-scroll-prefetch', url);
     document.head.appendChild(link);

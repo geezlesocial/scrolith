@@ -35,7 +35,7 @@ describe('Phase 23 scroll player engine', () => {
         dataSaver: false,
         networkClass: 'fast'
       })
-    ).toBe('auto');
+    ).toBe('metadata');
     expect(
       resolveScrollPreloadMode({
         isActive: false,
