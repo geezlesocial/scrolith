@@ -8,10 +8,16 @@ const readSource = (relativePath: string) => readFileSync(join(root, relativePat
 describe('homepage inline login approval regression contract', () => {
   const userContextSource = readSource('context/UserContext.tsx');
   const guestAuthSource = readSource('components/sections/GuestAuthExperience.tsx');
+  const deviceSecuritySource = readSource('services/deviceSecurity.ts');
 
   const userContextLoginBody = userContextSource.slice(
     userContextSource.indexOf('  const login = async'),
     userContextSource.indexOf('  const register = async')
+  );
+
+  const approvalStatusBody = deviceSecuritySource.slice(
+    deviceSecuritySource.indexOf('  async getApprovalStatus'),
+    deviceSecuritySource.indexOf('  async exchangeApprovedLogin')
   );
 
   test('interactive login does not toggle global auth bootstrap loading', () => {
@@ -35,6 +41,15 @@ describe('homepage inline login approval regression contract', () => {
     expect(guestAuthSource).toContain('approvalExchangeInFlightRef.current');
     expect(guestAuthSource).toContain('window.setInterval');
     expect(guestAuthSource).toContain('window.clearInterval(timer)');
+  });
+
+  test('approval status polling never sends approvalToken in the request URL', () => {
+    expect(approvalStatusBody).toContain('api.post');
+    expect(approvalStatusBody).toContain('{');
+    expect(approvalStatusBody).toContain('approvalToken');
+    expect(approvalStatusBody).not.toContain('api.get');
+    expect(approvalStatusBody).not.toContain('params:');
+    expect(approvalStatusBody).not.toContain('URLSearchParams');
   });
 
   test('inline approval UI handles rejected, expired, cancel, and duplicate submit states', () => {

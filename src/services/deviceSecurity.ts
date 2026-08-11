@@ -232,8 +232,9 @@ export const DeviceSecurityService = {
   },
   async getApprovalStatus(attemptId: string, approvalToken: string) {
     return unwrap(
-      await api.get(`/security/login-approvals/${encodeURIComponent(attemptId)}/status`, {
-        params: { approvalToken },
+      await api.post(`/security/login-approvals/${encodeURIComponent(attemptId)}/status`, {
+        approvalToken
+      }, {
         __skipRetry: true
       } as any)
     );
