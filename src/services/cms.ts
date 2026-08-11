@@ -23,15 +23,128 @@ const BRAND_LOGO_URL = 'https://scrolith.com/logo.png';
 const BRAND_FAVICON_URL = 'https://scrolith.com/favicon.png';
 const AUTH_PAGES_CACHE_TTL_MS = 5 * 60 * 1000;
 const GUEST_HOMEPAGE_FETCH_TIMEOUT_MS = 3500;
+const PUBLIC_CONFIG_CACHE_TTL_MS = 5 * 60 * 1000;
+const PUBLIC_CONFIG_FAILURE_COOLDOWN_MS = 30 * 1000;
+const PUBLIC_CONFIG_STALE_TTL_MS = 10 * 60 * 1000;
 
 let authPagesCache: { config: AuthPagesConfig | null; cachedAt: number } | null = null;
 let authPagesRequest: Promise<AuthPagesConfig | null> | null = null;
+type CmsApiGetOptions = {
+    quiet?: boolean;
+};
+type PublicConfigCacheEntry<T> = {
+    value?: T;
+    expiresAt: number;
+    retryAfterUntil: number;
+    inFlight?: Promise<T>;
+};
+const publicConfigCache = new Map<string, PublicConfigCacheEntry<any>>();
 
 const devLog = (...args: any[]) => {
     if (!import.meta.env.PROD) console.log(...args);
 };
 const devWarn = (...args: any[]) => {
     if (!import.meta.env.PROD) console.warn(...args);
+};
+
+class CmsHttpError extends Error {
+    status: number;
+    retryAfterMs: number | null;
+    endpoint: string;
+
+    constructor(endpoint: string, status: number, message: string, retryAfterMs: number | null) {
+        super(message);
+        this.name = 'CmsHttpError';
+        this.status = status;
+        this.retryAfterMs = retryAfterMs;
+        this.endpoint = endpoint;
+    }
+}
+
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const parseRetryAfterMs = (value: string | null): number | null => {
+    if (!value) return null;
+    const seconds = Number.parseInt(value, 10);
+    if (Number.isFinite(seconds) && seconds > 0) return clamp(seconds * 1000, 1000, 5 * 60 * 1000);
+    const dateMs = Date.parse(value);
+    if (Number.isFinite(dateMs)) return clamp(dateMs - Date.now(), 1000, 5 * 60 * 1000);
+    return null;
+};
+
+const getPublicConfigCooldownMs = (error: unknown) => {
+    const err = error as Partial<CmsHttpError> & { status?: number };
+    if (Number(err?.status) === 429) {
+        return err.retryAfterMs ?? PUBLIC_CONFIG_FAILURE_COOLDOWN_MS;
+    }
+    return Math.max(5000, Math.floor(PUBLIC_CONFIG_FAILURE_COOLDOWN_MS / 3));
+};
+
+const getCachedPublicConfig = async <T>(
+    key: string,
+    loader: () => Promise<T>,
+    fallback: () => T,
+    ttlMs = PUBLIC_CONFIG_CACHE_TTL_MS
+): Promise<T> => {
+    const now = Date.now();
+    const existing = publicConfigCache.get(key) as PublicConfigCacheEntry<T> | undefined;
+
+    if (existing?.value !== undefined && existing.expiresAt > now) return existing.value;
+    if (existing?.inFlight) return existing.inFlight;
+    if (existing?.retryAfterUntil && existing.retryAfterUntil > now) {
+        return existing.value !== undefined ? existing.value : fallback();
+    }
+
+    let request: Promise<T>;
+    request = (async () => {
+        try {
+            const value = await loader();
+            publicConfigCache.set(key, {
+                value,
+                expiresAt: Date.now() + ttlMs,
+                retryAfterUntil: 0
+            });
+            return value;
+        } catch (error) {
+            const previous = publicConfigCache.get(key) as PublicConfigCacheEntry<T> | undefined;
+            const cooldownMs = getPublicConfigCooldownMs(error);
+            const value = previous?.value;
+            publicConfigCache.set(key, {
+                value,
+                expiresAt: value !== undefined ? Date.now() + PUBLIC_CONFIG_STALE_TTL_MS : 0,
+                retryAfterUntil: Date.now() + cooldownMs
+            });
+            return value !== undefined ? value : fallback();
+        } finally {
+            const latest = publicConfigCache.get(key);
+            if (latest?.inFlight === request) {
+                delete latest.inFlight;
+                publicConfigCache.set(key, latest);
+            }
+        }
+    })();
+
+    publicConfigCache.set(key, {
+        ...(existing || { expiresAt: 0, retryAfterUntil: 0 }),
+        inFlight: request
+    });
+    return request;
+};
+
+export const __cmsPublicConfigTestHooks = {
+    reset: () => {
+        publicConfigCache.clear();
+        authPagesCache = null;
+        authPagesRequest = null;
+    },
+    snapshot: () =>
+        Array.from(publicConfigCache.entries()).map(([key, entry]) => ({
+            key,
+            hasValue: entry.value !== undefined,
+            hasInFlight: Boolean(entry.inFlight),
+            expiresAt: entry.expiresAt,
+            retryAfterUntil: entry.retryAfterUntil
+        }))
 };
 
 const fetchWithTimeout = async (url: string, init: RequestInit = {}, timeoutMs = 5000) => {
@@ -987,7 +1100,7 @@ const shouldIncludeBrowserCredentials = () => {
 
 // --- API HELPER ---
 const api = {
-    get: async (endpoint: string) => {
+    get: async (endpoint: string, options: CmsApiGetOptions = {}) => {
         try {
             const url = `${getCmsApiUrl()}${endpoint}`;
             devLog(`🌐 API GET: ${url}`);
@@ -1013,14 +1126,23 @@ const api = {
 
                 // For other errors, throw so they can be handled
                 const errorText = await res.text();
-                throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
+                throw new CmsHttpError(
+                    endpoint,
+                    res.status,
+                    `HTTP ${res.status}: ${errorText || res.statusText}`,
+                    parseRetryAfterMs(res.headers.get('Retry-After'))
+                );
             }
 
             const data = await res.json();
             devLog(`✅ API GET success for ${endpoint}`);
             return data;
         } catch (e) {
-            console.error(`❌ API Get Error ${endpoint}:`, e);
+            if (options.quiet) {
+                devWarn(`API Get Error ${endpoint}:`, e);
+            } else {
+                console.error(`❌ API Get Error ${endpoint}:`, e);
+            }
             throw e; // Propagate error
         }
     },
@@ -1082,10 +1204,55 @@ const api = {
     }
 };
 
+const defaultHeaderConfig = (): HeaderConfig =>
+    ({
+        id: 'default',
+        homeUrl: '/',
+        home_url: '/',
+        variant: 'light',
+        searchEnabled: true,
+        search_enabled: true,
+        searchMode: 'keyword',
+        search_mode: 'keyword',
+        logoUrl: '',
+        logo_url: '',
+        faviconUrl: '',
+        favicon_url: '',
+        navigation: [],
+        actions: {
+            notifications: true,
+            messages: true,
+            orders: true,
+            lists: true,
+            switchSelling: true,
+            switch_selling: true,
+            profile: true
+        },
+        profileMenu: [],
+        profile_menu: [],
+        userMenu: [],
+        profileMenuGroupLabels: {},
+        profile_menu_group_labels: {},
+        guestPrimaryDropdown: null,
+        guest_primary_dropdown: null,
+        guestExploreDropdown: null,
+        guest_explore_dropdown: null,
+        guestCtas: [],
+        guest_ctas: [],
+        roleSwitch: null,
+        role_switch: null
+    }) as unknown as HeaderConfig;
+
 export const CMSService = {
     getPublicPlatformSettings: async (): Promise<PlatformSettings> => {
-        const raw = unwrap(await api.get('/cms/platform-settings'));
-        return normalizeAssetUrls(raw?.data ?? raw ?? {}) as PlatformSettings;
+        return getCachedPublicConfig(
+            'cms:platform-settings',
+            async () => {
+                const raw = unwrap(await api.get('/cms/platform-settings', { quiet: true }));
+                return normalizeAssetUrls(raw?.data ?? raw ?? {}) as PlatformSettings;
+            },
+            () => normalizeAssetUrls(fallbackData.settings) as PlatformSettings
+        );
     },
 
     // --- System Settings (Synced Real-Time) ---
@@ -1108,7 +1275,7 @@ export const CMSService = {
             }
         }
 
-        const raw = platformSource ?? unwrap(await api.get('/cms/platform-settings'));
+        const raw = platformSource ?? (await CMSService.getPublicPlatformSettings());
         const source = raw?.settings ?? raw?.data?.settings ?? raw ?? {};
 
         const siteName = source.siteName ?? source.site_name ?? 'Scrolith';
@@ -1341,6 +1508,12 @@ export const CMSService = {
     // --- Homepage Layout ---
     // Unified homepage endpoint - returns all homepage content
 getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: string; _t?: number }): Promise<any> => {
+        const fallbackHomepage = () =>
+            normalizeHomepagePayload(
+                { sections: [], slides: [], pageType: options?.pageType || 'homepage', published: false },
+                options?.pageType || 'homepage'
+            );
+        const loadHomepage = async () => {
         try {
                 const params = new URLSearchParams();
                 if (options?.role) params.append('role', options.role);
@@ -1373,7 +1546,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                 let fallback: any = direct;
                 if (!fallback) {
                         try {
-                            fallback = await api.get(url);
+                            fallback = await api.get(url, { quiet: true });
                         } catch (e) {
                             devWarn('Homepage api.get fallback failed:', e);
                             fallback = null;
@@ -1382,7 +1555,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
 
                 if (!fallback) {
                     devWarn('⚠️ Homepage API returned null/empty; returning empty homepage object');
-                    return normalizeHomepagePayload({ sections: [], slides: [], pageType: 'homepage', published: false }, 'homepage');
+                    return fallbackHomepage();
                 }
 
                 devLog('✅ Homepage API response:', {
@@ -1396,9 +1569,20 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
 
                 return normalizeHomepagePayload(fallback, options?.pageType || 'homepage');
         } catch (error) {
-                console.error('❌ Failed to fetch homepage:', error);
-                return normalizeHomepagePayload({ sections: [], slides: [], pageType: 'homepage', published: false }, 'homepage');
+                devWarn('Failed to fetch homepage:', error);
+                return fallbackHomepage();
         }
+        };
+        if (!options?._t) {
+            const cacheKey = [
+                'cms:homepage',
+                options?.role || 'public',
+                options?.location || '',
+                options?.pageType || 'homepage'
+            ].join(':');
+            return getCachedPublicConfig(cacheKey, loadHomepage, fallbackHomepage, 60 * 1000);
+        }
+        return loadHomepage();
 },
 
     getGuestHomepage: async (): Promise<any> => {
@@ -1710,9 +1894,11 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
     updateHomeSlideOrder: async (slides: any[]) => api.post('/cms/slides/reorder', { slides }),
 
     // --- Header Config ---
-    getHeaderConfig: async (): Promise<HeaderConfig> => {
+    getHeaderConfig: async (): Promise<HeaderConfig> => getCachedPublicConfig(
+        'cms:header',
+        async () => {
         try {
-            const raw = unwrap(await api.get('/cms/header'));
+            const raw = unwrap(await api.get('/cms/header', { quiet: true }));
             const source = raw || {};
 
             const homeUrl = source.homeUrl ?? source.home_url ?? '/';
@@ -1828,10 +2014,10 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             } as unknown as HeaderConfig;
             return normalizeAssetUrls(header) as HeaderConfig;
         } catch (error) {
-            console.error('Failed to fetch header config:', error);
+            devWarn('Failed to fetch header config:', error);
             // Try public homepage endpoint as a fallback (some deployments restrict admin endpoints)
             try {
-                const homepageRaw = unwrap(await api.get('/cms/homepage')) || {};
+                const homepageRaw = unwrap(await api.get('/cms/homepage', { quiet: true })) || {};
                 const source = (homepageRaw && (homepageRaw.header || homepageRaw.homepage || homepageRaw)) || {};
 
                 const homeUrl = source.homeUrl ?? source.home_url ?? '/';
@@ -1947,94 +2133,13 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                 } as unknown as HeaderConfig;
                 return normalizeAssetUrls(header) as HeaderConfig;
             } catch (e2) {
-                console.error('Failed to fetch public homepage as fallback for header config:', e2);
-                // As a last resort, attempt to read platform settings which include faviconUrl
-                try {
-                    const platformRaw = unwrap(await api.get('/admin/platform/settings')) || {};
-                    const platformData = (platformRaw?.data ?? platformRaw) || {};
-                    const faviconUrl = platformData.faviconUrl ?? platformData.favicon_url ?? '';
-
-                    const header = {
-                        id: 'default',
-                        homeUrl: '/',
-                        home_url: '/',
-                        variant: 'light',
-                        searchEnabled: true,
-                        search_enabled: true,
-                        searchMode: 'keyword',
-                        search_mode: 'keyword',
-                        logoUrl: platformData.logoUrl ?? platformData.logo_url ?? '',
-                        logo_url: platformData.logoUrl ?? platformData.logo_url ?? '',
-                        faviconUrl,
-                        favicon_url: faviconUrl,
-                        navigation: [],
-                        actions: {
-                            notifications: true,
-                            messages: true,
-                            orders: true,
-                            lists: true,
-                            switchSelling: true,
-                            switch_selling: true,
-                            profile: true
-                        },
-                        profileMenu: [],
-                        profile_menu: [],
-                        userMenu: [],
-                        profileMenuGroupLabels: {},
-                        profile_menu_group_labels: {},
-                        guestPrimaryDropdown: null,
-                        guest_primary_dropdown: null,
-                        guestExploreDropdown: null,
-                        guest_explore_dropdown: null,
-                        guestCtas: [],
-                        guest_ctas: [],
-                        roleSwitch: null,
-                        role_switch: null
-                    } as unknown as HeaderConfig;
-                    return normalizeAssetUrls(header) as HeaderConfig;
-                } catch (e3) {
-                    console.error('Failed to fetch platform settings as fallback for header config:', e3);
-                }
+                devWarn('Failed to fetch public homepage as fallback for header config:', e2);
             }
-            return {
-                id: 'default',
-                homeUrl: '/',
-                home_url: '/',
-                variant: 'light',
-                searchEnabled: true,
-                search_enabled: true,
-                searchMode: 'keyword',
-                search_mode: 'keyword',
-                logoUrl: '',
-                logo_url: '',
-                faviconUrl: '',
-                favicon_url: '',
-                navigation: [],
-                actions: {
-                    notifications: true,
-                    messages: true,
-                    orders: true,
-                    lists: true,
-                    switchSelling: true,
-                    switch_selling: true,
-                    profile: true
-                },
-                profileMenu: [],
-                profile_menu: [],
-                userMenu: [],
-                profileMenuGroupLabels: {},
-                profile_menu_group_labels: {},
-                guestPrimaryDropdown: null,
-                guest_primary_dropdown: null,
-                guestExploreDropdown: null,
-                guest_explore_dropdown: null,
-                guestCtas: [],
-                guest_ctas: [],
-                roleSwitch: null,
-                role_switch: null
-            } as unknown as HeaderConfig;
+            return defaultHeaderConfig();
         }
-    },
+        },
+        defaultHeaderConfig
+    ),
 
     saveHeaderConfig: async (config: HeaderConfig): Promise<HeaderConfig> => {
         try {
@@ -2285,11 +2390,10 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
     },
 
     // --- Activity Config ---
-    getActivityConfig: async (): Promise<ActivityConfig> => {
-        try {
-            const data = await api.get('/cms/activity');
-            return (
-                data ||
+    getActivityConfig: async (): Promise<ActivityConfig> => getCachedPublicConfig(
+        'cms:activity',
+        async () =>
+            ((await api.get('/cms/activity', { quiet: true })) ||
                 ({
                     icons: [],
                     helpMenu: [],
@@ -2304,11 +2408,9 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                         badge_color: '',
                         show_badges: true
                     }
-                } as unknown as ActivityConfig)
-            );
-        } catch (error) {
-            console.error('Failed to fetch activity config:', error);
-            return {
+                } as unknown as ActivityConfig)),
+        () =>
+            ({
                 icons: [],
                 helpMenu: [],
                 help_menu: [],
@@ -2322,9 +2424,8 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                     badge_color: '',
                     show_badges: true
                 }
-            } as unknown as ActivityConfig;
-        }
-    },
+            }) as unknown as ActivityConfig
+    ),
 
     saveActivityConfig: async (config: ActivityConfig): Promise<ActivityConfig> => {
         try {
@@ -2686,13 +2787,13 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
 
         authPagesRequest = (async () => {
         try {
-            const data = unwrap(await api.get('/cms/auth-pages'));
+            const data = unwrap(await api.get('/cms/auth-pages', { quiet: true }));
             const config = (data || null) as unknown as AuthPagesConfig | null;
             const normalized = config ? (normalizeAssetUrls(config) as AuthPagesConfig) : null;
             authPagesCache = { config: normalized, cachedAt: Date.now() };
             return normalized;
         } catch (error) {
-            console.error('Failed to fetch auth pages config:', error);
+            devWarn('Failed to fetch auth pages config:', error);
             authPagesCache = { config: null, cachedAt: Date.now() };
             return null;
         } finally {

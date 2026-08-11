@@ -372,14 +372,6 @@ const Navbar = () => {
     };
   }, [socket, refreshConfigs]);
 
-  useEffect(() => {
-    if (socket) return;
-    const id = window.setInterval(() => {
-      refreshConfigs();
-    }, 5000);
-    return () => window.clearInterval(id);
-  }, [socket, refreshConfigs]);
-
   const closeAllHeaderPopovers = useCallback(() => {
     setShowNotifications(false);
     setShowMessagesDropdown(false);
