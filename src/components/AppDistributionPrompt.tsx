@@ -112,7 +112,9 @@ const AppDistributionPrompt: React.FC = () => {
       if (!mounted) return;
       setConfig(loaded);
     };
-    void load();
+    void load().catch(() => {
+      if (mounted) setConfig(null);
+    });
     return () => {
       mounted = false;
     };

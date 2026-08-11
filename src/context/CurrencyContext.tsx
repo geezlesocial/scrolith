@@ -99,13 +99,18 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [authLoading, isAuthenticated]);
 
   useEffect(() => {
-    void refreshCurrencies();
+    void refreshCurrencies().catch(() => {
+      // refreshCurrencies owns fallback state; this prevents an optional boot
+      // loader from surfacing as an unhandled promise if future edits rethrow.
+    });
   }, [refreshCurrencies]);
 
   useEffect(() => {
     if (!socket) return;
     const handleSettings = () => {
-      void refreshCurrencies();
+      void refreshCurrencies().catch(() => {
+        // Optional live currency refresh is best-effort.
+      });
     };
     // Phase 28D — real-time pricing/catalog invalidation hooks (project conventions)
     socket.on('settings:updated', handleSettings);

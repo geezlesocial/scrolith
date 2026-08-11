@@ -214,7 +214,9 @@ export const PreloaderProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (cancelled) return;
       hide('boot');
     };
-    void run();
+    void run().catch(() => {
+      if (!cancelled) hide('boot');
+    });
 
     return () => {
       cancelled = true;
@@ -301,7 +303,9 @@ export const PreloaderProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   useEffect(() => {
     if (isConnected) return;
     const timer = window.setInterval(() => {
-      void refreshConfig();
+      void refreshConfig().catch(() => {
+        // Optional fallback polling must never create unhandled rejections.
+      });
     }, 60000);
     return () => window.clearInterval(timer);
   }, [isConnected, refreshConfig]);

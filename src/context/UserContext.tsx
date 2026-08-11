@@ -205,8 +205,6 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     password: string,
     options?: UserLoginOptions
   ): Promise<boolean> => {
-    setIsLoading(true);
-    
     try {
       const result = await AuthService.login({
         email,
@@ -284,8 +282,6 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error) {
       console.error('Login error:', error);
       throw error;
-    } finally {
-      setIsLoading(false);
     }
   };
 
