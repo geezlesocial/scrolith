@@ -3728,9 +3728,10 @@ const isAuthCriticalPath = (req: { path?: string; originalUrl?: string; baseUrl?
   // Login/signup/oauth/HV must remain usable even when shared carrier NATs burn the
   // anonymous global budget. Dedicated per-route limiters still apply on HV.
   if (haystack.includes('/auth/oauth')) return true;
-  if (haystack.includes('/auth/login') || haystack.includes('/auth/signup')) return true;
+  if (haystack.includes('/auth/login') || haystack.includes('/auth/signup') || haystack.includes('/auth/register')) return true;
   if (haystack.includes('/auth/forgot-password') || haystack.includes('/auth/reset-password')) return true;
   if (haystack.includes('/auth/health') || haystack.includes('/auth/me')) return true;
+  if (haystack.includes('/security/login-approvals')) return true;
   if (haystack.includes('/human-verification')) return true;
   if (haystack.includes('/public/system-status')) return true;
   if (path === '/health' || originalUrl.endsWith('/api/health') || originalUrl.includes('/api/health?')) {
@@ -3739,14 +3740,87 @@ const isAuthCriticalPath = (req: { path?: string; originalUrl?: string; baseUrl?
   return false;
 };
 
+const normalizedApiPath = (req: { path?: string; originalUrl?: string; baseUrl?: string }) => {
+  const path = String(req.path || '').toLowerCase();
+  const originalUrl = String(req.originalUrl || '').toLowerCase();
+  const mountedPath = String(`${req.baseUrl || ''}${req.path || ''}`).toLowerCase();
+  return { path, originalUrl, mountedPath };
+};
+
+const requestIpKey = (req: Request) => {
+  const conn = req.connection as unknown as { remoteAddress?: string } | undefined;
+  const rawIp = (req.ip || (conn && conn.remoteAddress) || '').toString();
+  if (!rawIp) return 'unknown';
+  return ipKeyGenerator(rawIp);
+};
+
+const isPublicBootPath = (req: { path?: string; originalUrl?: string; baseUrl?: string; method?: string }) => {
+  if (req.method === 'OPTIONS') return true;
+  const { path, originalUrl, mountedPath } = normalizedApiPath(req);
+  const haystack = `${path} ${originalUrl} ${mountedPath}`;
+  if (req.method === 'GET') {
+    return [
+      '/api/cms',
+      '/api/homepage',
+      '/api/currencies',
+      '/api/i18n',
+      '/api/public/preloader',
+      '/api/marketing',
+      '/api/payments/methods/active',
+      '/api/apps/config',
+      '/api/community/feed',
+      '/api/community/threads'
+    ].some((prefix) => haystack.includes(prefix));
+  }
+  return req.method === 'POST' && haystack.includes('/api/apps/track');
+};
+
+const rateLimitRetryAfterSeconds = (req: Request, fallbackWindowMs: number) => {
+  const resetTime = (req as any).rateLimit?.resetTime;
+  if (resetTime instanceof Date) {
+    return Math.max(1, Math.ceil((resetTime.getTime() - Date.now()) / 1000));
+  }
+  return Math.max(1, Math.ceil(fallbackWindowMs / 1000));
+};
+
+const jsonRateLimitHandler = (code: string, message: string, fallbackWindowMs: number) =>
+  (req: Request, res: Response) => {
+    const retryAfterSeconds = rateLimitRetryAfterSeconds(req, fallbackWindowMs);
+    res.setHeader('Retry-After', String(retryAfterSeconds));
+    return res.status(429).json({
+      success: false,
+      error: message,
+      code,
+      retryAfterSeconds
+    });
+  };
+
+const publicBootRateLimitMax = Math.max(
+  apiRateLimitMaxAnonymous * 10,
+  Number(process.env.API_PUBLIC_BOOT_RATE_LIMIT_MAX || (isDevelopment ? 50_000 : 20_000))
+);
+
+const publicBootLimiter = rateLimit({
+  windowMs: apiRateLimitWindowMs,
+  max: publicBootRateLimitMax,
+  message: { error: 'Too many public requests, please try again later.', code: 'PUBLIC_RATE_LIMITED' },
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: (req) => `public:${requestIpKey(req)}`,
+  skip: (req) => req.method === 'OPTIONS',
+  handler: jsonRateLimitHandler(
+    'PUBLIC_RATE_LIMITED',
+    'Too many public requests, please try again later.',
+    apiRateLimitWindowMs
+  )
+});
+
 const limiter = rateLimit({
   windowMs: apiRateLimitWindowMs,
   max: (req) => {
     const auth = String(req.headers.authorization || '').trim();
     const baseLimit = auth ? apiRateLimitMaxAuthenticated : apiRateLimitMaxAnonymous;
-    const path = String(req.path || '').toLowerCase();
-    const originalUrl = String(req.originalUrl || '').toLowerCase();
-    const mountedPath = String(`${req.baseUrl || ''}${req.path || ''}`).toLowerCase();
+    const { path, originalUrl, mountedPath } = normalizedApiPath(req);
     const isSearchRead =
       req.method === 'GET' &&
       (
@@ -3767,25 +3841,30 @@ const limiter = rateLimit({
   message: { error: 'Too many requests from this IP, please try again later.', code: 'RATE_LIMITED' },
   standardHeaders: 'draft-7',
   legacyHeaders: false,
+  handler: jsonRateLimitHandler(
+    'RATE_LIMITED',
+    'Too many requests from this IP, please try again later.',
+    apiRateLimitWindowMs
+  ),
   keyGenerator: (req) => {
     const auth = String(req.headers.authorization || '').trim();
     if (auth) {
       const hash = createHash('sha256').update(auth).digest('hex').slice(0, 24);
       return `auth:${hash}`;
     }
-    const conn = req.connection as unknown as { remoteAddress?: string } | undefined;
-    const rawIp = (req.ip || (conn && conn.remoteAddress) || '').toString();
-    if (!rawIp) return 'unknown';
     // Isolate auth-critical budget so feed/media thrash cannot block login/HV.
     if (isAuthCriticalPath(req)) {
-      return `authcrit:${ipKeyGenerator(rawIp)}`;
+      return `authcrit:${requestIpKey(req)}`;
     }
-    return ipKeyGenerator(rawIp);
+    return requestIpKey(req);
   },
   // Skip rate limiting only for non-production local/dev — never via client headers.
   skip: (req) => {
     try {
+      if (req.method === 'OPTIONS') return true;
       if (req.path.includes('/socket.io/')) return true;
+      if (isAuthCriticalPath(req)) return true;
+      if (isPublicBootPath(req)) return true;
       // OAuth start is a browser redirect, not an API thrash vector.
       const originalUrl = String(req.originalUrl || '').toLowerCase();
       if (req.method === 'GET' && originalUrl.includes('/api/auth/oauth/')) return true;
@@ -3822,7 +3901,30 @@ try {
   // optional
 }
 
+app.use('/api/', (req: Request, res: Response, next) => {
+  if (!isPublicBootPath(req)) {
+    next();
+    return undefined;
+  }
+  publicBootLimiter(req, res, next);
+  return undefined;
+});
+
 app.use('/api/', limiter);
+
+const sanitizeRequestUrlForLogs = (value: string) => {
+  const raw = String(value || '');
+  if (!raw) return raw;
+  try {
+    const url = new URL(raw, 'https://scrolith.local');
+    ['approvalToken', 'approval_token'].forEach((key) => {
+      if (url.searchParams.has(key)) url.searchParams.set(key, '[redacted]');
+    });
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return raw.replace(/(approvalToken|approval_token)=([^&\s]+)/gi, '$1=[redacted]');
+  }
+};
 
 // Request logging middleware
 app.use((req: Request, res: Response, next) => {
@@ -3832,7 +3934,7 @@ app.use((req: Request, res: Response, next) => {
     const duration = Date.now() - start;
     const user = req.user;
     console.log(
-      `[API] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${duration}ms) ` +
+      `[API] ${req.method} ${sanitizeRequestUrlForLogs(req.originalUrl)} -> ${res.statusCode} (${duration}ms) ` +
       `${user?.id ? `user=${user.id}` : ''} ${user?.role ? `role=${user.role}` : ''}`.trim()
     );
   });
