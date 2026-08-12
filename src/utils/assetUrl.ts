@@ -289,5 +289,18 @@ export const resolveOptimizedStaticImageUrl = (value?: string | null) => {
   const resolved = resolveAssetUrl(value);
   if (!resolved) return resolved ?? '';
 
+  // Keep legacy CMS brand settings on the small immutable logo asset. This is
+  // intentionally limited to the platform logo path; uploaded media and
+  // external assets must retain their original URLs.
+  try {
+    const url = new URL(resolved);
+    const host = url.hostname.toLowerCase();
+    if ((host === 'scrolith.com' || host === 'www.scrolith.com') && url.pathname === '/logo.png') {
+      return '/logo-64.png';
+    }
+  } catch {
+    // Keep non-URL values unchanged.
+  }
+
   return resolved;
 };

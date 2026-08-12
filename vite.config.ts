@@ -32,10 +32,6 @@ const FRONTEND_CHUNK_RULES: Array<{ name: string; patterns: string[] }> = [
     patterns: ['/node_modules/stripe/']
   },
   {
-    name: `maps-${CHUNK_BUST}`,
-    patterns: ['/node_modules/maplibre-gl/']
-  },
-  {
     name: `capacitor-${CHUNK_BUST}`,
     patterns: ['/node_modules/@capacitor/']
   }

@@ -19,13 +19,16 @@ if (import.meta.env.PROD && !_hasBackendEnv) {
 }
 const getCmsApiUrl = () => getApiBaseUrl();
 const getCmsBackendOrigin = () => getBackendOrigin();
-const BRAND_LOGO_URL = 'https://scrolith.com/logo.png';
+const BRAND_LOGO_URL = 'https://scrolith.com/logo-64.png';
 const BRAND_FAVICON_URL = 'https://scrolith.com/favicon.png';
 const AUTH_PAGES_CACHE_TTL_MS = 5 * 60 * 1000;
 const GUEST_HOMEPAGE_FETCH_TIMEOUT_MS = 3500;
+const GUEST_HOMEPAGE_CACHE_TTL_MS = 45 * 1000;
 
 let authPagesCache: { config: AuthPagesConfig | null; cachedAt: number } | null = null;
 let authPagesRequest: Promise<AuthPagesConfig | null> | null = null;
+let guestHomepageCache: { payload: any; cachedAt: number } | null = null;
+let guestHomepageRequest: Promise<any> | null = null;
 
 const devLog = (...args: any[]) => {
     if (!import.meta.env.PROD) console.log(...args);
@@ -733,6 +736,93 @@ const fallbackGuestHomepage = () => normalizeHomepagePayload({
     updatedAt: new Date().toISOString()
 }, 'public_home');
 
+const fetchGuestHomepageFresh = async (): Promise<any> => {
+        try {
+            const guest = await fetchWithTimeout(`${getCmsApiUrl()}/homepage/guest`, {
+                cache: 'no-store',
+                headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' }
+            }, GUEST_HOMEPAGE_FETCH_TIMEOUT_MS);
+            if (guest.ok) {
+                const raw = await guest.json();
+                const normalized = normalizeHomepagePayload(raw, 'public_home');
+                if (hasActiveHomepageSections(normalized)) return normalized;
+            }
+            if (guest.status === 429) {
+                devWarn('Guest homepage fetch was rate limited; using static fallback');
+                return fallbackGuestHomepage();
+            }
+        } catch (error) {
+            devWarn('Guest homepage direct fetch failed:', error);
+            return fallbackGuestHomepage();
+        }
+
+        try {
+            const data = unwrap(await api.get('/homepage/guest'));
+            const normalized = normalizeHomepagePayload(data, 'public_home');
+            if (hasActiveHomepageSections(normalized)) return normalized;
+        } catch (error) {
+            devWarn('Guest homepage api.get fallback failed:', error);
+        }
+
+        try {
+            const direct = await fetchWithTimeout(`${getCmsApiUrl()}/cms/homepage`, {
+                cache: 'no-store',
+                headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' }
+            }, GUEST_HOMEPAGE_FETCH_TIMEOUT_MS);
+            if (direct.ok) {
+                const raw = await direct.json();
+                const normalized = normalizeHomepagePayload(raw, 'public_home');
+                if (hasActiveHomepageSections(normalized) && !isDefaultCmsSeedHomepage(normalized)) {
+                    return normalized;
+                }
+                devWarn('Ignoring default CMS seed homepage for guest homepage');
+            }
+            if (direct.status === 429) {
+                devWarn('Guest homepage canonical CMS fetch was rate limited; using static fallback');
+                return fallbackGuestHomepage();
+            }
+        } catch (error) {
+            devWarn('Guest homepage canonical CMS fetch failed:', error);
+        }
+
+        try {
+            const data = unwrap(await api.get('/cms/homepage'));
+            const normalized = normalizeHomepagePayload(data, 'public_home');
+            if (hasActiveHomepageSections(normalized) && !isDefaultCmsSeedHomepage(normalized)) {
+                return normalized;
+            }
+            devWarn('Ignoring default CMS seed homepage from api.get fallback');
+        } catch (error) {
+            devWarn('Guest homepage canonical api.get fallback failed:', error);
+        }
+
+        return fallbackGuestHomepage();
+};
+
+const getSharedGuestHomepage = async (options?: { force?: boolean }): Promise<any> => {
+        const now = Date.now();
+        if (!options?.force && guestHomepageCache && now - guestHomepageCache.cachedAt < GUEST_HOMEPAGE_CACHE_TTL_MS) {
+            return guestHomepageCache.payload;
+        }
+        if (!options?.force && guestHomepageRequest) return guestHomepageRequest;
+
+        guestHomepageRequest = fetchGuestHomepageFresh()
+            .then((payload) => {
+                guestHomepageCache = { payload, cachedAt: Date.now() };
+                return payload;
+            })
+            .finally(() => {
+                guestHomepageRequest = null;
+            });
+
+        return guestHomepageRequest;
+};
+
+const invalidateGuestHomepageCache = () => {
+        guestHomepageCache = null;
+        guestHomepageRequest = null;
+};
+
 const normalizeNavItem = (item: any) => {
     if (!item) return null;
     const visibility = normalizeRoleList(
@@ -1401,70 +1491,11 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
         }
 },
 
-    getGuestHomepage: async (): Promise<any> => {
-        try {
-            const guest = await fetchWithTimeout(`${getCmsApiUrl()}/homepage/guest`, {
-                cache: 'no-store',
-                headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' }
-            }, GUEST_HOMEPAGE_FETCH_TIMEOUT_MS);
-            if (guest.ok) {
-                const raw = await guest.json();
-                const normalized = normalizeHomepagePayload(raw, 'public_home');
-                if (hasActiveHomepageSections(normalized)) return normalized;
-            }
-            if (guest.status === 429) {
-                devWarn('Guest homepage fetch was rate limited; using static fallback');
-                return fallbackGuestHomepage();
-            }
-        } catch (error) {
-            devWarn('Guest homepage direct fetch failed:', error);
-            return fallbackGuestHomepage();
-        }
-
-        try {
-            const data = unwrap(await api.get('/homepage/guest'));
-            const normalized = normalizeHomepagePayload(data, 'public_home');
-            if (hasActiveHomepageSections(normalized)) return normalized;
-        } catch (error) {
-            devWarn('Guest homepage api.get fallback failed:', error);
-        }
-
-        try {
-            const direct = await fetchWithTimeout(`${getCmsApiUrl()}/cms/homepage`, {
-                cache: 'no-store',
-                headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' }
-            }, GUEST_HOMEPAGE_FETCH_TIMEOUT_MS);
-            if (direct.ok) {
-                const raw = await direct.json();
-                const normalized = normalizeHomepagePayload(raw, 'public_home');
-                if (hasActiveHomepageSections(normalized) && !isDefaultCmsSeedHomepage(normalized)) {
-                    return normalized;
-                }
-                devWarn('Ignoring default CMS seed homepage for guest homepage');
-            }
-            if (direct.status === 429) {
-                devWarn('Guest homepage canonical CMS fetch was rate limited; using static fallback');
-                return fallbackGuestHomepage();
-            }
-        } catch (error) {
-            devWarn('Guest homepage canonical CMS fetch failed:', error);
-        }
-
-        try {
-            const data = unwrap(await api.get('/cms/homepage'));
-            const normalized = normalizeHomepagePayload(data, 'public_home');
-            if (hasActiveHomepageSections(normalized) && !isDefaultCmsSeedHomepage(normalized)) {
-                return normalized;
-            }
-            devWarn('Ignoring default CMS seed homepage from api.get fallback');
-        } catch (error) {
-            devWarn('Guest homepage canonical api.get fallback failed:', error);
-        }
-
-        return fallbackGuestHomepage();
-    },
+    getGuestHomepage: async (options?: { force?: boolean }): Promise<any> => getSharedGuestHomepage(options),
 
     getGuestHomepageFallback: (): any => fallbackGuestHomepage(),
+
+    invalidateGuestHomepageCache: (): void => invalidateGuestHomepageCache(),
 
     getGuestHomepageDraft: async (): Promise<any> => {
         try {

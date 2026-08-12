@@ -49,7 +49,7 @@ type LucideIconComponent = React.ComponentType<{ size?: number; className?: stri
 
 const HEADER_SEARCH_PLACEHOLDER =
   "Search people, jobs, gigs, posts, pages, communities, or marketplace";
-const BRAND_LOGO_FALLBACK = "/logo.png";
+const BRAND_LOGO_FALLBACK = "/logo-64.png";
 
 const formatBadgeCount = (count: number) => formatMessagingBadgeCount(count);
 
@@ -924,7 +924,7 @@ const Navbar = () => {
     (headerConfig as any)?.logo_url ||
     settings?.logoUrl ||
     settings?.logo_url ||
-    '/logo.png'
+    '/logo-64.png'
   );
   const brandLogoSrc = resolveOptimizedStaticImageUrl(
     resolveResponsiveAssetUrl(

@@ -2,6 +2,7 @@ import React from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import AuthSocialButtons from "../../auth/AuthSocialButtons";
 import { useUser } from "../../context/UserContext";
+import { loadPublicCurrencyCatalog } from "../../context/CurrencyContext";
 import { type Gig } from "../../services/gigs";
 import { CMSService } from "../../services/cms";
 import { listMarketplaceListings } from "../../services/marketplace";
@@ -41,7 +42,7 @@ import {
 } from "./GuestAuthExperience";
 
 const ensureArray = <T = any,>(value: any): T[] => (Array.isArray(value) ? value : []);
-const SCROLITH_LOGO = "/logo.png";
+const SCROLITH_LOGO = "/logo-64.png";
 
 const resolveUrl = (item: any) => item?.url ?? item?.href ?? item?.link ?? "";
 
@@ -990,7 +991,7 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
   }, [hasAnyLivePreviewTab, shouldLoadMarketplacePreview]);
 
   React.useEffect(() => {
-    if (!hasMarketplaceTab || !shouldLoadMarketplacePreview || marketplacePreview.loaded || marketplacePreviewRequestRef.current) return undefined;
+    if (!hasMarketplaceTab || !showMarketplacePreview || !shouldLoadMarketplacePreview || marketplacePreview.loaded || marketplacePreviewRequestRef.current) return undefined;
     let cancelled = false;
     marketplacePreviewRequestRef.current = true;
 
@@ -1027,7 +1028,7 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
 
         if (!previewItems.length) {
           try {
-            const homepage = await withTimeout(fetchGuestJson("/homepage/guest"), 7000);
+            const homepage = await withTimeout(CMSService.getGuestHomepage(), 7000);
             previewItems = extractMarketplacePreviewItems(homepage);
           } catch {
             previewItems = [];
@@ -1052,10 +1053,10 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
     return () => {
       cancelled = true;
     };
-  }, [hasMarketplaceTab, marketplacePreview.loaded, shouldLoadMarketplacePreview]);
+  }, [hasMarketplaceTab, marketplacePreview.loaded, shouldLoadMarketplacePreview, showMarketplacePreview]);
 
   React.useEffect(() => {
-    if (!hasCommunityTab || !shouldLoadMarketplacePreview || communityPreview.loaded || communityPreviewRequestRef.current) return undefined;
+    if (!hasCommunityTab || !showCommunityPreview || !shouldLoadMarketplacePreview || communityPreview.loaded || communityPreviewRequestRef.current) return undefined;
     let cancelled = false;
     communityPreviewRequestRef.current = true;
 
@@ -1063,7 +1064,7 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
       setCommunityPreview((prev) => ({ ...prev, loading: true }));
       try {
         const payload = await fetchGuestJson("/community/feed?limit=4&scope=public");
-        const homepage = await fetchGuestJson("/homepage/guest").catch(() => null);
+        const homepage = await CMSService.getGuestHomepage().catch(() => null);
         if (!cancelled) {
           const liveItems = extractCommunityPreviewItems(payload);
           const homepageItems = extractCommunityPreviewItems(homepage);
@@ -1083,10 +1084,10 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
     return () => {
       cancelled = true;
     };
-  }, [communityPreview.loaded, hasCommunityTab, shouldLoadMarketplacePreview]);
+  }, [communityPreview.loaded, hasCommunityTab, shouldLoadMarketplacePreview, showCommunityPreview]);
 
   React.useEffect(() => {
-    if (!hasMessagingTab || !shouldLoadMarketplacePreview || messagingPreview.loaded || messagingPreviewRequestRef.current) return undefined;
+    if (!hasMessagingTab || !showMessagingPreview || !shouldLoadMarketplacePreview || messagingPreview.loaded || messagingPreviewRequestRef.current) return undefined;
     let cancelled = false;
     messagingPreviewRequestRef.current = true;
 
@@ -1100,7 +1101,7 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
 
         const threads = threadsPayload.status === "fulfilled" ? threadsPayload.value : null;
         const feed = feedPayload.status === "fulfilled" ? feedPayload.value : null;
-        const homepage = await fetchGuestJson("/homepage/guest").catch(() => null);
+        const homepage = await CMSService.getGuestHomepage().catch(() => null);
         const primaryItems = extractMessagingPreviewItems(threads, feed);
         const homepageItems = extractMessagingPreviewItems(homepage, homepage);
         const items = primaryItems.length ? primaryItems : homepageItems;
@@ -1121,10 +1122,10 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
     return () => {
       cancelled = true;
     };
-  }, [hasMessagingTab, messagingPreview.loaded, shouldLoadMarketplacePreview]);
+  }, [hasMessagingTab, messagingPreview.loaded, shouldLoadMarketplacePreview, showMessagingPreview]);
 
   React.useEffect(() => {
-    if (!hasAiAssistantTab || !shouldLoadMarketplacePreview || aiPreview.loaded || aiPreviewRequestRef.current) return undefined;
+    if (!hasAiAssistantTab || !showAiPreview || !shouldLoadMarketplacePreview || aiPreview.loaded || aiPreviewRequestRef.current) return undefined;
     let cancelled = false;
     aiPreviewRequestRef.current = true;
 
@@ -1148,10 +1149,10 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
     return () => {
       cancelled = true;
     };
-  }, [aiPreview.loaded, hasAiAssistantTab, shouldLoadMarketplacePreview]);
+  }, [aiPreview.loaded, hasAiAssistantTab, shouldLoadMarketplacePreview, showAiPreview]);
 
   React.useEffect(() => {
-    if (!hasPaymentsTab || !shouldLoadMarketplacePreview || paymentsPreview.loaded || paymentsPreviewRequestRef.current) return undefined;
+    if (!hasPaymentsTab || !showPaymentsPreview || !shouldLoadMarketplacePreview || paymentsPreview.loaded || paymentsPreviewRequestRef.current) return undefined;
     let cancelled = false;
     paymentsPreviewRequestRef.current = true;
 
@@ -1159,7 +1160,7 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
       setPaymentsPreview((prev) => ({ ...prev, loading: true }));
       try {
         const [currenciesPayload, methodsPayload] = await Promise.all([
-          fetchGuestJson("/currencies/active"),
+          loadPublicCurrencyCatalog().then((catalog) => ({ data: catalog.list, meta: { baseCurrency: catalog.baseCurrency } })),
           fetchGuestJson("/payments/methods/active")
         ]);
         if (!cancelled) {
@@ -1182,7 +1183,7 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
     return () => {
       cancelled = true;
     };
-  }, [hasPaymentsTab, paymentsPreview.loaded, shouldLoadMarketplacePreview]);
+  }, [hasPaymentsTab, paymentsPreview.loaded, shouldLoadMarketplacePreview, showPaymentsPreview]);
 
   if (!content?.title && visibleTabs.length === 0) return null;
   return (

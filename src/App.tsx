@@ -512,7 +512,7 @@ class ErrorBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBo
           <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 text-center shadow-sm">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50">
               <img
-                src="/logo.png"
+                src="/logo-64.png"
                 alt=""
                 width={44}
                 height={44}
@@ -587,7 +587,7 @@ class SignedInHomepageBoundary extends React.Component<React.PropsWithChildren<{
           <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 text-center shadow-sm">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50">
               <img
-                src="/logo.png"
+                src="/logo-64.png"
                 alt="Scrolith logo"
                 width={44}
                 height={44}
@@ -623,7 +623,7 @@ const RouteLoadingFallback = () => (
       <div className="flex flex-col items-center gap-3 text-center">
         <div className="flex h-20 w-20 items-center justify-center rounded-[1.75rem] border border-slate-200 bg-slate-50 shadow-sm">
           <img
-            src="/logo.png"
+            src="/logo-64.png"
             alt="Scrolith logo"
             width={56}
             height={56}

@@ -1,6 +1,4 @@
 import React, { useEffect, useState, Suspense, useMemo, useCallback, lazy } from 'react';
-import { LoaderIcon } from '../components/icons/ShellIcons';
-import { Navigate, useLocation } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { useContent } from '../context/ContentContext';
 import { useSocket } from '../context/SocketContext';
@@ -277,6 +275,93 @@ const createInitialGuestHomepageState = () => {
   }
 };
 
+const BRAND_LOGO_SMALL = '/logo-64.png';
+
+const GuestHeroAuthFallback: React.FC<{ content?: Partial<GuestHeroAuthContent>; style?: any }> = ({
+  content,
+  style
+}) => {
+  const trustPoints = Array.isArray((content as any)?.trustPoints) && (content as any).trustPoints.length
+    ? (content as any).trustPoints.slice(0, 3)
+    : ['Realtime marketplace', 'Secure payments', 'Verified talent'];
+
+  return (
+    <section
+      className="overflow-x-clip py-6 sm:py-12"
+      style={{ background: style?.background || 'linear-gradient(180deg, #f8fafc 0%, #ffffff 55%, #f8fafc 100%)' }}
+    >
+      <div className="mx-auto grid w-full max-w-7xl min-w-0 gap-4 px-4 sm:gap-5 sm:px-6 lg:grid-cols-[1.08fr_0.92fr] lg:gap-8 lg:px-8">
+        <div className="relative min-w-0 overflow-hidden rounded-[30px] border border-slate-200/90 bg-gradient-to-br from-white via-white to-indigo-50/45 p-5 shadow-[0_28px_70px_-32px_rgba(15,23,42,0.26)] sm:rounded-[34px] sm:p-7 lg:p-8">
+          <div className="pointer-events-none absolute -left-12 -top-12 h-40 w-40 rounded-full bg-indigo-200/35 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-16 right-0 h-48 w-48 rounded-full bg-cyan-200/35 blur-3xl" />
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-indigo-300 to-transparent opacity-70" />
+          <div className="min-w-0">
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-gradient-to-r from-indigo-50 via-white to-indigo-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-indigo-700 shadow-[0_10px_24px_-18px_rgba(79,70,229,0.7)]">
+                <img src={BRAND_LOGO_SMALL} alt="Scrolith" width={16} height={16} className="h-4 w-4 rounded-full object-contain" loading="eager" decoding="async" />
+                Scrolith Enterprise
+              </span>
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-800 shadow-sm">
+                Work - Market - AI - Community
+              </span>
+            </div>
+            <h1 className="max-w-[14ch] text-[2rem] font-extrabold leading-[1.03] tracking-[-0.04em] text-slate-900 sm:max-w-none sm:text-3xl lg:text-4xl xl:text-[3.3rem]">
+              {content?.headline || 'The All-in-One Platform for Work, Talent, and Community'}
+            </h1>
+            <p className="mt-4 max-w-2xl text-[15px] leading-7 text-slate-600 sm:text-base sm:leading-8">
+              {content?.subheadline || 'Scrolith combines professional networking, freelance marketplace, messaging, payments, and AI workflows.'}
+            </p>
+            {content?.description ? (
+              <p className="mt-3 max-w-2xl text-[14px] leading-7 text-slate-500 sm:text-sm sm:leading-7">{content.description}</p>
+            ) : null}
+            <p className="mt-3 max-w-2xl text-xs font-medium leading-6 text-slate-500 sm:text-[13px]">
+              Join free in minutes. Start with a stronger feed, clearer opportunities, and an AI coach that understands work.
+            </p>
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+              <a
+                href={content?.primaryCtaUrl || '/auth/signup'}
+                className="inline-flex min-h-[48px] w-full items-center justify-center rounded-full bg-slate-950 px-5 py-3.5 text-sm font-semibold text-white shadow-[0_18px_40px_-20px_rgba(15,23,42,0.7)] transition hover:bg-slate-800 sm:w-auto"
+              >
+                {content?.primaryCtaLabel || 'Create account'}
+              </a>
+              <a
+                href={content?.secondaryCtaUrl || '/auth/login'}
+                className="inline-flex min-h-[48px] w-full items-center justify-center rounded-full border border-slate-300 bg-white/90 px-5 py-3.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 sm:w-auto"
+              >
+                {content?.secondaryCtaLabel || 'Log in'}
+              </a>
+            </div>
+            <div className="mt-5 grid gap-2 min-[420px]:grid-cols-2 sm:grid-cols-3">
+              {trustPoints.map((point: string, index: number) => (
+                <div
+                  key={`guest-hero-fallback-trust-${index}`}
+                  className="min-w-0 rounded-2xl border border-slate-200/90 bg-gradient-to-br from-slate-50 via-white to-indigo-50/60 px-3 py-3 text-[11px] font-semibold text-slate-700 shadow-sm"
+                >
+                  <span className="block truncate">{point}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-5 rounded-[24px] border border-slate-200/80 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-4 text-white shadow-[0_24px_60px_-28px_rgba(15,23,42,0.6)]">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-indigo-200/85">Live work graph</p>
+              <p className="mt-1 text-sm font-semibold text-white/95 sm:text-base">Work, talent, and commerce moving together in real time.</p>
+              <div className="mt-4 grid gap-2 min-[420px]:grid-cols-3">
+                {trustPoints.map((point: string, index: number) => (
+                  <div key={`guest-hero-fallback-signal-${index}`} className="min-w-0 rounded-2xl border border-white/10 bg-white/8 p-3">
+                    <div className="mb-2 h-1.5 w-10 rounded-full bg-gradient-to-r from-sky-500 to-cyan-500" />
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/55">Live signal</p>
+                    <p className="mt-1 truncate text-sm font-semibold text-white">{point}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="hidden min-h-[460px] rounded-[30px] border border-slate-200/90 bg-white/85 shadow-[0_28px_70px_-36px_rgba(15,23,42,0.25)] lg:block" aria-hidden="true" />
+      </div>
+    </section>
+  );
+};
+
 class MemberHomeShellBoundary extends React.Component<
   React.PropsWithChildren<{}>,
   { hasError: boolean }
@@ -305,7 +390,7 @@ class MemberHomeShellBoundary extends React.Component<
         <div className="mx-auto flex w-full max-w-2xl flex-1 items-center justify-center px-4 py-16">
           <div className="w-full rounded-[32px] border border-white/80 bg-white/95 p-8 text-center shadow-[0_24px_48px_-36px_rgba(15,23,42,0.32)]">
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50">
-              <img src="/logo.png" alt="Scrolith" className="h-10 w-10 object-contain" />
+              <img src={BRAND_LOGO_SMALL} alt="Scrolith" className="h-10 w-10 object-contain" />
             </div>
             <h1 className="text-2xl font-semibold text-slate-900">Home is reloading</h1>
             <p className="mt-3 text-sm leading-6 text-slate-500">
@@ -329,13 +414,11 @@ const Landing = () => {
   const t = useT();
   const [initialGuestHomepage] = useState(createInitialGuestHomepageState);
   const [sections, setSections] = useState<HomepageSection[]>(initialGuestHomepage.sections);
-  const [loading, setLoading] = useState(initialGuestHomepage.sections.length === 0);
   const { user } = useUser();
   const { settings } = useContent();
   const { socket } = useSocket();
   const [guestSeo, setGuestSeo] = useState<Record<string, any> | null>(initialGuestHomepage.seo);
   const [loadError, setLoadError] = useState('');
-  const location = useLocation();
 
   const normalizeSections = useCallback((data: HomepageSection[]) => {
     return data
@@ -437,8 +520,6 @@ const Landing = () => {
       setSections((prev) => (prev.length ? prev : fallback.sections));
       setGuestSeo((prev) => prev || fallback.seo);
       setLoadError(error?.message || 'Unable to load guest homepage.');
-    } finally {
-      setLoading(false);
     }
   }, [normalizeSections]);
 
@@ -495,6 +576,7 @@ const Landing = () => {
     if (!socket) return;
 
     socket.on('cms:sections_updated', (updatedSections: HomepageSection[]) => {
+      (CMSService as any).invalidateGuestHomepageCache?.();
       if (Array.isArray(updatedSections)) {
         setSections(normalizeSections(updatedSections));
       } else {
@@ -503,6 +585,7 @@ const Landing = () => {
     });
 
     socket.on('homepage:guest_updated', () => {
+      (CMSService as any).invalidateGuestHomepageCache?.();
       loadData();
     });
 
@@ -629,24 +712,6 @@ const Landing = () => {
     );
   }
 
-  if (loading) {
-    return (
-      <div className="relative min-h-screen flex flex-col bg-[#f7f4ee] text-[#0b0b0a]">
-        <div className="pointer-events-none absolute inset-0 -z-10">
-          <div className="absolute -top-32 left-[-10%] h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle_at_center,#ffe9c7,transparent_65%)] opacity-70" />
-          <div className="absolute top-24 right-[-12%] h-[520px] w-[520px] rounded-full bg-[radial-gradient(circle_at_center,#d8f1e5,transparent_65%)] opacity-80" />
-        </div>
-        <div className="h-[620px] sm:h-[660px] md:h-[710px] lg:h-[760px] xl:h-[820px] bg-slate-900/90 animate-pulse" />
-        <div className="mx-auto w-full max-w-7xl px-4 py-10 space-y-5">
-          <div className="h-10 w-1/2 rounded-md bg-slate-200 animate-pulse" />
-          <div className="h-6 w-1/3 rounded-md bg-slate-200 animate-pulse" />
-          <div className="h-64 rounded-2xl bg-slate-200 animate-pulse" />
-          <div className="h-64 rounded-2xl bg-slate-200 animate-pulse" />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="relative min-h-screen flex flex-col bg-[#f7f4ee] text-[#0b0b0a]">
       <div className="pointer-events-none absolute inset-0 -z-10">
@@ -654,19 +719,18 @@ const Landing = () => {
         <div className="absolute top-24 right-[-12%] h-[520px] w-[520px] rounded-full bg-[radial-gradient(circle_at_center,#d8f1e5,transparent_65%)] opacity-80" />
       </div>
 
-      <Suspense fallback={<div className="py-24 text-center"><LoaderIcon className="animate-spin mx-auto w-8 h-8 text-gray-400" /></div>}>
-        {renderSections.filter(s => s.isActive).map((section) => (
-          <React.Fragment key={section.id}>
-            <SectionRenderer section={section} userId={user?.id} />
-          </React.Fragment>
-        ))}
+      {renderSections.filter(s => s.isActive).map((section) => (
+        <Suspense key={section.id} fallback={<SectionFallback section={section} />}>
+          <SectionRenderer section={section} userId={user?.id} />
+        </Suspense>
+      ))}
         {renderSections.length === 0 && (
           <div className="py-20 text-center text-gray-400">
             <p>{loadError || t('landing.no_sections_configured', 'No content sections configured. Please configure via Admin Dashboard.')}</p>
             <button
               type="button"
               onClick={() => {
-                setLoading(true);
+                (CMSService as any).invalidateGuestHomepageCache?.();
                 loadData();
               }}
               className="mt-4 inline-flex rounded-full border border-gray-300 px-4 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50"
@@ -675,7 +739,18 @@ const Landing = () => {
             </button>
           </div>
         )}
-      </Suspense>
+    </div>
+  );
+};
+
+const SectionFallback: React.FC<{ section: RenderSection }> = ({ section }) => {
+  if (section.type === 'guest_hero_auth') {
+    return <GuestHeroAuthFallback content={section.content as GuestHeroAuthContent} style={section.style} />;
+  }
+
+  return (
+    <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+      <div className="h-48 rounded-3xl border border-slate-200 bg-white/70 shadow-sm" aria-hidden="true" />
     </div>
   );
 };

@@ -2,7 +2,7 @@ import React from 'react';
 import { usePreloader } from '../context/PreloaderContext';
 import { resolveOptimizedStaticImageUrl } from '../utils/assetUrl';
 
-const BRAND_PRELOADER_LOGO_URL = '/preloader-logo.png';
+const BRAND_PRELOADER_LOGO_URL = '/preloader-logo-64.png';
 
 const hexToRgb = (hex: string) => {
   const raw = String(hex || '').replace('#', '').trim();
@@ -118,7 +118,7 @@ const GlobalPreloader: React.FC = () => {
                   return;
                 }
                 target.dataset.fallbackApplied = 'true';
-                target.src = '/logo.png';
+                target.src = '/logo-64.png';
               }}
             />
           </div>

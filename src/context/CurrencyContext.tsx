@@ -37,6 +37,66 @@ interface CurrencyContextType {
 const CurrencyContext = createContext<CurrencyContextType | undefined>(undefined);
 
 const STORAGE_KEY = 'Scrolith.pref.currency';
+const PUBLIC_CURRENCY_CACHE_TTL_MS = 60 * 1000;
+
+type ActiveCurrencyCatalog = {
+  list: Currency[];
+  baseCurrency: string;
+};
+
+let publicCurrencyCache: { catalog: ActiveCurrencyCatalog; cachedAt: number } | null = null;
+let publicCurrencyRequest: Promise<ActiveCurrencyCatalog> | null = null;
+
+type PublicCurrencyCatalogState = {
+  cache: { catalog: ActiveCurrencyCatalog; cachedAt: number } | null;
+  request: Promise<ActiveCurrencyCatalog> | null;
+};
+
+const getSharedPublicCurrencyState = (): PublicCurrencyCatalogState => {
+  const globalScope = globalThis as typeof globalThis & {
+    __SCROLITH_PUBLIC_CURRENCY_CATALOG__?: PublicCurrencyCatalogState;
+  };
+  if (!globalScope.__SCROLITH_PUBLIC_CURRENCY_CATALOG__) {
+    globalScope.__SCROLITH_PUBLIC_CURRENCY_CATALOG__ = {
+      cache: publicCurrencyCache,
+      request: publicCurrencyRequest
+    };
+  }
+  return globalScope.__SCROLITH_PUBLIC_CURRENCY_CATALOG__;
+};
+
+export const loadPublicCurrencyCatalog = async (options?: { force?: boolean }): Promise<ActiveCurrencyCatalog> => {
+  const sharedState = getSharedPublicCurrencyState();
+  const now = Date.now();
+  if (!options?.force && sharedState.cache && now - sharedState.cache.cachedAt < PUBLIC_CURRENCY_CACHE_TTL_MS) {
+    return sharedState.cache.catalog;
+  }
+  if (!options?.force && sharedState.request) return sharedState.request;
+
+  const request = api
+    .get('/currencies/active')
+    .then((response) => {
+      const payload = response?.data?.data ?? response?.data ?? [];
+      const meta = response?.data?.meta || {};
+      const list = Array.isArray(payload) && payload.length ? payload : INITIAL_CURRENCIES;
+      const catalog = {
+        list,
+        baseCurrency: meta.baseCurrency ? String(meta.baseCurrency).toUpperCase() : 'USD'
+      };
+      const cache = { catalog, cachedAt: Date.now() };
+      publicCurrencyCache = cache;
+      sharedState.cache = cache;
+      return catalog;
+    })
+    .finally(() => {
+      publicCurrencyRequest = null;
+      sharedState.request = null;
+    });
+
+  publicCurrencyRequest = request;
+  sharedState.request = request;
+  return request;
+};
 
 export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [availableCurrencies, setAvailableCurrencies] = useState<Currency[]>(INITIAL_CURRENCIES);
@@ -58,13 +118,9 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const refreshCurrencies = useCallback(async () => {
     try {
       // Public catalog — safe for guest login/signup surfaces.
-      const response = await api.get('/currencies/active');
-      const payload = response?.data?.data ?? response?.data ?? [];
-      const meta = response?.data?.meta || {};
-      const list = Array.isArray(payload) && payload.length ? payload : INITIAL_CURRENCIES;
+      const { list, baseCurrency: loadedBaseCurrency } = await loadPublicCurrencyCatalog();
       setAvailableCurrencies(list);
-      if (meta.baseCurrency) setBaseCurrency(String(meta.baseCurrency).toUpperCase());
-      else setBaseCurrency('USD');
+      setBaseCurrency(loadedBaseCurrency || 'USD');
 
       let preferredCode: string | null = localStorage.getItem(STORAGE_KEY);
 
