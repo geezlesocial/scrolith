@@ -295,7 +295,10 @@ export const resolveOptimizedStaticImageUrl = (value?: string | null) => {
   try {
     const url = new URL(resolved);
     const host = url.hostname.toLowerCase();
-    if ((host === 'scrolith.com' || host === 'www.scrolith.com') && url.pathname === '/logo.png') {
+    if (
+      (host === 'scrolith.com' || host === 'www.scrolith.com') &&
+      (url.pathname === '/logo.png' || url.pathname === '/logo-64.png')
+    ) {
       return '/logo-64.png';
     }
   } catch {
