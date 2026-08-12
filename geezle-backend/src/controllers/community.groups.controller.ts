@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
 import { notifyUser } from '../utils/notify';
+import { COMMUNITY_CLUB_VISIBILITY } from '../utils/communityPrismaEnums';
 
 interface AuthRequest extends Request {
   user?: {
@@ -446,7 +447,7 @@ export const listGroups = async (req: AuthRequest, res: Response) => {
     const where: any = { status: 'active' };
     if (!joinedOnly) {
       where.OR = [
-        { visibility: 'PUBLIC' },
+        { visibility: COMMUNITY_CLUB_VISIBILITY.PUBLIC },
         ...(viewerId
           ? [
               { memberships: { some: { userId: viewerId, status: 'active' } } },

@@ -24,6 +24,7 @@ import {
   absolutizePublicMediaUrl,
   isVideoFileStorageAvailable
 } from './storage/videoStorageAvailability';
+import { COMMUNITY_CLUB_VISIBILITY, buildCommunityEventActiveWhere } from '../utils/communityPrismaEnums';
 
 export type OrchestratedSurface = 'member_home' | 'community';
 
@@ -1163,7 +1164,7 @@ async function collectPeoplePages(
       }),
       prisma.communityClub
         .findMany({
-          where: { status: 'active', visibility: 'public' } as any,
+          where: { status: 'active', visibility: COMMUNITY_CLUB_VISIBILITY.PUBLIC },
           orderBy: [{ memberCount: 'desc' }, { updatedAt: 'desc' }] as any,
           take: Math.max(3, Math.ceil(take / 2)),
           select: {
@@ -1631,15 +1632,15 @@ async function collectEvents(take: number, seen: Set<string>): Promise<Candidate
     // Prefer community events table when present.
     const events = await (prisma as any).communityEvent
       ?.findMany?.({
-        where: { status: { in: ['active', 'published', 'ACTIVE', 'PUBLISHED'] } },
-        orderBy: [{ startAt: 'asc' }, { createdAt: 'desc' }],
+        where: buildCommunityEventActiveWhere(),
+        orderBy: [{ startTime: 'asc' }, { createdAt: 'desc' }],
         take: Math.min(take, 6),
         select: {
           id: true,
           title: true,
           description: true,
-          startAt: true,
-          endAt: true,
+          startTime: true,
+          endTime: true,
           location: true,
           createdAt: true
         }
@@ -1658,7 +1659,7 @@ async function collectEvents(take: number, seen: Set<string>): Promise<Candidate
           id,
           sourceId: id,
           feedKey: key,
-          createdAt: toIso(event.startAt || event.createdAt),
+          createdAt: toIso(event.startTime || event.createdAt),
           score,
           rankingScore: score,
           author: null,
@@ -1817,5 +1818,6 @@ export const __feedOrchestratorTestUtils = {
   jaccardSimilarity,
   tokenizeForNearDuplicate,
   deriveMemberFeedWatermark,
-  isEligibleUnderMemberFeedCursor
+  isEligibleUnderMemberFeedCursor,
+  buildCommunityEventActiveWhere
 };

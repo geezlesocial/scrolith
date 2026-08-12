@@ -4,6 +4,7 @@
  * No schema changes. Fail-soft when a source is empty.
  */
 import prisma from '../utils/prismaClient';
+import { COMMUNITY_CLUB_VISIBILITY } from '../utils/communityPrismaEnums';
 
 const getAppSetting = async (scope: string, fallback: any) => {
   try {
@@ -257,31 +258,31 @@ const loadGroups = async (signals: ViewerSignals, limit: number): Promise<Profes
   try {
     const rows = await prisma.communityClub.findMany({
       where: {
-        OR: [{ status: 'active' as any }, { status: 'ACTIVE' as any }, { visibility: 'public' as any }]
-      } as any,
+        status: 'active',
+        visibility: COMMUNITY_CLUB_VISIBILITY.PUBLIC
+      },
       orderBy: [{ updatedAt: 'desc' } as any],
       take: Math.max(limit * 3, 30),
       select: {
         id: true,
         name: true,
-        title: true,
+        summary: true,
         description: true,
         slug: true,
-        avatarUrl: true,
-        coverUrl: true,
+        avatarImage: true,
+        coverImage: true,
         memberCount: true,
         visibility: true,
         category: true,
-        tags: true,
         status: true
-      } as any
+      }
     });
 
     return (Array.isArray(rows) ? rows : [])
       .map((row: any) => {
         const reasons: string[] = [];
-        const title = coerce(row.name || row.title) || 'Group';
-        const text = [title, row.description, row.category, ...(Array.isArray(row.tags) ? row.tags : [])]
+        const title = coerce(row.name) || 'Group';
+        const text = [title, row.summary, row.description, row.category]
           .map(coerce)
           .join(' ')
           .toLowerCase();
@@ -296,8 +297,8 @@ const loadGroups = async (signals: ViewerSignals, limit: number): Promise<Profes
           type: 'group' as const,
           title,
           subtitle: coerce(row.category) || 'Professional group',
-          description: coerce(row.description).slice(0, 160),
-          imageUrl: row.avatarUrl || row.coverUrl || null,
+          description: coerce(row.summary || row.description).slice(0, 160),
+          imageUrl: row.avatarImage || row.coverImage || null,
           url: `/community/clubs?group=${encodeURIComponent(slug)}`,
           score,
           reasons: reasons.slice(0, 3),

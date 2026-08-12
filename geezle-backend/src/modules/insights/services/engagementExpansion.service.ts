@@ -1,6 +1,7 @@
 import type { Application } from 'express';
 import prisma from '../../../utils/prismaClient';
 import gcoinService from '../../../services/gcoinService';
+import { COMMUNITY_CLUB_VISIBILITY } from '../../../utils/communityPrismaEnums';
 
 const FAN_CHANNEL_PLAN_SCOPE = 'insights_fan_channel_plans_v1';
 const MINI_GAMES_SCOPE = 'insights_skill_mini_games_v1';
@@ -420,7 +421,7 @@ const getFanClubsSummary = async (userId: string) => {
 
   try {
     const clubRows = await prisma.communityClub.findMany({
-      where: { visibility: 'public' },
+      where: { visibility: COMMUNITY_CLUB_VISIBILITY.PUBLIC },
       include: {
         owner: { select: { id: true, name: true, username: true, avatar: true } },
         memberships: {

@@ -3,6 +3,7 @@
  * Unsupported domains return formal empty generators (no fake data).
  */
 import prisma from '../../utils/prismaClient';
+import { COMMUNITY_CLUB_VISIBILITY } from '../../utils/communityPrismaEnums';
 import type {
   DiscoveryEntityType,
   DiscoverySource,
@@ -402,7 +403,7 @@ export const generateCommunities = async (ctx: GeneratorContext): Promise<Genera
   runGenerator('communities', 'related_community', async () => {
     if (!wants(ctx, 'community', 'group')) return [];
     const clubs = await prisma.communityClub.findMany({
-      where: { status: 'active', visibility: 'PUBLIC' as any },
+      where: { status: 'active', visibility: COMMUNITY_CLUB_VISIBILITY.PUBLIC },
       orderBy: { updatedAt: 'desc' },
       take: ctx.limitPerGenerator,
       select: {
@@ -445,7 +446,7 @@ export const generateGroups = async (ctx: GeneratorContext): Promise<GeneratorRe
     if (!wants(ctx, 'group')) return [];
     // Groups share CommunityClub model in this codebase
     const clubs = await prisma.communityClub.findMany({
-      where: { status: 'active' },
+      where: { status: 'active', visibility: COMMUNITY_CLUB_VISIBILITY.PUBLIC },
       orderBy: { memberCount: 'desc' },
       take: ctx.limitPerGenerator,
       select: {
@@ -461,7 +462,6 @@ export const generateGroups = async (ctx: GeneratorContext): Promise<GeneratorRe
       }
     });
     return clubs
-      .filter((c) => String(c.visibility) === 'PUBLIC' || String(c.visibility) === 'public')
       .map((c) => ({
         entityType: 'group' as const,
         entityId: c.id,
