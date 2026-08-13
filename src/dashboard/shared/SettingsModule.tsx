@@ -1,5 +1,5 @@
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useUser } from '../../context/UserContext';
 import { UserService } from '../../services/user';
 import { NotificationService, type QuietHourRule } from '../../services/notifications';
@@ -18,8 +18,33 @@ import {
 } from '../../mobile/biometrics';
 import LanguageMultiSelect from '../../components/language/LanguageMultiSelect';
 import { LanguagePreferencesService, type UserLanguagePreferences } from '../../services/languagePreferences';
+import { DeviceSecurityService } from '../../services/deviceSecurity';
 import { listOnboardingLanguages } from '../../utils/supportedLanguages';
 import UserTwoFactorPanel from './UserTwoFactorPanel';
+
+type PendingLoginApproval = {
+    id: string;
+    status?: string | null;
+    expiresAt?: string | null;
+    createdAt?: string | null;
+    platform?: string | null;
+    deviceModel?: string | null;
+    browserName?: string | null;
+    deviceType?: string | null;
+};
+
+const formatApprovalDate = (value?: string | null) => {
+    if (!value) return 'Soon';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? 'Soon' : date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+};
+
+const describeApprovalDevice = (approval: PendingLoginApproval) => {
+    const parts = [approval.browserName, approval.platform, approval.deviceModel, approval.deviceType]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean);
+    return Array.from(new Set(parts)).join(' - ') || 'New Scrolith device';
+};
 
 const normalizeSettings = (value: UserSettings): UserSettings => ({
     email_notifications: value.emailNotifications ?? value.email_notifications ?? true,
@@ -238,9 +263,40 @@ const SettingsModule = () => {
     const [biometricsAvailable, setBiometricsAvailable] = useState(false);
     const [biometryLabel, setBiometryLabel] = useState('Biometric');
     const [biometricsBusy, setBiometricsBusy] = useState(false);
+    const [pendingApprovals, setPendingApprovals] = useState<PendingLoginApproval[]>([]);
+    const [pendingApprovalsLoading, setPendingApprovalsLoading] = useState(false);
+    const [pendingApprovalBusy, setPendingApprovalBusy] = useState<string | null>(null);
     const [langPrefs, setLangPrefs] = useState<UserLanguagePreferences | null>(null);
     const [langSaving, setLangSaving] = useState(false);
     const onboardingLanguages = useMemo(() => listOnboardingLanguages(), []);
+
+    const loadPendingApprovals = useCallback(async () => {
+        if (!user?.id) return;
+        setPendingApprovalsLoading(true);
+        try {
+            const rows = await DeviceSecurityService.listPendingApprovals();
+            setPendingApprovals(Array.isArray(rows) ? rows : []);
+        } catch (error: any) {
+            showNotification('alert', 'Security Requests Unavailable', error?.message || 'Unable to load pending sign-in requests.');
+        } finally {
+            setPendingApprovalsLoading(false);
+        }
+    }, [showNotification, user?.id]);
+
+    const resolvePendingApproval = useCallback(async (approvalId: string, action: 'approve' | 'reject') => {
+        if (!approvalId || pendingApprovalBusy) return;
+        setPendingApprovalBusy(approvalId);
+        try {
+            if (action === 'approve') await DeviceSecurityService.approveLogin(approvalId);
+            else await DeviceSecurityService.rejectLogin(approvalId);
+            setPendingApprovals((current) => current.filter((approval) => approval.id !== approvalId));
+            showNotification('success', action === 'approve' ? 'Login Approved' : 'Login Rejected', 'The sign-in request has been resolved.');
+        } catch (error: any) {
+            showNotification('alert', 'Security Request Failed', error?.response?.data?.error || error?.message || 'Unable to resolve this sign-in request.');
+        } finally {
+            setPendingApprovalBusy(null);
+        }
+    }, [pendingApprovalBusy, showNotification]);
 
     const preferenceKey = useMemo(() => ({
         language: 'Scrolith.pref.language',
@@ -323,6 +379,11 @@ const SettingsModule = () => {
     useEffect(() => {
         setEmail(user?.email || '');
     }, [user?.email]);
+
+    useEffect(() => {
+        if (activeSection !== 'security' || !user?.id) return;
+        void loadPendingApprovals();
+    }, [activeSection, loadPendingApprovals, user?.id]);
 
     useEffect(() => {
         void LanguagePreferencesService.getMine()
@@ -871,6 +932,64 @@ const SettingsModule = () => {
                             <div className="space-y-8 animate-fade-in">
                                 <div>
                                     <h2 className="text-xl font-bold text-gray-900 mb-6">Security Settings</h2>
+
+                                    <section className="mb-8 rounded-2xl border border-blue-200 bg-blue-50/60 p-5" aria-labelledby="login-device-security-title">
+                                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                                            <div>
+                                                <h3 id="login-device-security-title" className="flex items-center gap-2 text-base font-bold text-gray-900">
+                                                    <Shield className="h-5 w-5 text-blue-700" /> Login &amp; Device Security
+                                                </h3>
+                                                <p className="mt-1 text-sm text-gray-600">Review sign-in requests from new devices. Only approve a device you recognize.</p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => void loadPendingApprovals()}
+                                                disabled={pendingApprovalsLoading}
+                                                className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                            >
+                                                {pendingApprovalsLoading ? 'Refreshing...' : 'Refresh requests'}
+                                            </button>
+                                        </div>
+                                        <div className="mt-4 space-y-3">
+                                            {pendingApprovalsLoading && pendingApprovals.length === 0 ? (
+                                                <div className="flex items-center gap-2 rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm text-gray-600">
+                                                    <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> Checking for pending sign-in requests...
+                                                </div>
+                                            ) : pendingApprovals.length === 0 ? (
+                                                <div className="rounded-xl border border-blue-100 bg-white px-4 py-3 text-sm text-gray-600">No pending sign-in requests.</div>
+                                            ) : (
+                                                pendingApprovals.map((approval) => (
+                                                    <div key={approval.id} className="rounded-xl border border-blue-100 bg-white p-4">
+                                                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                                            <div>
+                                                                <p className="font-semibold text-gray-900">{describeApprovalDevice(approval)}</p>
+                                                                <p className="mt-1 text-xs text-gray-500">Requested {formatApprovalDate(approval.createdAt)} · Expires {formatApprovalDate(approval.expiresAt)}</p>
+                                                                <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-amber-700">{String(approval.status || 'PENDING')}</p>
+                                                            </div>
+                                                            <div className="flex gap-2">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => void resolvePendingApproval(approval.id, 'reject')}
+                                                                    disabled={pendingApprovalBusy === approval.id}
+                                                                    className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                                                                >
+                                                                    Reject
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => void resolvePendingApproval(approval.id, 'approve')}
+                                                                    disabled={pendingApprovalBusy === approval.id}
+                                                                    className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-60"
+                                                                >
+                                                                    {pendingApprovalBusy === approval.id ? 'Saving...' : 'Approve'}
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </section>
 
                                     <form onSubmit={handleEmailChange} className="space-y-4 max-w-md mb-8">
                                         <div>

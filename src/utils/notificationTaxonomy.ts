@@ -319,14 +319,25 @@ export const resolveNotificationCategory = (input: {
   title?: unknown;
   metadata?: Record<string, unknown> | null;
 }): NotificationCategoryKey => {
+  const type = coerce(input.type || input.notificationType || input.metadata?.type);
+  const entity = coerce(input.entityType || input.metadata?.entityType || input.metadata?.entity_type);
+  const haystack = `${type} ${entity} ${coerce(input.title)}`;
+
+  // Security events must win over a stale or generic persisted category.
+  if (
+    type.includes('security') ||
+    type.includes('login') ||
+    type.includes('device') ||
+    entity.includes('login_approval') ||
+    haystack.includes('new sign-in request')
+  ) {
+    return 'security';
+  }
+
   const explicit = coerce(input.category || input.metadata?.category || input.metadata?.notificationCategory);
   if (explicit && explicit in CATEGORY_META) {
     return explicit as NotificationCategoryKey;
   }
-
-  const type = coerce(input.type || input.notificationType || input.metadata?.type);
-  const entity = coerce(input.entityType || input.metadata?.entityType || input.metadata?.entity_type);
-  const haystack = `${type} ${entity} ${coerce(input.title)}`;
 
   // Phase 27 — explicit product aliases before substring matching.
   if (type === 'chat' || type === 'group_chat' || type === 'dm' || type === 'direct_message') {

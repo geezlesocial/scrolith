@@ -3,6 +3,10 @@ import { CheckCircle2, Loader2, ShieldCheck, XCircle } from 'lucide-react';
 import { useUser } from '../../context/UserContext';
 import { authenticateBiometrics, checkBiometrics, getBiometricPreference, isNativePlatform } from '../../mobile/biometrics';
 import { DeviceSecurityService, traceDeviceSecurity } from '../../services/deviceSecurity';
+import {
+  getLoginApprovalAttemptId,
+  LOGIN_APPROVAL_OPEN_EVENT
+} from '../../utils/notificationRouting';
 
 type PendingApproval = {
   id: string;
@@ -15,7 +19,7 @@ type PendingApproval = {
   deviceType?: string | null;
 };
 
-const REQUEST_EVENTS = ['security.login_approval.requested', 'security:login_approval_required'];
+const REQUEST_EVENTS = ['security.login_approval.requested', 'security:login_approval_required', LOGIN_APPROVAL_OPEN_EVENT];
 const RESOLUTION_EVENTS = ['security.login_approval.updated', 'security.login_approval.resolved', 'security:login_approval_updated'];
 
 const normalizeStatus = (value: unknown) => String(value || 'PENDING').trim().toUpperCase();
@@ -65,7 +69,13 @@ export const LoginApprovalOverlay: React.FC = () => {
     traceDeviceSecurity('approval_realtime_listener_started', { realtimeListenerStarted: true });
     void refreshPending();
     const listeners = REQUEST_EVENTS.map((eventName) => {
-      const handler = (event: Event) => void refreshPending(getAttemptId((event as CustomEvent).detail) || undefined);
+      const handler = (event: Event) => {
+        const detail = (event as CustomEvent).detail;
+        const attemptId = eventName === LOGIN_APPROVAL_OPEN_EVENT
+          ? getLoginApprovalAttemptId(detail)
+          : getAttemptId(detail);
+        void refreshPending(attemptId || undefined);
+      };
       window.addEventListener(eventName, handler as EventListener);
       return () => window.removeEventListener(eventName, handler as EventListener);
     });
