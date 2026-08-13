@@ -20,8 +20,9 @@ const MiniCallButton: React.FC<{
   label: string;
   icon: React.ReactNode;
   onClick: () => void;
+  disabled?: boolean;
   tone?: 'neutral' | 'primary' | 'success' | 'warning' | 'danger';
-}> = ({ label, icon, onClick, tone = 'neutral' }) => {
+}> = ({ label, icon, onClick, disabled = false, tone = 'neutral' }) => {
   const toneClass =
     tone === 'success'
       ? 'bg-emerald-500 text-white hover:bg-emerald-400'
@@ -38,8 +39,10 @@ const MiniCallButton: React.FC<{
       type="button"
       onClick={(event) => {
         event.stopPropagation();
+        if (disabled) return;
         onClick();
       }}
+      disabled={disabled}
       className="flex min-w-[3.25rem] flex-col items-center gap-1 text-[10px] font-semibold text-white/85 transition hover:text-white"
       aria-label={label}
       title={label}
@@ -87,7 +90,11 @@ const GlobalVoiceCallOverlay: React.FC = () => {
     rejectJoinRequest,
     cancelJoinRequest,
     pendingJoinRequests,
-    myJoinRequestStatus
+    myJoinRequestStatus,
+    accepting,
+    ending,
+    reconnecting,
+    remoteMediaStates
   } = useVoiceCall();
 
   const title = useMemo(() => {
@@ -143,18 +150,21 @@ const GlobalVoiceCallOverlay: React.FC = () => {
             label={muted ? 'Unmute' : 'Mute'}
             icon={muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
             tone={muted ? 'warning' : 'success'}
+            disabled={accepting || ending || reconnecting}
             onClick={toggleMute}
           />
           <MiniCallButton
             label={speakerOn ? 'Speaker' : 'Speaker off'}
             icon={speakerOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
             tone={speakerOn ? 'primary' : 'neutral'}
+            disabled={accepting || ending || reconnecting}
             onClick={toggleSpeaker}
           />
           <MiniCallButton
             label={isVideo ? (cameraOff ? 'Camera on' : 'Camera off') : 'Video'}
             icon={isVideo ? cameraOff ? <VideoOff className="h-5 w-5" /> : <Video className="h-5 w-5" /> : <Video className="h-5 w-5" />}
             tone={isVideo && cameraOff ? 'warning' : 'primary'}
+            disabled={accepting || ending || reconnecting}
             onClick={() => {
               const action = isVideo ? toggleCamera() : switchToVideo();
               void action.catch((error: any) =>
@@ -172,6 +182,7 @@ const GlobalVoiceCallOverlay: React.FC = () => {
             label="End"
             icon={<PhoneOff className="h-5 w-5" />}
             tone="danger"
+            disabled={ending}
             onClick={() => void endCall().catch(() => undefined)}
           />
         </div>
@@ -196,6 +207,10 @@ const GlobalVoiceCallOverlay: React.FC = () => {
       participants={participants}
       meId={user?.id}
       remoteStreams={remoteStreams}
+      remoteMediaStates={remoteMediaStates}
+      accepting={accepting}
+      ending={ending}
+      reconnecting={reconnecting}
       onClose={() => setMinimized(true)}
       onAccept={() =>
         void acceptCall().catch((error: any) =>

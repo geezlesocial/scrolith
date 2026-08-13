@@ -8,6 +8,14 @@ import {
   type RingtoneStopReason
 } from './scrolithCallRingtone';
 import { buildCallMediaConstraints, buildCallMediaFallbackConstraints } from './callMediaConstraints';
+import {
+  canRollbackLocalDescription,
+  createPeerNegotiationFlags,
+  decideIncomingDescription,
+  resolveNegotiationRole,
+  shouldDropIceCandidate,
+  type PeerNegotiationFlags
+} from './callNegotiation';
 
 type ParticipantOption = {
   id: string;
@@ -19,6 +27,12 @@ type VoiceCallParticipant = {
   userId: string;
   status?: string;
   user?: ParticipantOption;
+};
+
+type RemoteMediaState = {
+  microphone: boolean;
+  camera: boolean;
+  updatedAt?: string;
 };
 
 type CallState = {
@@ -74,6 +88,10 @@ type VoiceCallContextValue = {
     requestedAt?: string;
   }>;
   myJoinRequestStatus: string | null;
+  accepting: boolean;
+  ending: boolean;
+  reconnecting: boolean;
+  remoteMediaStates: Record<string, RemoteMediaState>;
 };
 
 const VoiceCallContext = createContext<VoiceCallContextValue | undefined>(undefined);
@@ -157,6 +175,20 @@ const emitVoiceLifecycleEvent = (type: string, payload?: Record<string, any>) =>
   }
 };
 
+const describeMediaError = (error: any, wantVideo: boolean): string => {
+  const name = String(error?.name || '').toLowerCase();
+  if (name === 'notallowederror' || name === 'permissiondeniederror' || name === 'securityerror') {
+    return wantVideo
+      ? 'Camera and microphone permission was denied. Enable access and try again.'
+      : 'Microphone permission was denied. Enable microphone access and try again.';
+  }
+  if (name === 'notfounderror') return wantVideo ? 'No camera or microphone was found on this device.' : 'No microphone was found on this device.';
+  if (name === 'notreadableerror') return 'The camera or microphone is busy or unavailable. Close other apps and try again.';
+  if (name === 'overconstrainederror') return 'This device cannot satisfy the call media settings. Try again with another camera or microphone.';
+  if (name === 'aborterror') return 'Media access was interrupted. Try the call again.';
+  return String(error?.message || (wantVideo ? 'Unable to access camera and microphone.' : 'Unable to access microphone.'));
+};
+
 type VoiceCallProviderProps = {
   socket: Socket | null;
   userId?: string;
@@ -186,29 +218,61 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     Array<{ requestId: string; requesterId: string; status: string; requestedAt?: string }>
   >([]);
   const [myJoinRequestStatus, setMyJoinRequestStatus] = useState<string | null>(null);
+  const [accepting, setAccepting] = useState(false);
+  const [ending, setEnding] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
+  const [remoteMediaStates, setRemoteMediaStates] = useState<Record<string, RemoteMediaState>>({});
 
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const peerRuntimeRef = useRef<
+    Map<
+      string,
+      {
+        generation: number;
+        flags: PeerNegotiationFlags;
+        remoteStream: MediaStream | null;
+        reconnectTimer: number | null;
+      }
+    >
+  >(new Map());
+  const remoteStreamsRef = useRef<Map<string, MediaStream>>(new Map());
   const offeredPeersRef = useRef<Set<string>>(new Set());
+  const offerInFlightRef = useRef<Set<string>>(new Set());
   const callIdRef = useRef<string>('');
   const conversationIdRef = useRef<string>('');
+  const viewConversationIdRef = useRef<string>('');
   const userIdRef = useRef<string>('');
+  const participantUsersRef = useRef<ParticipantOption[]>([]);
+  const mutedRef = useRef(false);
+  const cameraOffRef = useRef(false);
   const resetTimerRef = useRef<number | null>(null);
   const permissionNoticeShownRef = useRef(false);
   const rtcConfigRef = useRef<RTCConfiguration>(DEFAULT_RTC_CONFIG);
   const iceRestartingRef = useRef<Set<string>>(new Set());
   const pendingCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const activeStartTokenRef = useRef(0);
+  const callGenerationRef = useRef(0);
+  const endingCallIdRef = useRef<string>('');
+  const acceptingCallIdRef = useRef<string>('');
 
   useEffect(() => {
     callIdRef.current = callState?.callId || '';
     conversationIdRef.current = callState?.conversationId || '';
     userIdRef.current = String(userId || '').trim();
-  }, [callState?.callId, callState?.conversationId, userId]);
+    viewConversationIdRef.current = String(conversationId || '').trim();
+    participantUsersRef.current = participantUsers;
+    mutedRef.current = muted;
+    cameraOffRef.current = cameraOff;
+  }, [callState?.callId, callState?.conversationId, userId, conversationId, participantUsers, muted, cameraOff]);
 
   useEffect(() => bindScrolithCallRingtoneUnlock(), []);
 
   const clearPeers = useCallback(() => {
+    peerRuntimeRef.current.forEach((runtime) => {
+      if (runtime.reconnectTimer) window.clearTimeout(runtime.reconnectTimer);
+    });
+    peerRuntimeRef.current.clear();
     peerConnectionsRef.current.forEach((pc) => {
       try {
         pc.close();
@@ -217,7 +281,10 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       }
     });
     peerConnectionsRef.current.clear();
+    remoteStreamsRef.current.clear();
     setRemoteStreams({});
+    setRemoteMediaStates({});
+    setReconnecting(false);
   }, []);
 
   const clearResetTimer = useCallback(() => {
@@ -246,17 +313,33 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   }, []);
 
   const resetCallState = useCallback(() => {
+    callGenerationRef.current += 1;
     clearResetTimer();
     stopRingingAlert();
     setIncoming(false);
     setCallState(null);
     setParticipants([]);
     setMuted(false);
+    mutedRef.current = false;
     setCameraOff(false);
+    cameraOffRef.current = false;
+    setMediaMode('audio');
+    mediaModeRef.current = 'audio';
+    setPendingJoinRequests([]);
+    setMyJoinRequestStatus(null);
+    setAddBusy(false);
+    setAccepting(false);
+    setEnding(false);
+    acceptingCallIdRef.current = '';
+    endingCallIdRef.current = '';
     activeStartTokenRef.current += 1;
     permissionNoticeShownRef.current = false;
     offeredPeersRef.current.clear();
+    offerInFlightRef.current.clear();
+    iceRestartingRef.current.clear();
     pendingCandidatesRef.current.clear();
+    callIdRef.current = '';
+    conversationIdRef.current = '';
     clearPeers();
     clearLocalStream();
   }, [clearLocalStream, clearPeers, clearResetTimer, stopRingingAlert]);
@@ -320,25 +403,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         setLocalStreamState(stream);
         return stream;
       } catch (fallbackError: any) {
-        const name = String(fallbackError?.name || error?.name || '').toLowerCase();
-        const denied =
-          name.includes('notallowed') ||
-          name.includes('permissiondenied') ||
-          name.includes('securityerror');
-        if (denied) {
-          throw new Error(
-            wantVideo
-              ? 'Camera/microphone permission denied. Enable access and try again.'
-              : 'Microphone permission denied. Enable microphone access and try again.'
-          );
-        }
-        throw new Error(
-          String(
-            fallbackError?.message ||
-              error?.message ||
-              (wantVideo ? 'Unable to access camera/microphone.' : 'Unable to access microphone.')
-          )
-        );
+        throw new Error(describeMediaError(fallbackError || error, wantVideo));
       }
     }
   }, []);
@@ -379,19 +444,33 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
 
   const sendSignal = useCallback(
     async (toUserId: string, signal: any) => {
+      const generation = callGenerationRef.current;
       const callId = callIdRef.current;
       if (!callId || !toUserId) return;
+      if (!callIdRef.current || callGenerationRef.current !== generation) return;
       const plain = toPlainSignal(signal);
       await emitWithAck(socket, 'call:signal', { callId, toUserId, signal: plain });
     },
     [socket, toPlainSignal]
   );
 
+  const isCurrentPeer = useCallback((remoteUserId: string, peer: RTCPeerConnection, generation: number) => {
+    const runtime = peerRuntimeRef.current.get(remoteUserId);
+    return Boolean(
+      runtime &&
+        runtime.generation === generation &&
+        callGenerationRef.current === generation &&
+        peerConnectionsRef.current.get(remoteUserId) === peer &&
+        callIdRef.current
+    );
+  }, []);
+
   const createPeerConnection = useCallback(
     async (remoteUserId: string) => {
       if (!remoteUserId) return null;
       const existing = peerConnectionsRef.current.get(remoteUserId);
       if (existing) return existing;
+      const generation = callGenerationRef.current;
 
       let stream: MediaStream | null = null;
       try {
@@ -404,7 +483,16 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
           });
         }
       }
+      if (generation !== callGenerationRef.current || !callIdRef.current) return null;
       const peer = new RTCPeerConnection(rtcConfigRef.current || DEFAULT_RTC_CONFIG);
+      const runtime = {
+        generation,
+        flags: createPeerNegotiationFlags(),
+        remoteStream: null as MediaStream | null,
+        reconnectTimer: null as number | null
+      };
+      peerRuntimeRef.current.set(remoteUserId, runtime);
+      peerConnectionsRef.current.set(remoteUserId, peer);
 
       if (stream) {
         stream.getTracks().forEach((track) => {
@@ -413,13 +501,35 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       }
 
       peer.ontrack = (event) => {
-        const [remoteStream] = event.streams || [];
-        if (!remoteStream) return;
+        if (!isCurrentPeer(remoteUserId, peer, generation)) return;
+        const streamFromEvent = event.streams?.[0] || null;
+        const remoteStream = streamFromEvent || runtime.remoteStream || remoteStreamsRef.current.get(remoteUserId) || new MediaStream();
+        runtime.remoteStream = remoteStream;
+        if (event.track && !remoteStream.getTracks().some((track) => track.id === event.track.id)) {
+          remoteStream.addTrack(event.track);
+          event.track.addEventListener?.('ended', () => {
+            if (!isCurrentPeer(remoteUserId, peer, generation)) return;
+            try {
+              remoteStream.removeTrack(event.track);
+            } catch {
+              // Some mobile WebRTC implementations expose read-only streams.
+            }
+            if (!remoteStream.getTracks().length) {
+              remoteStreamsRef.current.delete(remoteUserId);
+              setRemoteStreams((prev) => {
+                const next = { ...prev };
+                delete next[remoteUserId];
+                return next;
+              });
+            }
+          });
+        }
+        remoteStreamsRef.current.set(remoteUserId, remoteStream);
         setRemoteStreams((prev) => ({ ...prev, [remoteUserId]: remoteStream }));
       };
 
       peer.onicecandidate = (event) => {
-        if (!event.candidate) return;
+        if (!event.candidate || !isCurrentPeer(remoteUserId, peer, generation)) return;
         // Always plain-object candidate — raw RTCIceCandidate drops fields over Socket.IO.
         void sendSignal(remoteUserId, {
           type: 'candidate',
@@ -435,37 +545,57 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         });
       };
 
-      peer.onconnectionstatechange = () => {
-        const state = peer.connectionState;
-        if (state === 'failed' || state === 'disconnected') {
-          // Enterprise recovery: ICE restart once per peer.
-          if (!iceRestartingRef.current.has(remoteUserId)) {
-            iceRestartingRef.current.add(remoteUserId);
-            void (async () => {
-              try {
-                const offer = await peer.createOffer({
-                  iceRestart: true,
-                  offerToReceiveAudio: true,
-                  offerToReceiveVideo: mediaModeRef.current === 'video'
-                });
-                await peer.setLocalDescription(offer);
-                await sendSignal(remoteUserId, { type: 'offer', sdp: offer, iceRestart: true });
-                emitVoiceLifecycleEvent('reconnecting', {
-                  callId: callIdRef.current,
-                  peerUserId: remoteUserId
-                });
-              } catch {
-                setRemoteStreams((prev) => {
-                  if (!prev[remoteUserId]) return prev;
-                  const next = { ...prev };
-                  delete next[remoteUserId];
-                  return next;
-                });
-              } finally {
-                window.setTimeout(() => iceRestartingRef.current.delete(remoteUserId), 8000);
-              }
-            })();
+      const restartIce = async () => {
+        if (!isCurrentPeer(remoteUserId, peer, generation) || iceRestartingRef.current.has(remoteUserId)) return;
+        if (peer.signalingState !== 'stable') return;
+        iceRestartingRef.current.add(remoteUserId);
+        runtime.flags.makingOffer = true;
+        setReconnecting(true);
+        emitVoiceLifecycleEvent('reconnecting', {
+          callId: callIdRef.current,
+          peerUserId: remoteUserId
+        });
+        try {
+          const offer = await peer.createOffer({
+            iceRestart: true,
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: mediaModeRef.current === 'video'
+          });
+          if (!isCurrentPeer(remoteUserId, peer, generation)) return;
+          await peer.setLocalDescription(offer);
+          await sendSignal(remoteUserId, { type: 'offer', sdp: offer, iceRestart: true });
+        } catch {
+          if (isCurrentPeer(remoteUserId, peer, generation)) {
+            setRemoteStreams((prev) => {
+              if (!prev[remoteUserId]) return prev;
+              const next = { ...prev };
+              delete next[remoteUserId];
+              return next;
+            });
           }
+        } finally {
+          runtime.flags.makingOffer = false;
+          window.setTimeout(() => {
+            iceRestartingRef.current.delete(remoteUserId);
+            if (callGenerationRef.current === generation) setReconnecting(false);
+          }, 8000);
+        }
+      };
+
+      peer.onconnectionstatechange = () => {
+        if (!isCurrentPeer(remoteUserId, peer, generation)) return;
+        const state = peer.connectionState;
+        if (state === 'disconnected') {
+          if (!runtime.reconnectTimer) {
+            runtime.reconnectTimer = window.setTimeout(() => {
+              runtime.reconnectTimer = null;
+              if (peer.connectionState === 'disconnected') void restartIce();
+            }, 2500);
+          }
+          return;
+        }
+        if (state === 'failed') {
+          void restartIce();
         }
         if (state === 'closed') {
           setRemoteStreams((prev) => {
@@ -474,17 +604,22 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
             delete next[remoteUserId];
             return next;
           });
+          peerRuntimeRef.current.delete(remoteUserId);
         }
-        if (state === 'connected' || state === 'completed') {
+      if (state === 'connected') {
+          if (runtime.reconnectTimer) {
+            window.clearTimeout(runtime.reconnectTimer);
+            runtime.reconnectTimer = null;
+          }
           iceRestartingRef.current.delete(remoteUserId);
+          setReconnecting(false);
           setCallState((prev) => (prev ? { ...prev, status: 'active' } : prev));
         }
       };
 
-      peerConnectionsRef.current.set(remoteUserId, peer);
       return peer;
     },
-    [ensureLocalMedia, sendSignal]
+    [ensureLocalMedia, isCurrentPeer, sendSignal]
   );
 
   const ensureParticipantEntry = useCallback((id: string, status?: string, userOverride?: ParticipantOption) => {
@@ -497,43 +632,58 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
             : entry
         );
       }
-      const user = userOverride || participantUsers.find((entry) => entry.id === id);
+      const user = userOverride || participantUsersRef.current.find((entry) => entry.id === id);
       return [...prev, { userId: id, status: status || 'invited', user }];
     });
-  }, [participantUsers]);
+  }, []);
 
   const createOfferForUser = useCallback(
-    async (remoteUserId: string) => {
-      if (!remoteUserId || remoteUserId === userIdRef.current) return;
-      // Avoid double offers when both call-room and user-room join events fire.
-      if (offeredPeersRef.current.has(remoteUserId)) return;
-      offeredPeersRef.current.add(remoteUserId);
-      try {
-        const peer = await createPeerConnection(remoteUserId);
-        if (!peer) {
+      async (remoteUserId: string) => {
+        if (!remoteUserId || remoteUserId === userIdRef.current) return;
+        // Avoid double offers when both call-room and user-room join events fire.
+        if (offeredPeersRef.current.has(remoteUserId) || offerInFlightRef.current.has(remoteUserId)) return;
+        const generation = callGenerationRef.current;
+        const callId = callIdRef.current;
+        if (!callId) return;
+        offerInFlightRef.current.add(remoteUserId);
+        offeredPeersRef.current.add(remoteUserId);
+        try {
+          const peer = await createPeerConnection(remoteUserId);
+          const runtime = peerRuntimeRef.current.get(remoteUserId);
+          if (!peer || !runtime || generation !== callGenerationRef.current || callIdRef.current !== callId) {
+            offeredPeersRef.current.delete(remoteUserId);
+            return;
+          }
+          const wantVideo = mediaModeRef.current === 'video';
+          if (peer.signalingState !== 'stable') {
+            offeredPeersRef.current.delete(remoteUserId);
+            return;
+          }
+          runtime.flags.makingOffer = true;
+          const offer = await peer.createOffer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: wantVideo
+          });
+          if (generation !== callGenerationRef.current || callIdRef.current !== callId) return;
+          await peer.setLocalDescription(offer);
+          await sendSignal(remoteUserId, {
+            type: 'offer',
+            sdp: { type: offer.type, sdp: offer.sdp }
+          });
+        } catch (error: any) {
           offeredPeersRef.current.delete(remoteUserId);
-          return;
-        }
-        const wantVideo = mediaModeRef.current === 'video';
-        const offer = await peer.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: wantVideo
-        });
-        await peer.setLocalDescription(offer);
-        await sendSignal(remoteUserId, {
-          type: 'offer',
-          sdp: { type: offer.type, sdp: offer.sdp }
-        });
-      } catch (error: any) {
-        offeredPeersRef.current.delete(remoteUserId);
         setCallState((prev) => (prev ? { ...prev, status: 'failed' } : prev));
         emitVoiceLifecycleEvent('failed', {
           callId: callIdRef.current,
           conversationId: conversationIdRef.current,
           error: String(error?.message || 'Failed to establish call media.')
-        });
-      }
-    },
+          });
+        } finally {
+          const runtime = peerRuntimeRef.current.get(remoteUserId);
+          if (runtime) runtime.flags.makingOffer = false;
+          offerInFlightRef.current.delete(remoteUserId);
+        }
+      },
     [createPeerConnection, sendSignal]
   );
 
@@ -554,9 +704,35 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     });
   }, []);
 
+  const emitMediaState = useCallback(
+    (kind: 'microphone' | 'camera', enabled: boolean) => {
+      const callId = callIdRef.current;
+      if (!socket || !callId || callId.startsWith('pending-')) return;
+      void emitWithAck(socket, 'call:media', {
+        callId,
+        kind,
+        action: 'state',
+        enabled
+      }).then((response) => {
+        if (response?.success === false && callIdRef.current === callId) {
+          emitVoiceLifecycleEvent('media_state_failed', {
+            callId,
+            kind,
+            error: String(response?.error || 'Unable to sync call media state.')
+          });
+        }
+      });
+    },
+    [socket]
+  );
+
   const renegotiatePeerMedia = useCallback(
     async (remoteUserId: string, peer: RTCPeerConnection) => {
       if (!remoteUserId || peer.signalingState === 'closed') return;
+      const runtime = peerRuntimeRef.current.get(remoteUserId);
+      if (!runtime || runtime.flags.makingOffer || peer.signalingState !== 'stable') return;
+      runtime.flags.makingOffer = true;
+      try {
       const offer = await peer.createOffer({
         offerToReceiveAudio: true,
         offerToReceiveVideo: mediaModeRef.current === 'video'
@@ -567,6 +743,9 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         sdp: { type: offer.type, sdp: offer.sdp },
         mediaMode: mediaModeRef.current
       });
+      } finally {
+        runtime.flags.makingOffer = false;
+      }
     },
     [sendSignal]
   );
@@ -577,12 +756,25 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   }, [renegotiatePeerMedia]);
 
   const switchToVideo = useCallback(async () => {
+    const callId = callIdRef.current;
+    if (socket && callId && !callId.startsWith('pending-')) {
+      const authorization = await emitWithAck(socket, 'call:media', {
+        callId,
+        kind: 'camera',
+        action: 'start',
+        enabled: true
+      });
+      if (authorization?.success === false) {
+        throw new Error(String(authorization?.error || 'Video calls are not available for this call.'));
+      }
+    }
     const stream = await ensureLocalMedia(true);
     stream.getVideoTracks().forEach((track) => {
       track.enabled = true;
     });
     mediaModeRef.current = 'video';
     setMediaMode('video');
+    cameraOffRef.current = false;
     setCameraOff(false);
     setCallState((prev) => (prev ? { ...prev, mediaMode: 'video' } : prev));
     publishLocalTracksToPeers(stream);
@@ -591,7 +783,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       callId: callIdRef.current,
       conversationId: conversationIdRef.current
     });
-  }, [ensureLocalMedia, publishLocalTracksToPeers, renegotiateAllPeerMedia]);
+  }, [emitMediaState, ensureLocalMedia, publishLocalTracksToPeers, renegotiateAllPeerMedia, socket]);
 
   const toggleCamera = useCallback(async () => {
     if (mediaModeRef.current !== 'video') {
@@ -604,16 +796,18 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       await switchToVideo();
       return;
     }
-    const nextCameraOff = !cameraOff;
+    const nextCameraOff = !cameraOffRef.current;
     videoTracks.forEach((track) => {
       track.enabled = !nextCameraOff;
     });
+    cameraOffRef.current = nextCameraOff;
     setCameraOff(nextCameraOff);
+    emitMediaState('camera', !nextCameraOff);
     emitVoiceLifecycleEvent(nextCameraOff ? 'camera_disabled' : 'camera_enabled', {
       callId: callIdRef.current,
       conversationId: conversationIdRef.current
     });
-  }, [cameraOff, switchToVideo]);
+  }, [emitMediaState, switchToVideo]);
 
   const handleIncomingSignal = useCallback(
     async (payload: any) => {
@@ -621,10 +815,14 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       const fromUserId = String(payload?.fromUserId || '').trim();
       const signal = payload?.signal;
       if (!callId || !fromUserId || !signal) return;
-      if (callIdRef.current && callIdRef.current !== callId) return;
+       if (!callIdRef.current || callIdRef.current !== callId) return;
+      const payloadConversationId = String(payload?.conversationId || '').trim();
+      if (viewConversationIdRef.current && payloadConversationId && payloadConversationId !== viewConversationIdRef.current) return;
+      const generation = callGenerationRef.current;
 
       const peer = await createPeerConnection(fromUserId);
-      if (!peer) return;
+      const runtime = peerRuntimeRef.current.get(fromUserId);
+      if (!peer || !runtime || generation !== callGenerationRef.current || callIdRef.current !== callId) return;
 
       const signalType = String(signal?.type || '').toLowerCase();
       const resolveDescriptionInit = (raw: any): RTCSessionDescriptionInit | null => {
@@ -653,12 +851,28 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       if (signalType === 'offer') {
         const desc = resolveDescriptionInit(signal.sdp ?? signal);
         if (!desc?.sdp) return;
+        const decision = decideIncomingDescription({
+          descriptionType: desc.type,
+          signalingState: peer.signalingState,
+          makingOffer: runtime.flags.makingOffer,
+          isPolite: resolveNegotiationRole(userIdRef.current, fromUserId) === 'polite',
+          isSettingRemoteAnswerPending: runtime.flags.isSettingRemoteAnswerPending
+        });
+        if (decision.action === 'ignore') {
+          runtime.flags.ignoreOffer = true;
+          return;
+        }
+        if (decision.action === 'rollback_and_accept' && canRollbackLocalDescription(peer)) {
+          await peer.setLocalDescription({ type: 'rollback' });
+        }
         if (/\bm=video\b/i.test(desc.sdp)) {
           mediaModeRef.current = 'video';
           setMediaMode('video');
           setCallState((prev) => (prev ? { ...prev, mediaMode: 'video' } : prev));
         }
-        await peer.setRemoteDescription(new RTCSessionDescription(desc));
+        if (!isCurrentPeer(fromUserId, peer, generation)) return;
+        await peer.setRemoteDescription(desc);
+        if (!isCurrentPeer(fromUserId, peer, generation)) return;
         // Flush queued ICE candidates after remote description is set.
         const queued = pendingCandidatesRef.current.get(fromUserId) || [];
         for (const candidate of queued) {
@@ -669,8 +883,10 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
           }
         }
         pendingCandidatesRef.current.delete(fromUserId);
+        runtime.flags.ignoreOffer = false;
         const answer = await peer.createAnswer();
         await peer.setLocalDescription(answer);
+        if (!isCurrentPeer(fromUserId, peer, generation)) return;
         await sendSignal(fromUserId, {
           type: 'answer',
           sdp: { type: answer.type, sdp: answer.sdp }
@@ -678,7 +894,12 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       } else if (signalType === 'answer' || signalType === 'pranswer') {
         const desc = resolveDescriptionInit(signal.sdp ?? signal);
         if (!desc?.sdp) return;
-        await peer.setRemoteDescription(new RTCSessionDescription(desc));
+        if (!['have-local-offer', 'have-remote-pranswer'].includes(peer.signalingState)) return;
+        runtime.flags.isSettingRemoteAnswerPending = true;
+        await peer.setRemoteDescription(desc);
+        runtime.flags.isSettingRemoteAnswerPending = false;
+        runtime.flags.ignoreOffer = false;
+        if (!isCurrentPeer(fromUserId, peer, generation)) return;
         const queued = pendingCandidatesRef.current.get(fromUserId) || [];
         for (const candidate of queued) {
           try {
@@ -694,6 +915,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
             typeof signal.candidate === 'object'
               ? signal.candidate
               : { candidate: String(signal.candidate || '') };
+          if (shouldDropIceCandidate(runtime.flags)) return;
           if (!peer.remoteDescription) {
             const queue = pendingCandidatesRef.current.get(fromUserId) || [];
             queue.push(candInit);
@@ -706,11 +928,32 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         }
       }
     },
-    [createPeerConnection, sendSignal]
+    [createPeerConnection, isCurrentPeer, sendSignal]
   );
 
   useEffect(() => {
     if (!socket || !userId) return;
+
+    const matchesCurrentCall = (payload: any) => {
+      const payloadCallId = String(payload?.callId || '').trim();
+      const payloadConversationId = String(payload?.conversationId || '').trim();
+      if (!payloadCallId || (callIdRef.current && payloadCallId !== callIdRef.current)) return false;
+      if (
+        viewConversationIdRef.current &&
+        payloadConversationId &&
+        payloadConversationId !== viewConversationIdRef.current
+      ) {
+        return false;
+      }
+      if (
+        conversationIdRef.current &&
+        payloadConversationId &&
+        payloadConversationId !== conversationIdRef.current
+      ) {
+        return false;
+      }
+      return true;
+    };
 
     const finalizeCallState = (status: string, payload?: any, delayMs = 1200) => {
       clearResetTimer();
@@ -736,14 +979,19 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     const onRinging = (payload: any) => {
       const payloadConversationId = String(payload?.conversationId || '').trim();
       const payloadCallId = String(payload?.callId || '').trim();
-      const targetConversationId = String(conversationId || '').trim();
+      const targetConversationId = viewConversationIdRef.current;
       if (!payloadCallId) return;
+       if (targetConversationId && payloadConversationId && payloadConversationId !== targetConversationId) return;
+      if (callIdRef.current && callIdRef.current !== payloadCallId) return;
+      if (!callIdRef.current) callGenerationRef.current += 1;
+      callIdRef.current = payloadCallId;
+      conversationIdRef.current = payloadConversationId || targetConversationId;
       clearResetTimer();
       const sameConversation =
         !targetConversationId || !payloadConversationId || payloadConversationId === targetConversationId;
 
       const initiatorId = String(payload?.initiatorId || '').trim();
-      const incomingCall = initiatorId && initiatorId !== String(userId || '').trim();
+      const incomingCall = initiatorId && initiatorId !== userIdRef.current;
       setIncoming(incomingCall);
       const incomingMedia =
         String(payload?.mediaMode || 'audio').toLowerCase() === 'video' ? 'video' : 'audio';
@@ -772,23 +1020,23 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
             .filter((entry: ParticipantOption) => Boolean(entry.id))
         : [];
       const participantLookup = new Map<string, ParticipantOption>(
-        [...participantUsers, ...payloadUsers].map((entry) => [String(entry.id || '').trim(), entry])
+        [...participantUsersRef.current, ...payloadUsers].map((entry) => [String(entry.id || '').trim(), entry])
       );
       const fallbackIds = (() => {
         if (!sameConversation) {
-          return [initiatorId, String(userId || '').trim()].filter(Boolean);
+          return [initiatorId, userIdRef.current].filter(Boolean);
         }
         const knownIds = new Set(
           [
-            String(userId || '').trim(),
-            ...participantUsers.map((entry) => String(entry?.id || '').trim()),
+            userIdRef.current,
+            ...participantUsersRef.current.map((entry) => String(entry?.id || '').trim()),
             ...payloadUsers.map((entry: ParticipantOption) => String(entry?.id || '').trim())
           ].filter(Boolean)
         );
         const sanitizedIds = ids.filter((id) => knownIds.has(id));
         return sanitizedIds.length
           ? sanitizedIds
-          : [initiatorId, String(userId || '').trim()].filter((id) => Boolean(id) && knownIds.has(id));
+          : [initiatorId, userIdRef.current].filter((id) => Boolean(id) && knownIds.has(id));
       })();
       setParticipants(
         fallbackIds.map((participantId) => ({
@@ -819,14 +1067,14 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
 
     const onInitiated = (payload: any) => {
       const initiatorId = String(payload?.initiatorId || '').trim();
-      if (!initiatorId || initiatorId !== String(userId || '').trim()) return;
+      if (!initiatorId || initiatorId !== userIdRef.current) return;
       onRinging(payload);
     };
 
     const onParticipantJoined = (payload: any) => {
       const callId = String(payload?.callId || '').trim();
       const joinedUserId = String(payload?.userId || '').trim();
-      if (!callId || !joinedUserId || callId !== callIdRef.current) return;
+      if (!callId || !joinedUserId || !matchesCurrentCall(payload)) return;
       ensureParticipantEntry(joinedUserId, 'joined');
       setCallState((prev) => (prev ? { ...prev, status: 'active' } : prev));
       stopRingingAlert('answered');
@@ -838,7 +1086,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     const onParticipantAdded = (payload: any) => {
       const callId = String(payload?.callId || '').trim();
       const addedUserId = String(payload?.userId || payload?.participantId || '').trim();
-      if (!callId || !addedUserId || callId !== callIdRef.current) return;
+      if (!callId || !addedUserId || !matchesCurrentCall(payload)) return;
       const participant = payload?.participant && typeof payload.participant === 'object'
         ? {
             id: String(payload.participant.id || addedUserId).trim(),
@@ -852,13 +1100,13 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     const onParticipantLeft = (payload: any) => {
       const callId = String(payload?.callId || '').trim();
       const leftUserId = String(payload?.userId || '').trim();
-      if (!callId || !leftUserId || callId !== callIdRef.current) return;
+      if (!callId || !leftUserId || !matchesCurrentCall(payload)) return;
       ensureParticipantEntry(leftUserId, 'left');
     };
 
     const onCallEnded = (payload: any) => {
       const callId = String(payload?.callId || '').trim();
-      if (!callId || (callIdRef.current && callId !== callIdRef.current)) return;
+      if (!matchesCurrentCall(payload)) return;
       const status = String(payload?.status || 'ended').trim().toLowerCase() || 'ended';
       finalizeCallState(status, payload, 1000);
     };
@@ -866,7 +1114,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     const onCallRejected = (payload: any) => {
       const callId = String(payload?.callId || '').trim();
       const rejectedUserId = String(payload?.userId || '').trim();
-      if (!callId || callId !== callIdRef.current) return;
+      if (!callId || !matchesCurrentCall(payload)) return;
       ensureParticipantEntry(rejectedUserId, 'rejected');
       finalizeCallState('rejected', payload, 1400);
     };
@@ -878,7 +1126,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     const onLifecycleJoined = (payload: any) => {
       const callId = String(payload?.callId || '').trim();
       const joinedUserId = String(payload?.userId || '').trim();
-      if (!callId || !joinedUserId || callId !== callIdRef.current) return;
+      if (!callId || !joinedUserId || !matchesCurrentCall(payload)) return;
       ensureParticipantEntry(joinedUserId, 'joined');
       setCallState((prev) => (prev ? { ...prev, status: 'active' } : prev));
       stopRingingAlert('answered');
@@ -890,13 +1138,13 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
 
     const onLifecycleMissed = (payload: any) => {
       const callId = String(payload?.callId || '').trim();
-      if (!callId || (callIdRef.current && callId !== callIdRef.current)) return;
+      if (!matchesCurrentCall(payload)) return;
       finalizeCallState('missed', payload, 1600);
     };
 
     const onLifecycleFailed = (payload: any) => {
       const callId = String(payload?.callId || '').trim();
-      if (callIdRef.current && callId && callId !== callIdRef.current) return;
+      if (!matchesCurrentCall(payload)) return;
       setCallState((prev) => {
         const nextCallId = callId || callIdRef.current || '';
         if (!prev && !nextCallId) return prev;
@@ -913,7 +1161,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
 
     const onCallBusy = (payload: any) => {
       const callId = String(payload?.callId || '').trim();
-      if (callIdRef.current && callId && callId !== callIdRef.current) return;
+      if (!matchesCurrentCall(payload)) return;
       emitVoiceLifecycleEvent('busy', {
         callId: callId || callIdRef.current || '',
         conversationId: String(payload?.conversationId || conversationIdRef.current || ''),
@@ -926,7 +1174,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
 
     const onLifecycleEnded = (payload: any) => {
       const callId = String(payload?.callId || '').trim();
-      if (!callId || (callIdRef.current && callId !== callIdRef.current)) return;
+      if (!matchesCurrentCall(payload)) return;
       const status = String(payload?.status || 'ended').trim().toLowerCase() || 'ended';
       finalizeCallState(status, payload, 900);
     };
@@ -941,7 +1189,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     socket.on('call:busy', onCallBusy);
     const onJoinRequested = (payload: any) => {
       const callId = String(payload?.callId || '').trim();
-      if (!callId || (callIdRef.current && callId !== callIdRef.current)) return;
+      if (!matchesCurrentCall(payload)) return;
       const request = payload?.request;
       if (!request?.requestId) return;
       const entry = {
@@ -956,14 +1204,14 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         }
         return [...prev, entry];
       });
-      if (entry.requesterId === String(userId || '')) {
+      if (entry.requesterId === userIdRef.current) {
         setMyJoinRequestStatus(entry.status);
       }
     };
 
     const onJoinApproved = (payload: any) => {
       const callId = String(payload?.callId || '').trim();
-      if (!callId || (callIdRef.current && callId !== callIdRef.current)) return;
+      if (!matchesCurrentCall(payload)) return;
       const request = payload?.request;
       const requestId = String(request?.requestId || '');
       const requesterId = String(request?.requesterId || '');
@@ -972,7 +1220,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
           row.requestId === requestId ? { ...row, status: 'approved' } : row
         )
       );
-      if (requesterId === String(userId || '')) {
+      if (requesterId === userIdRef.current) {
         setMyJoinRequestStatus('approved');
         emitVoiceLifecycleEvent('join_approved', { callId, requestId });
       }
@@ -980,7 +1228,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
 
     const onJoinRejected = (payload: any) => {
       const callId = String(payload?.callId || '').trim();
-      if (!callId || (callIdRef.current && callId !== callIdRef.current)) return;
+      if (!matchesCurrentCall(payload)) return;
       const request = payload?.request;
       const requestId = String(request?.requestId || '');
       const requesterId = String(request?.requesterId || '');
@@ -989,9 +1237,24 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
           row.requestId === requestId ? { ...row, status: 'rejected' } : row
         )
       );
-      if (requesterId === String(userId || '')) {
+      if (requesterId === userIdRef.current) {
         setMyJoinRequestStatus('rejected');
       }
+    };
+
+    const onMediaState = (payload: any) => {
+      if (!matchesCurrentCall(payload)) return;
+      const mediaUserId = String(payload?.userId || '').trim();
+      if (!mediaUserId || mediaUserId === userIdRef.current || payload?.approved === false) return;
+      setRemoteMediaStates((prev) => ({
+        ...prev,
+        [mediaUserId]: {
+          ...(prev[mediaUserId] || { microphone: true, camera: true }),
+          ...(payload?.kind === 'microphone' ? { microphone: Boolean(payload.enabled) } : {}),
+          ...(payload?.kind === 'camera' ? { camera: Boolean(payload.enabled) } : {}),
+          updatedAt: String(payload?.emittedAt || new Date().toISOString())
+        }
+      }));
     };
 
     socket.on('call:signal', onSignal);
@@ -1002,6 +1265,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     socket.on('call:join-requested', onJoinRequested);
     socket.on('call:join-approved', onJoinApproved);
     socket.on('call:join-rejected', onJoinRejected);
+    socket.on('call:media', onMediaState);
 
     return () => {
       socket.off('call:initiate', onInitiated);
@@ -1020,12 +1284,10 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       socket.off('call:join-requested', onJoinRequested);
       socket.off('call:join-approved', onJoinApproved);
       socket.off('call:join-rejected', onJoinRejected);
+      socket.off('call:media', onMediaState);
     };
   }, [
     socket,
-    userId,
-    conversationId,
-    participantUsers,
     clearResetTimer,
     ensureParticipantEntry,
     createOfferForUser,
@@ -1183,30 +1445,37 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   );
 
   const acceptCall = useCallback(async () => {
-    if (!socket || !callState?.callId) return;
-    // Capture media before accept so the first offer/answer includes tracks.
+    const callId = String(callState?.callId || '').trim();
+    if (!socket || !callId || acceptingCallIdRef.current === callId || endingCallIdRef.current === callId) return;
+    acceptingCallIdRef.current = callId;
+    setAccepting(true);
     try {
+      // Capture media before accept so the first offer/answer includes tracks.
       await ensureLocalMedia(mediaModeRef.current === 'video');
-    } catch (error: any) {
-      throw new Error(String(error?.message || 'Media permission required to join the call.'));
-    }
-    const response = await emitWithAck(socket, 'call:accept', { callId: callState.callId });
-    if (response?.success === false) {
-      const code = String(response?.code || '');
-      if (code === 'GROUP_CALL_JOIN_REQUEST_REQUIRED') {
-        setMyJoinRequestStatus('required');
-        throw new Error(
-          String(response?.error || 'You must request to join this call and wait for approval.')
-        );
+      if (callIdRef.current !== callId) return;
+      const response = await emitWithAck(socket, 'call:accept', { callId });
+      if (response?.success === false) {
+        const code = String(response?.code || '');
+        if (code === 'GROUP_CALL_JOIN_REQUEST_REQUIRED') {
+          setMyJoinRequestStatus('required');
+          throw new Error(
+            String(response?.error || 'You must request to join this call and wait for approval.')
+          );
+        }
+        throw new Error(String(response?.error || 'Failed to accept call.'));
       }
-      throw new Error(String(response?.error || 'Failed to accept call.'));
+      stopRingingAlert('answered');
+      setIncoming(false);
+      setMyJoinRequestStatus(null);
+      setCallState((prev) => (prev ? { ...prev, status: 'active' } : prev));
+      ensureParticipantEntry(userIdRef.current, 'joined');
+    } finally {
+      if (acceptingCallIdRef.current === callId) {
+        acceptingCallIdRef.current = '';
+        setAccepting(false);
+      }
     }
-    stopRingingAlert('answered');
-    setIncoming(false);
-    setMyJoinRequestStatus(null);
-    setCallState((prev) => (prev ? { ...prev, status: 'active' } : prev));
-    ensureParticipantEntry(String(userId || ''), 'joined');
-  }, [socket, callState?.callId, ensureParticipantEntry, ensureLocalMedia, userId, stopRingingAlert]);
+  }, [socket, callState?.callId, ensureParticipantEntry, ensureLocalMedia, stopRingingAlert]);
 
   const requestJoin = useCallback(async () => {
     if (!socket || !callState?.callId) return;
@@ -1279,37 +1548,49 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   }, [socket, callState?.callId, pendingJoinRequests, userId]);
 
   const rejectCall = useCallback(async () => {
-    if (!socket || !callState?.callId) {
+    const callId = String(callState?.callId || '').trim();
+    if (!socket || !callId) {
       stopRingingAlert('rejected');
       resetCallState();
       return;
     }
-    await emitWithAck(socket, 'call:reject', { callId: callState.callId });
-    stopRingingAlert('rejected');
-    resetCallState();
+    if (endingCallIdRef.current === callId) return;
+    endingCallIdRef.current = callId;
+    setEnding(true);
+    try {
+      await emitWithAck(socket, 'call:reject', { callId });
+    } finally {
+      stopRingingAlert('rejected');
+      resetCallState();
+    }
   }, [socket, callState?.callId, resetCallState, stopRingingAlert]);
 
   const endCall = useCallback(async () => {
-    if (socket && callState?.callId) {
-      if (String(callState.callId).startsWith('pending-')) {
-        stopRingingAlert('cancelled');
-        resetCallState();
-        return;
+    const callId = String(callState?.callId || '').trim();
+    if (!callId || endingCallIdRef.current === callId || acceptingCallIdRef.current === callId) return;
+    endingCallIdRef.current = callId;
+    setEnding(true);
+    try {
+      if (socket) {
+        if (callId.startsWith('pending-')) {
+          return;
+        }
+        const joinedCount = participants.filter(
+          (entry) => String(entry.status || '').toLowerCase() === 'joined'
+        ).length;
+        const isConference =
+          String(callState?.callType || '').toLowerCase() === 'conference' || joinedCount > 2;
+        // Multi-party: leave individually so others can continue; 1:1 ends the call.
+        if (isConference && joinedCount > 2) {
+          await emitWithAck(socket, 'call:participant:left', { callId });
+        } else {
+          await emitWithAck(socket, 'call:end', { callId });
+        }
       }
-      const joinedCount = participants.filter(
-        (entry) => String(entry.status || '').toLowerCase() === 'joined'
-      ).length;
-      const isConference =
-        String(callState.callType || '').toLowerCase() === 'conference' || joinedCount > 2;
-      // Multi-party: leave individually so others can continue; 1:1 ends the call.
-      if (isConference && joinedCount > 2) {
-        await emitWithAck(socket, 'call:participant:left', { callId: callState.callId });
-      } else {
-        await emitWithAck(socket, 'call:end', { callId: callState.callId });
-      }
+    } finally {
+      stopRingingAlert('ended');
+      resetCallState();
     }
-    stopRingingAlert('ended');
-    resetCallState();
   }, [socket, callState?.callId, callState?.callType, participants, resetCallState, stopRingingAlert]);
 
   const addParticipant = useCallback(
@@ -1337,12 +1618,14 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     if (!stream) return;
     const audioTracks = stream.getAudioTracks();
     if (!audioTracks.length) return;
-    const nextMuted = !muted;
+    const nextMuted = !mutedRef.current;
     audioTracks.forEach((track) => {
       track.enabled = !nextMuted;
     });
+    mutedRef.current = nextMuted;
     setMuted(nextMuted);
-  }, [muted]);
+    emitMediaState('microphone', !nextMuted);
+  }, [emitMediaState]);
 
   const toggleSpeaker = useCallback(() => {
     setSpeakerOn((prev) => !prev);
@@ -1392,7 +1675,11 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       rejectJoinRequest,
       cancelJoinRequest,
       pendingJoinRequests,
-      myJoinRequestStatus
+      myJoinRequestStatus,
+      accepting,
+      ending,
+      reconnecting,
+      remoteMediaStates
     }),
     [
       open,
@@ -1422,7 +1709,11 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       rejectJoinRequest,
       cancelJoinRequest,
       pendingJoinRequests,
-      myJoinRequestStatus
+      myJoinRequestStatus,
+      accepting,
+      ending,
+      reconnecting,
+      remoteMediaStates
     ]
   );
 

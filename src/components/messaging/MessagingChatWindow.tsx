@@ -191,6 +191,7 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
   const [sendError, setSendError] = useState<string | null>(null);
   const [pins, setPins] = useState<any[]>([]);
   const [appearance, setAppearance] = useState<AppearanceInput>({ kind: 'none' });
+  const [appearanceLoading, setAppearanceLoading] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -295,14 +296,20 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
             !p?.deleted_at
         );
       if (parts.length > 0 && selfId && !hasSelf) {
-        if (!cancelled) setAppearance({ kind: 'none' });
+        if (!cancelled) {
+          setAppearance({ kind: 'none' });
+          setAppearanceLoading(false);
+        }
         return;
       }
+      if (!cancelled) setAppearanceLoading(true);
       try {
         const app = await MessagingService.getChatAppearance(conversationId);
         if (!cancelled) setAppearance(app || { kind: 'none' });
       } catch {
         if (!cancelled) setAppearance({ kind: 'none' });
+      } finally {
+        if (!cancelled) setAppearanceLoading(false);
       }
     })();
     return () => {
@@ -1141,6 +1148,8 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
       <ChatAppearancePanel
         conversationId={conversationId}
         open={appearanceOpen}
+        appearance={appearance}
+        loading={appearanceLoading}
         onClose={() => setAppearanceOpen(false)}
         onSaved={(next) => {
           setAppearance(next || { kind: 'none' });

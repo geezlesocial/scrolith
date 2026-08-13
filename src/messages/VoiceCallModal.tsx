@@ -28,6 +28,11 @@ type CallParticipant = {
   user?: ParticipantUser;
 };
 
+type RemoteMediaState = {
+  microphone: boolean;
+  camera: boolean;
+};
+
 type VoiceCallModalProps = {
   open: boolean;
   title?: string;
@@ -44,6 +49,10 @@ type VoiceCallModalProps = {
   participants?: CallParticipant[];
   meId?: string;
   remoteStreams?: Record<string, MediaStream>;
+  remoteMediaStates?: Record<string, RemoteMediaState>;
+  accepting?: boolean;
+  ending?: boolean;
+  reconnecting?: boolean;
   onClose?: () => void;
   onAccept?: () => void;
   onReject?: () => void;
@@ -199,6 +208,10 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   participants = [],
   meId,
   remoteStreams = {},
+  remoteMediaStates = {},
+  accepting = false,
+  ending = false,
+  reconnecting = false,
   onClose,
   onAccept,
   onReject,
@@ -337,9 +350,15 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
               {remoteEntries.slice(0, 4).map(([userId, stream]) => (
                 <div key={userId} className="relative aspect-video overflow-hidden rounded-2xl bg-slate-900 ring-1 ring-white/10">
                   <AttachStreamVideo stream={stream} muted={!speakerOn} className="h-full w-full object-cover" />
-                  <span className="absolute bottom-3 left-3 rounded-full bg-black/50 px-3 py-1 text-xs font-semibold">
-                    {participantUsers.find((user) => user.id === userId)?.name || 'Participant'}
-                  </span>
+                   <span className="absolute bottom-3 left-3 rounded-full bg-black/50 px-3 py-1 text-xs font-semibold">
+                     {participantUsers.find((user) => user.id === userId)?.name || 'Participant'}
+                   </span>
+                   {remoteMediaStates[userId] && (!remoteMediaStates[userId].microphone || !remoteMediaStates[userId].camera) ? (
+                     <span className="absolute right-3 top-3 flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[10px] font-semibold text-white">
+                       {!remoteMediaStates[userId].microphone ? <MicOff className="h-3 w-3" /> : null}
+                       {!remoteMediaStates[userId].camera ? <VideoOff className="h-3 w-3" /> : null}
+                     </span>
+                   ) : null}
                 </div>
               ))}
             </div>
@@ -410,8 +429,8 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
         <footer className="shrink-0 pb-2">
           {incoming ? (
             <div className="flex items-center justify-center gap-4 rounded-[2rem] bg-black/35 px-4 py-4 shadow-2xl backdrop-blur">
-              <ControlButton label="Reject" icon={<PhoneOff className="h-7 w-7" />} onClick={onReject} danger />
-              <ControlButton label="Answer" icon={<Phone className="h-7 w-7" />} onClick={onAccept} tone="success" />
+               <ControlButton label="Reject" icon={<PhoneOff className="h-7 w-7" />} onClick={onReject} danger disabled={ending} />
+               <ControlButton label={accepting ? 'Answering...' : 'Answer'} icon={<Phone className="h-7 w-7" />} onClick={onAccept} tone="success" disabled={accepting || ending} />
               {onRequestJoin ? (
                 <ControlButton label="Request join" icon={<UserPlus className="h-6 w-6" />} onClick={onRequestJoin} tone="primary" />
               ) : null}
@@ -424,6 +443,7 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
                 onClick={onToggleSpeaker}
                 tone={speakerOn ? 'primary' : 'neutral'}
                 active={speakerOn}
+                disabled={accepting || ending || reconnecting}
               />
               <ControlButton
                 label={muted ? 'Unmute' : 'Mute'}
@@ -431,6 +451,7 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
                 onClick={onToggleMute}
                 tone={muted ? 'warning' : 'success'}
                 active={!muted}
+                disabled={accepting || ending || reconnecting}
               />
               {isVideo ? (
                 <ControlButton
@@ -439,6 +460,7 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
                   onClick={onToggleCamera}
                   tone={cameraOff ? 'warning' : 'primary'}
                   active={!cameraOff}
+                  disabled={accepting || ending || reconnecting}
                 />
               ) : (
                 <ControlButton
@@ -446,6 +468,7 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
                   icon={<Video className="h-6 w-6" />}
                   onClick={onSwitchToVideo}
                   tone="primary"
+                  disabled={accepting || ending || reconnecting}
                 />
               )}
               {canAddParticipant ? (
@@ -463,7 +486,7 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
                   onClick={() => setShowDetails((prev) => !prev)}
                 />
               )}
-              <ControlButton label="End" icon={<PhoneOff className="h-7 w-7" />} onClick={onEnd} danger />
+              <ControlButton label={ending ? 'Ending...' : 'End'} icon={<PhoneOff className="h-7 w-7" />} onClick={onEnd} danger disabled={ending} />
             </div>
           )}
         </footer>

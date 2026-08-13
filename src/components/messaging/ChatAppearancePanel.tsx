@@ -1,7 +1,8 @@
 /**
  * Per-user chat appearance settings (background). Personal only.
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Image as ImageIcon, Palette, RotateCcw, X } from 'lucide-react';
 import { MessagingService } from '../../services/messaging';
 import { FileService } from '../../services/files';
@@ -16,49 +17,108 @@ import {
 type Props = {
   conversationId: string;
   open: boolean;
+  appearance: AppearanceInput;
+  loading?: boolean;
   onClose: () => void;
   onSaved?: (appearance: AppearanceInput) => void;
 };
 
 const PRESET_SOLIDS = ['#ffffff', '#0f172a', '#1e3a5f', '#14532d', '#4c1d95', '#7f1d1d', '#fef3c7', '#e0e7ff'];
 
-const ChatAppearancePanel: React.FC<Props> = ({ conversationId, open, onClose, onSaved }) => {
-  const [loading, setLoading] = useState(false);
+const ChatAppearancePanel: React.FC<Props> = ({ conversationId, open, appearance: persistedAppearance, loading = false, onClose, onSaved }) => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [appearance, setAppearance] = useState<AppearanceInput>({ kind: 'none', opacity: 1, blurPx: 0 });
   const fileRef = React.useRef<HTMLInputElement>(null);
-
-  const load = useCallback(async () => {
-    if (!open || !conversationId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await MessagingService.getChatAppearance(conversationId);
-      setAppearance(data || { kind: 'none' });
-    } catch (e: any) {
-      setError(e?.message || 'Failed to load appearance');
-    } finally {
-      setLoading(false);
-    }
-  }, [conversationId, open]);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const conversationIdRef = useRef(conversationId);
+  const appearanceRef = useRef(appearance);
+  const lastSliderCommitRef = useRef('');
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    conversationIdRef.current = conversationId;
+    setSaving(false);
+    setError(null);
+    lastSliderCommitRef.current = '';
+  }, [conversationId]);
+
+  useEffect(() => {
+    appearanceRef.current = appearance;
+  }, [appearance]);
+
+  useEffect(() => {
+    setAppearance(persistedAppearance || { kind: 'none', opacity: 1, blurPx: 0 });
+  }, [persistedAppearance]);
+
+  useEffect(() => {
+    if (!open) return;
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusable = () =>
+      Array.from(
+        dialogRef.current?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+        ) || []
+      );
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const items = focusable() as HTMLElement[];
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    window.requestAnimationFrame(() => closeButtonRef.current?.focus());
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      previousFocusRef.current?.focus();
+      previousFocusRef.current = null;
+    };
+  }, [open, onClose]);
 
   const save = async (next: AppearanceInput) => {
+    const targetConversationId = conversationId;
     setSaving(true);
     setError(null);
     try {
-      const data = await MessagingService.saveChatAppearance(conversationId, next);
+      const data = await MessagingService.saveChatAppearance(targetConversationId, next);
+      if (conversationIdRef.current !== targetConversationId) return;
+      appearanceRef.current = data;
       setAppearance(data);
       onSaved?.(data);
     } catch (e: any) {
-      setError(e?.message || 'Failed to save');
+      if (conversationIdRef.current === targetConversationId) setError(e?.message || 'Failed to save');
     } finally {
-      setSaving(false);
+      if (conversationIdRef.current === targetConversationId) setSaving(false);
     }
+  };
+
+  const updateAppearance = (patch: Partial<AppearanceInput>) => {
+    const next = { ...appearanceRef.current, ...patch };
+    appearanceRef.current = next;
+    setAppearance(next);
+  };
+
+  const commitSlider = (field: 'opacity' | 'blurPx') => {
+    const next = appearanceRef.current;
+    const value = field === 'opacity' ? next.opacity ?? 1 : next.blurPx ?? 0;
+    const key = `${field}:${value}`;
+    if (lastSliderCommitRef.current === key) return;
+    lastSliderCommitRef.current = key;
+    void save(next);
   };
 
   const onPickPhoto = async (file: File | null) => {
@@ -82,17 +142,17 @@ const ChatAppearancePanel: React.FC<Props> = ({ conversationId, open, onClose, o
         kind: 'photo',
         fileId: fileId || null,
         imageUrl: imageUrl || null,
-        opacity: appearance.opacity ?? 1,
-        blurPx: appearance.blurPx ?? 0
+        opacity: appearanceRef.current.opacity ?? 1,
+        blurPx: appearanceRef.current.blurPx ?? 0
       });
     } catch (e: any) {
       setError(e?.message || 'Upload failed');
     } finally {
-      setSaving(false);
+      if (conversationIdRef.current === conversationId) setSaving(false);
     }
   };
 
-  if (!open) return null;
+  if (!open || typeof document === 'undefined') return null;
 
   const previewStyle = appearanceToBackgroundStyle(appearance);
   const palette = buildChatPalette(appearance);
@@ -120,7 +180,7 @@ const ChatAppearancePanel: React.FC<Props> = ({ conversationId, open, onClose, o
     }
   };
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 p-3 sm:items-center"
       role="dialog"
@@ -128,8 +188,12 @@ const ChatAppearancePanel: React.FC<Props> = ({ conversationId, open, onClose, o
       aria-label="Chat appearance"
       data-testid="chat-appearance-panel"
       onPaste={onPastePhoto}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
     >
       <div
+        ref={dialogRef}
         className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-xl"
         onDragOver={(e) => e.preventDefault()}
         onDrop={onDropPhoto}
@@ -138,7 +202,7 @@ const ChatAppearancePanel: React.FC<Props> = ({ conversationId, open, onClose, o
           <h2 className="flex items-center gap-2 text-base font-semibold text-slate-900">
             <Palette className="h-4 w-4" /> Chat appearance
           </h2>
-          <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100" aria-label="Close">
+          <button ref={closeButtonRef} type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100" aria-label="Close chat appearance">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -250,10 +314,15 @@ const ChatAppearancePanel: React.FC<Props> = ({ conversationId, open, onClose, o
                   className="mt-1 w-full"
                   onChange={(e) => {
                     const opacity = Math.min(1, Math.max(0.15, Number(e.target.value) / 100));
-                    setAppearance((prev) => ({ ...prev, opacity }));
-                  }}
-                  onMouseUp={() => void save({ ...appearance, opacity: appearance.opacity ?? 1 })}
-                  onTouchEnd={() => void save({ ...appearance, opacity: appearance.opacity ?? 1 })}
+                     updateAppearance({ opacity });
+                   }}
+                   onPointerUp={() => commitSlider('opacity')}
+                   onKeyUp={(event) => {
+                     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
+                       commitSlider('opacity');
+                     }
+                   }}
+                   onBlur={() => commitSlider('opacity')}
                 />
               </label>
               {(appearance.kind === 'photo' || appearance.kind === 'wallpaper') && (
@@ -268,10 +337,15 @@ const ChatAppearancePanel: React.FC<Props> = ({ conversationId, open, onClose, o
                     className="mt-1 w-full"
                     onChange={(e) => {
                       const blurPx = Math.min(40, Math.max(0, Number(e.target.value) || 0));
-                      setAppearance((prev) => ({ ...prev, blurPx }));
-                    }}
-                    onMouseUp={() => void save({ ...appearance, blurPx: appearance.blurPx ?? 0 })}
-                    onTouchEnd={() => void save({ ...appearance, blurPx: appearance.blurPx ?? 0 })}
+                       updateAppearance({ blurPx });
+                     }}
+                     onPointerUp={() => commitSlider('blurPx')}
+                     onKeyUp={(event) => {
+                       if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
+                         commitSlider('blurPx');
+                       }
+                     }}
+                     onBlur={() => commitSlider('blurPx')}
                   />
                 </label>
               )}
@@ -301,7 +375,7 @@ const ChatAppearancePanel: React.FC<Props> = ({ conversationId, open, onClose, o
         </div>
       </div>
     </div>
-  );
+  , document.body);
 };
 
 export default ChatAppearancePanel;
