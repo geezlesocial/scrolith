@@ -12,7 +12,7 @@ interface UserContextType {
   login: (
     email: string,
     password: string,
-    options?: { redirect?: boolean; humanVerificationToken?: string | null }
+    options?: UserLoginOptions
   ) => Promise<boolean>;
   logout: () => void;
   register: (
@@ -26,6 +26,13 @@ interface UserContextType {
   updateUser: (updates: any) => void;
   switchRole: () => void;
 }
+
+type LoginApprovalRequiredPayload = { id: string; approvalToken: string; expiresAt?: string | null };
+type UserLoginOptions = {
+  redirect?: boolean;
+  humanVerificationToken?: string | null;
+  onLoginApprovalRequired?: (approval: LoginApprovalRequiredPayload) => void;
+};
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
@@ -191,16 +198,27 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (
     email: string,
     password: string,
-    options?: { redirect?: boolean; humanVerificationToken?: string | null }
+    options?: UserLoginOptions
   ): Promise<boolean> => {
     setIsLoading(true);
-    
     try {
       const result = await AuthService.login({
         email,
         password,
         humanVerificationToken: options?.humanVerificationToken || undefined
       });
+      if (result.requiresLoginApproval && result.loginApproval?.id) {
+        const approval: LoginApprovalRequiredPayload = {
+          id: String(result.loginApproval.id),
+          approvalToken: String(result.loginApproval.approvalToken || ''),
+          expiresAt: result.loginApproval.expiresAt ? String(result.loginApproval.expiresAt) : null
+        };
+        if (options?.onLoginApprovalRequired && approval.approvalToken) {
+          options.onLoginApprovalRequired(approval);
+          return false;
+        }
+        throw new Error(result.error || 'Approve this login from an existing trusted session.');
+      }
       
       if (result.success && result.user) {
         // CRITICAL: Ensure admin role is recognized (initial best-effort from login payload)
@@ -253,7 +271,9 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         return true;
       }
-      throw new Error(result.error || 'Invalid credentials');
+      const loginError = new Error(result.error || 'Invalid credentials') as Error & { code?: string };
+      loginError.code = result.code;
+      throw loginError;
     } catch (error) {
       console.error('Login error:', error);
       throw error;

@@ -912,7 +912,8 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
     loading: boolean;
     loaded: boolean;
     gigs: Gig[];
-  }>({ loading: false, loaded: false, gigs: [] });
+    retryAfterSeconds: number | null;
+  }>({ loading: false, loaded: false, gigs: [], retryAfterSeconds: null });
   const [communityPreview, setCommunityPreview] = React.useState<{
     loading: boolean;
     loaded: boolean;
@@ -1013,13 +1014,13 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
           });
 
         let previewItems = extractMarketplacePreviewItems(
-          await withTimeout(listMarketplaceListings({ page: 1, pageSize: 3, status: 'active', sort: 'recommended' }), 7000)
+          await withTimeout(listMarketplaceListings({ page: 1, pageSize: 3, status: 'active', sort: 'recommended' }, { skipRetry: true }), 7000)
         );
 
         if (!previewItems.length) {
           try {
             previewItems = extractMarketplacePreviewItems(
-              await withTimeout(listMarketplaceListings({ page: 1, pageSize: 3, status: 'active', sort: 'popular' }), 5000)
+              await withTimeout(listMarketplaceListings({ page: 1, pageSize: 3, status: 'active', sort: 'popular' }, { skipRetry: true }), 5000)
             );
           } catch {
             previewItems = [];
@@ -1036,11 +1037,12 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
         }
 
         if (!cancelled) {
-          setMarketplacePreview({ loading: false, loaded: true, gigs: previewItems as any });
+          setMarketplacePreview({ loading: false, loaded: true, gigs: previewItems as any, retryAfterSeconds: null });
         }
-      } catch {
+      } catch (error: any) {
         if (!cancelled) {
-          setMarketplacePreview({ loading: false, loaded: true, gigs: [] });
+          const retryAfter = Number(error?.response?.headers?.['retry-after'] || error?.response?.headers?.['Retry-After']);
+          setMarketplacePreview({ loading: false, loaded: true, gigs: [], retryAfterSeconds: error?.response?.status === 429 && Number.isFinite(retryAfter) ? Math.max(1, Math.ceil(retryAfter)) : null });
         }
       } finally {
         if (!cancelled) {
@@ -1291,7 +1293,10 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
                     ) : (
                       <div className="grid h-full min-h-[12rem] place-items-center rounded-2xl border border-dashed border-slate-200 bg-white/70 px-4 text-center">
                         <div>
-                          <p className="text-sm font-semibold text-slate-800">No live marketplace listings available right now.</p>
+                          <p className="text-sm font-semibold text-slate-800">{marketplacePreview.retryAfterSeconds ? 'Marketplace preview is temporarily busy.' : 'No live marketplace listings available right now.'}</p>
+                          {marketplacePreview.retryAfterSeconds ? (
+                            <p className="mt-1 text-xs leading-5 text-slate-500">Try again in about {marketplacePreview.retryAfterSeconds} seconds. You can continue browsing Scrolith.</p>
+                          ) : null}
                           <p className="mt-1 text-xs leading-5 text-slate-500">
                             We only show real production listings — never placeholders.
                           </p>

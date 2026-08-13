@@ -42,6 +42,20 @@ import {
 const HISTORY_SYNC_EVENT = 'scrolith:history-sync';
 const CHUNK_RELOAD_GUARD_KEY = 'scrolith:chunk-reload-target';
 const ROUTE_SYNC_RELOAD_GUARD_KEY = 'scrolith:route-sync-reload-target';
+
+const LazyLoginApprovalOverlay = lazy(() =>
+  import('./components/security/LoginApprovalOverlay').then((module) => ({ default: module.LoginApprovalOverlay }))
+);
+
+const AuthenticatedLoginApprovalOverlay: React.FC = () => {
+  const { isAuthenticated } = useUser();
+  if (!isAuthenticated) return null;
+  return (
+    <Suspense fallback={null}>
+      <LazyLoginApprovalOverlay />
+    </Suspense>
+  );
+};
 const BIOMETRIC_PREF_KEY = 'Scrolith.pref.biometric.enabled';
 const MOBILE_POST_AUTH_TARGET_KEY = 'scrolith:mobile-post-auth-target';
 const IS_MOBILE_APP_BUILD = import.meta.env.VITE_SCROLITH_MOBILE_APP === 'true';
@@ -2212,6 +2226,7 @@ function App() {
                             <AuthenticatedRuntimeBoundary>
                               <GlobalPreloader />
                               <AppContent />
+                              <AuthenticatedLoginApprovalOverlay />
                             </AuthenticatedRuntimeBoundary>
                           </LiveFeatureProvider>
                         </CartProvider>

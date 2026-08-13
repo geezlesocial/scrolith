@@ -191,8 +191,14 @@ export const getMarketplaceCategories = async () => {
   return Array.isArray(data) ? data.map(normalizeCategory) : [];
 };
 
-export const listMarketplaceListings = async (query: MarketplaceQuery = {}) => {
-  const response = await api.get('/marketplace/listings', { params: query });
+export const listMarketplaceListings = async (
+  query: MarketplaceQuery = {},
+  options: { skipRetry?: boolean } = {}
+) => {
+  const response = await api.get('/marketplace/listings', {
+    params: query,
+    ...(options.skipRetry ? { __skipRetry: true } : {})
+  } as any);
   const data = extractData<any>(response);
   if (Array.isArray(data)) return data.map(normalizeListing);
   if (Array.isArray(data?.listings)) {

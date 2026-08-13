@@ -3,6 +3,8 @@ import { tokenStore } from './tokenStore';
 import { FollowOnboardingStatus, User, UserRole } from '../types';
 import { resolveUserAvatarUrl } from '../utils/userAvatar';
 
+const loadDeviceSecurity = () => import('./deviceSecurity');
+
 type AuthResponse = {
   token?: string;
   accessToken?: string;
@@ -12,6 +14,12 @@ type AuthResponse = {
   success?: boolean;
   error?: string;
   message?: string;
+  code?: string;
+  requires2FA?: boolean;
+  challengeToken?: string;
+  challenge_token?: string;
+  requiresLoginApproval?: boolean;
+  loginApproval?: { id: string; approvalToken: string; expiresAt?: string | null };
 };
 type CurrentUserResult = { user: User | null; unauthorized: boolean };
 type FollowOnboardingResponse = {
@@ -69,6 +77,8 @@ const extractAuthPayload = (response: any): AuthResponse => {
     user,
     requires2FA: root?.requires2FA ?? nested?.requires2FA,
     challengeToken: root?.challengeToken ?? root?.challenge_token ?? nested?.challengeToken,
+    requiresLoginApproval: root?.requiresLoginApproval ?? root?.requires_login_approval ?? nested?.requiresLoginApproval,
+    loginApproval: root?.loginApproval ?? root?.login_approval ?? nested?.loginApproval,
     code: root?.code ?? nested?.code,
     error: root?.error ?? root?.message ?? nested?.error ?? nested?.message,
     message: root?.message ?? nested?.message ?? root?.error ?? nested?.error,
@@ -110,21 +120,38 @@ class AuthService {
     humanVerificationToken?: string | null;
   }) {
     try {
+      const { getDeviceMetadata, traceDeviceSecurity } = await loadDeviceSecurity();
       const response = await withAuthRequestTimeout(
-        api.post('/auth/login', credentials, {
+        api.post('/auth/login', { ...credentials, device: await getDeviceMetadata() }, {
           timeout: AUTH_REQUEST_TIMEOUT_MS,
           __skipRetry: true
         } as any),
         'Login request timed out. Please check your connection and try again.'
       );
       const payload = extractAuthPayload(response);
+      traceDeviceSecurity('login_response', {
+        deviceIdentityAttached: true,
+        approvalRequired: Boolean(payload?.requiresLoginApproval || payload?.code === 'LOGIN_APPROVAL_REQUIRED'),
+        approvalAttemptReceived: Boolean(payload?.loginApproval?.id)
+      });
       // Admin Google 2FA challenge (General Settings → Admin 2FA)
       if (payload?.requires2FA || payload?.code === '2FA_REQUIRED') {
         return {
           success: false,
           requires2FA: true,
           challengeToken: payload.challengeToken || payload.challenge_token,
+          code: payload.code,
           error: payload?.message || 'Authenticator code required',
+          user: payload?.user || null
+        };
+      }
+      if (payload?.requiresLoginApproval || payload?.code === 'LOGIN_APPROVAL_REQUIRED') {
+        return {
+          success: false,
+          requiresLoginApproval: true,
+          loginApproval: payload.loginApproval,
+          code: payload.code,
+          error: payload?.message || 'Approve this login from an existing trusted session.',
           user: payload?.user || null
         };
       }
@@ -140,9 +167,29 @@ class AuthService {
           return { success: true, user, token: payload.token };
         }
       }
-      return { success: false, error: payload?.error || payload?.message || 'Login failed' };
+      return { success: false, error: payload?.error || payload?.message || 'Login failed', code: payload?.code };
     } catch (error: any) {
-      return { success: false, error: extractErrorMessage(error, 'Login failed') };
+      return { success: false, error: extractErrorMessage(error, 'Login failed'), code: error?.response?.data?.code || error?.response?.data?.data?.code };
+    }
+  }
+
+  static async exchangeApprovedLogin(attemptId: string, approvalToken: string) {
+    try {
+      const { DeviceSecurityService, traceDeviceSecurity } = await loadDeviceSecurity();
+      traceDeviceSecurity('approval_exchange_started', { exchangeAttempted: true });
+      const payload = extractAuthPayload(await DeviceSecurityService.exchangeApprovedLogin(attemptId, approvalToken));
+      if (payload?.token && payload?.user) {
+        const user = normalizeUser(payload.user);
+        if (user) {
+          await tokenStore.set(payload.token);
+          api.defaults.headers.common.Authorization = `Bearer ${payload.token}`;
+          try { localStorage.setItem('user', JSON.stringify(user)); } catch {}
+          return { success: true, user, token: payload.token };
+        }
+      }
+      return { success: false, error: payload?.error || payload?.message || 'Login approval failed', code: payload?.code };
+    } catch (error: any) {
+      return { success: false, error: extractErrorMessage(error, 'Login approval failed'), code: error?.response?.data?.code || error?.response?.data?.data?.code };
     }
   }
 
