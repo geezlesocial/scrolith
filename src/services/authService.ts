@@ -57,6 +57,43 @@ const extractData = <T>(response: any): T => {
 const extractAuthPayload = (response: any): AuthResponse => {
   const root = response?.data ?? response ?? {};
   const nested = root?.data && typeof root.data === 'object' ? root.data : {};
+  const status = Number(response?.status ?? response?.statusCode ?? root?.status ?? 0);
+  const approvalSource =
+    root?.loginApproval ??
+    root?.login_approval ??
+    nested?.loginApproval ??
+    nested?.login_approval ??
+    {};
+  const approvalId =
+    approvalSource?.id ??
+    approvalSource?.attemptId ??
+    approvalSource?.attempt_id ??
+    root?.attemptId ??
+    root?.attempt_id ??
+    nested?.attemptId ??
+    nested?.attempt_id;
+  const approvalToken =
+    approvalSource?.approvalToken ??
+    approvalSource?.approval_token ??
+    root?.approvalToken ??
+    root?.approval_token ??
+    nested?.approvalToken ??
+    nested?.approval_token;
+  const approvalExpiresAt =
+    approvalSource?.expiresAt ??
+    approvalSource?.expires_at ??
+    root?.expiresAt ??
+    root?.expires_at ??
+    nested?.expiresAt ??
+    nested?.expires_at;
+  const explicitApprovalRequired =
+    root?.requiresLoginApproval ??
+    root?.requires_login_approval ??
+    nested?.requiresLoginApproval ??
+    nested?.requires_login_approval;
+  const normalizedLoginApproval = approvalId && approvalToken
+    ? { id: String(approvalId), approvalToken: String(approvalToken), expiresAt: approvalExpiresAt ? String(approvalExpiresAt) : null }
+    : undefined;
   const token =
     root?.token ??
     root?.accessToken ??
@@ -77,8 +114,8 @@ const extractAuthPayload = (response: any): AuthResponse => {
     user,
     requires2FA: root?.requires2FA ?? nested?.requires2FA,
     challengeToken: root?.challengeToken ?? root?.challenge_token ?? nested?.challengeToken,
-    requiresLoginApproval: root?.requiresLoginApproval ?? root?.requires_login_approval ?? nested?.requiresLoginApproval,
-    loginApproval: root?.loginApproval ?? root?.login_approval ?? nested?.loginApproval,
+    requiresLoginApproval: status === 202 || Boolean(explicitApprovalRequired) || Boolean(normalizedLoginApproval),
+    loginApproval: normalizedLoginApproval,
     code: root?.code ?? nested?.code,
     error: root?.error ?? root?.message ?? nested?.error ?? nested?.message,
     message: root?.message ?? nested?.message ?? root?.error ?? nested?.error,

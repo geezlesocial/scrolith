@@ -13,7 +13,7 @@ interface UserContextType {
     email: string,
     password: string,
     options?: UserLoginOptions
-  ) => Promise<boolean>;
+  ) => Promise<LoginOutcome>;
   logout: () => void;
   register: (
     email: string,
@@ -27,7 +27,11 @@ interface UserContextType {
   switchRole: () => void;
 }
 
-type LoginApprovalRequiredPayload = { id: string; approvalToken: string; expiresAt?: string | null };
+export type LoginApprovalRequiredPayload = { id: string; approvalToken: string; expiresAt?: string | null };
+export type LoginOutcome =
+  | { status: 'authenticated'; user: User }
+  | { status: 'approval_required'; approval: LoginApprovalRequiredPayload }
+  | { status: 'failed'; error: string; code?: string };
 type UserLoginOptions = {
   redirect?: boolean;
   humanVerificationToken?: string | null;
@@ -199,8 +203,9 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     email: string,
     password: string,
     options?: UserLoginOptions
-  ): Promise<boolean> => {
-    setIsLoading(true);
+  ): Promise<LoginOutcome> => {
+    // Keep bootstrap loading stable while the guest auth card owns submit state.
+    // Toggling it here unmounts Landing and loses approval UI.
     try {
       const result = await AuthService.login({
         email,
@@ -215,7 +220,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
         if (options?.onLoginApprovalRequired && approval.approvalToken) {
           options.onLoginApprovalRequired(approval);
-          return false;
+          return { status: 'approval_required', approval };
         }
         throw new Error(result.error || 'Approve this login from an existing trusted session.');
       }
@@ -269,16 +274,16 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (options?.redirect !== false) {
           redirectAfterAuth(userWithRole);
         }
-        return true;
+        return { status: 'authenticated', user: userWithRole };
       }
-      const loginError = new Error(result.error || 'Invalid credentials') as Error & { code?: string };
-      loginError.code = result.code;
-      throw loginError;
+      return {
+        status: 'failed',
+        error: result.error || 'Invalid credentials',
+        ...(result.code ? { code: result.code } : {})
+      };
     } catch (error) {
       console.error('Login error:', error);
       throw error;
-    } finally {
-      setIsLoading(false);
     }
   };
 

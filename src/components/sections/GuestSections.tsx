@@ -452,6 +452,7 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
     [location.pathname]
   );
   const [isAuthModalOpen, setIsAuthModalOpen] = React.useState(false);
+  const [inlineLoginApprovalPending, setInlineLoginApprovalPending] = React.useState(false);
   const [authConfig, setAuthConfig] = React.useState<AuthPagesConfig | null>(null);
   const [modalTab, setModalTab] = React.useState<"login" | "signup">(
     normalizeGuestAuthTab(popupSettings.defaultTab || content?.defaultTab)
@@ -777,7 +778,11 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
         </div>
 
         <div className="min-w-0 space-y-4 sm:space-y-5 lg:sticky lg:top-24 lg:self-start">
-          <GuestAuthCard content={content} />
+          <GuestAuthCard
+            content={content}
+            defaultTab={inlineLoginApprovalPending ? "login" : undefined}
+            onLoginApprovalRequired={() => setInlineLoginApprovalPending(true)}
+          />
           <GuestScrolithaPanel content={content} onRequestAuth={openAuthModal} />
         </div>
       </div>

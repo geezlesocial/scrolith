@@ -84,6 +84,7 @@ const useCompactGuestSurface = () => {
 type GuestAuthCardProps = {
   content: GuestHeroAuthContent;
   defaultTab?: "login" | "signup" | string;
+  onLoginApprovalRequired?: () => void;
   title?: string;
   subtitle?: string;
   hideStandaloneLinks?: boolean;
@@ -94,6 +95,7 @@ type GuestAuthCardProps = {
 export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
   content,
   defaultTab,
+  onLoginApprovalRequired,
   title,
   subtitle,
   hideStandaloneLinks = false,
@@ -103,6 +105,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
   const compactSurface = useCompactGuestSurface();
   const initialTab = normalizeGuestAuthTab(defaultTab || content?.defaultTab);
   const [activeTab, setActiveTab] = React.useState<"login" | "signup">(initialTab);
+  const authTabWasManuallySelectedRef = React.useRef(false);
   const { login, register } = useUser();
   const { settings } = useContent();
   const navigate = useNavigate();
@@ -136,8 +139,14 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
   const inputPaddingClass = embeddedModalSurface && !compactSurface ? "py-2.5" : "py-3";
 
   React.useEffect(() => {
+    if (authTabWasManuallySelectedRef.current || loginApproval) return;
     setActiveTab(normalizeGuestAuthTab(defaultTab || content?.defaultTab));
-  }, [content?.defaultTab, defaultTab]);
+  }, [content?.defaultTab, defaultTab, loginApproval]);
+
+  const selectAuthTab = React.useCallback((tab: "login" | "signup") => {
+    authTabWasManuallySelectedRef.current = true;
+    setActiveTab(tab);
+  }, []);
 
   React.useEffect(() => {
     let mounted = true;
@@ -246,11 +255,14 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
         humanVerificationToken: loginHvToken || undefined,
         onLoginApprovalRequired: (approval) => {
           approvalRequired = true;
+          authTabWasManuallySelectedRef.current = true;
+          onLoginApprovalRequired?.();
+          setActiveTab("login");
           setLoginApproval(approval);
           setLoginError("");
         }
       });
-      if (!ok && !approvalRequired) setLoginError("Invalid credentials. Please try again.");
+      if (ok.status === "failed" && !approvalRequired) setLoginError(ok.error || "Invalid credentials. Please try again.");
     } catch (error: any) {
       setLoginError(describeLoginError(error));
     } finally {
@@ -328,7 +340,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
       <div className={`${embeddedModalSurface ? "mb-3" : "mb-4"} flex min-w-0 rounded-full border border-slate-200 bg-slate-50 p-1`}>
         <button
           type="button"
-          onClick={() => setActiveTab("login")}
+          onClick={() => selectAuthTab("login")}
           className={`min-w-0 flex-1 rounded-full px-3 py-2.5 text-sm font-semibold transition ${
             activeTab === "login" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
           }`}
@@ -337,7 +349,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab("signup")}
+          onClick={() => selectAuthTab("signup")}
           className={`min-w-0 flex-1 rounded-full px-3 py-2.5 text-sm font-semibold transition ${
             activeTab === "signup" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
           }`}
@@ -393,7 +405,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
           <div className="flex flex-col gap-2 text-xs sm:flex-row sm:items-center sm:justify-between">
             <button
               type="button"
-              onClick={() => setActiveTab("signup")}
+              onClick={() => selectAuthTab("signup")}
               className="text-left font-semibold text-blue-700 hover:text-blue-800"
             >
               New here? Create account
@@ -553,7 +565,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
           <div className="flex flex-col gap-2 text-xs sm:flex-row sm:items-center sm:justify-between">
             <button
               type="button"
-              onClick={() => setActiveTab("login")}
+              onClick={() => selectAuthTab("login")}
               className="text-left font-semibold text-blue-700 hover:text-blue-800"
             >
               Already have an account?
