@@ -36,7 +36,7 @@ const describeDevice = (approval: PendingApproval) => {
 const getAttemptId = (payload: any) => String(payload?.attemptId || payload?.attempt_id || payload?.id || payload?.data?.attemptId || payload?.data?.id || '').trim();
 
 export const LoginApprovalOverlay: React.FC = () => {
-  const { isAuthenticated } = useUser();
+  const { isAuthenticated, user } = useUser();
   const [approval, setApproval] = React.useState<PendingApproval | null>(null);
   const [busy, setBusy] = React.useState<'approve' | 'reject' | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -57,8 +57,8 @@ export const LoginApprovalOverlay: React.FC = () => {
 
   React.useEffect(() => {
     isMountedRef.current = true;
+    setApproval(null);
     if (!isAuthenticated) {
-      setApproval(null);
       return () => { isMountedRef.current = false; };
     }
 
@@ -84,7 +84,7 @@ export const LoginApprovalOverlay: React.FC = () => {
       listeners.forEach((cleanup) => cleanup());
       resolutions.forEach((cleanup) => cleanup());
     };
-  }, [isAuthenticated, refreshPending]);
+  }, [isAuthenticated, user?.id, refreshPending]);
 
   const submit = async (action: 'approve' | 'reject') => {
     if (!approval || busy) return;
