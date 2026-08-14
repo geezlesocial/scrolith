@@ -58,11 +58,17 @@ export class CallQualityController {
   private state: CallQualityState = 'GOOD';
   private pending: CallQualityState | null = null;
   private pendingSamples = 0;
+  private acousticFeedback = false;
+  private pendingAcousticFeedback: boolean | null = null;
+  private pendingAcousticSamples = 0;
 
   reset(): void {
     this.state = 'GOOD';
     this.pending = null;
     this.pendingSamples = 0;
+    this.acousticFeedback = false;
+    this.pendingAcousticFeedback = null;
+    this.pendingAcousticSamples = 0;
   }
 
   update(metrics: CallQualityMetrics): CallQualitySnapshot {
@@ -86,10 +92,28 @@ export class CallQualityController {
       }
     }
 
+    const acousticSignal = metrics.localAudioLevel >= 0.65 && metrics.remoteAudioLevel >= 0.65;
+    if (acousticSignal === this.acousticFeedback) {
+      this.pendingAcousticFeedback = null;
+      this.pendingAcousticSamples = 0;
+    } else {
+      if (this.pendingAcousticFeedback === acousticSignal) this.pendingAcousticSamples += 1;
+      else {
+        this.pendingAcousticFeedback = acousticSignal;
+        this.pendingAcousticSamples = 1;
+      }
+      const requiredSamples = acousticSignal ? 2 : 3;
+      if (this.pendingAcousticSamples >= requiredSamples) {
+        this.acousticFeedback = acousticSignal;
+        this.pendingAcousticFeedback = null;
+        this.pendingAcousticSamples = 0;
+      }
+    }
+
     return {
       ...metrics,
       state: this.state,
-      possibleAcousticFeedback: metrics.localAudioLevel >= 0.65 && metrics.remoteAudioLevel >= 0.65
+      possibleAcousticFeedback: this.acousticFeedback
     };
   }
 }

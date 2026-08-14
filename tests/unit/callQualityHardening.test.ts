@@ -119,3 +119,14 @@ test('quality merge preserves worst stream and warns about acoustic feedback', (
     /speaker volume/i
   );
 });
+
+test('acoustic-feedback guidance uses hysteresis instead of reacting to one sample', () => {
+  const controller = new CallQualityController();
+  const loud = metrics({ localAudioLevel: 0.8, remoteAudioLevel: 0.8 });
+  assert.equal(controller.update(loud).possibleAcousticFeedback, false);
+  assert.equal(controller.update(loud).possibleAcousticFeedback, true);
+  const quiet = metrics();
+  assert.equal(controller.update(quiet).possibleAcousticFeedback, true);
+  assert.equal(controller.update(quiet).possibleAcousticFeedback, true);
+  assert.equal(controller.update(quiet).possibleAcousticFeedback, false);
+});
