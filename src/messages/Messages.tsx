@@ -40,13 +40,9 @@ import SmartComposer from '../components/messaging/SmartComposer';
 import GroupManagePanel from '../components/messaging/GroupManagePanel';
 import GroupCreateWizard from '../components/messaging/GroupCreateWizard';
 import ChatAppearancePanel from '../components/messaging/ChatAppearancePanel';
+import ChatAppearanceSurface from '../components/messaging/ChatAppearanceSurface';
 import { useConversationAppearance } from '../components/messaging/useConversationAppearance';
 import SafeMessageText from '../components/messaging/SafeMessageText';
-import {
-  appearanceToBackgroundStyle,
-  buildChatPalette,
-  paletteToCssVars
-} from '../services/messaging/chatTextColorEngine';
 import { resolveUserAvatarUrl } from '../utils/userAvatar';
 import { extractStoryMessageReference } from '../utils/storyMessageMedia';
 import {
@@ -1368,16 +1364,6 @@ const Messages = () => {
       user?.id,
       activeConvo?.participants
   ]);
-
-  const chatSurfaceStyle = useMemo(() => {
-      const vars = paletteToCssVars(buildChatPalette(chatAppearance));
-      const kind = String(chatAppearance?.kind || 'none').toLowerCase();
-      if (kind === 'none') {
-          return { ...vars } as React.CSSProperties;
-      }
-      const bg = appearanceToBackgroundStyle(chatAppearance);
-      return { ...bg, ...vars } as React.CSSProperties;
-  }, [chatAppearance]);
 
   const activeGroupAvatarSrc = useMemo(() => {
       if (!isActiveGroupConversation) return null;
@@ -4527,18 +4513,19 @@ const Messages = () => {
                         </div>
 
                         {/* Messages List — owns remaining height; independent scroll */}
-                        <div
-                            className={`min-h-0 min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto overscroll-y-contain p-3 pb-4 md:space-y-4 md:p-6 ${
+                        <ChatAppearanceSurface
+                            className={`min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain ${
                                 chatAppearance?.kind && chatAppearance.kind !== 'none'
                                     ? ''
                                     : isMobileConversationMode
                                       ? 'bg-gradient-to-b from-gray-50 to-gray-100'
                                       : ''
                             }`}
+                            contentClassName="space-y-3 p-3 pb-4 md:space-y-4 md:p-6"
                             ref={messagesContainerRef}
                             onScroll={handleMessagesScroll}
-                            data-testid="messages-history-viewport"
-                            style={chatSurfaceStyle}
+                            appearance={chatAppearance}
+                            testId="messages-history-viewport"
                         >
                             {groupPins.length > 0 ? (
                                 <button
@@ -5063,7 +5050,7 @@ const Messages = () => {
                                 </div>
                             ) : null}
                             <div ref={messagesEndRef} />
-                        </div>
+                        </ChatAppearanceSurface>
 
                         {/* Composer — content-sized flex row (never sticky/fixed overlay) */}
                         <div

@@ -80,8 +80,10 @@ test('desktop nav items use stable enterprise classes and aria-current', () => {
 test('header search uses enterprise placeholder and debounced suggestions', () => {
   assert.match(navbar, /Search people, jobs, gigs, posts, pages, communities, or marketplace/);
   assert.match(searchInput, /DEFAULT_HEADER_PLACEHOLDER/);
-  assert.match(searchInput, /setTimeout\(fetchSuggestions, 300\)/);
-  assert.match(searchInput, /suggestionRequestSeqRef/);
+  assert.match(searchInput, /useGlobalSearch\(query/);
+  assert.match(searchInput, /maxResults: 8/);
+  assert.match(read('src/hooks/useGlobalSearch.ts'), /DEFAULT_DEBOUNCE_MS = 300/);
+  assert.match(read('src/hooks/useGlobalSearch.ts'), /requestSeqRef/);
   assert.match(searchInput, /role="combobox"/);
   assert.match(searchInput, /role="listbox"/);
   assert.match(searchInput, /Escape/);

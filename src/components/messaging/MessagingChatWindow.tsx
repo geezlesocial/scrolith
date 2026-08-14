@@ -19,12 +19,8 @@ import {
   Video
 } from 'lucide-react';
 import { MessagingService } from '../../services/messaging';
-import {
-  appearanceToBackgroundStyle,
-  buildChatPalette,
-  paletteToCssVars
-} from '../../services/messaging/chatTextColorEngine';
 import ChatAppearancePanel from './ChatAppearancePanel';
+import ChatAppearanceSurface from './ChatAppearanceSurface';
 import { useConversationAppearance } from './useConversationAppearance';
 import type { Message } from '../../types';
 import { useMessages } from '../../context/MessageContext';
@@ -332,16 +328,6 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
     }
   };
 
-  const chatSurfaceStyle = useMemo(() => {
-    const vars = paletteToCssVars(buildChatPalette(appearance));
-    const kind = String(appearance?.kind || 'none').toLowerCase();
-    if (kind === 'none') {
-      return { ...vars } as React.CSSProperties;
-    }
-    const bg = appearanceToBackgroundStyle(appearance);
-    return { ...bg, ...vars } as React.CSSProperties;
-  }, [appearance]);
-
   useEffect(() => {
     setExpandedMessageId(null);
     setReactionMessageId(null);
@@ -615,12 +601,13 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
       </div>
 
       <div className="relative min-h-0 flex-1">
-        <div
+        <ChatAppearanceSurface
           ref={scrollRef}
           onScroll={handleScroll}
-          className="h-full space-y-2 overflow-y-auto px-3 py-3"
-          style={chatSurfaceStyle}
-          data-testid="chat-thread-surface"
+          className="h-full overflow-y-auto"
+          contentClassName="space-y-2 px-3 py-3"
+          appearance={appearance}
+          testId="chat-thread-surface"
         >
           {pins.length > 0 ? (
             <button
@@ -1019,7 +1006,7 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
               </div>
             );
           })}
-        </div>
+        </ChatAppearanceSurface>
         {hasNewBelow ? (
           <button
             type="button"

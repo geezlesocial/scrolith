@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import ChatAppearanceSurface from '../../src/components/messaging/ChatAppearanceSurface';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const read = (relativePath: string) => fs.readFileSync(path.join(root, relativePath), 'utf8');
@@ -88,11 +91,31 @@ test('appearance lifecycle remains mounted across Strict Mode effect replay', ()
 test('all appearance surfaces render the shared hydrated style', () => {
   const floatingSource = windowSource();
   const fullMessages = messages();
-  assert.match(floatingSource, /data-testid="chat-thread-surface"/);
-  assert.match(floatingSource, /style=\{chatSurfaceStyle\}/);
-  assert.match(fullMessages, /data-testid="messages-history-viewport"/);
-  assert.match(fullMessages, /style=\{chatSurfaceStyle\}/);
+  assert.match(floatingSource, /testId="chat-thread-surface"/);
+  assert.match(floatingSource, /<ChatAppearanceSurface/);
+  assert.match(floatingSource, /testId="chat-thread-surface"/);
+  assert.match(fullMessages, /testId="messages-history-viewport"/);
+  assert.match(fullMessages, /<ChatAppearanceSurface/);
+  assert.match(fullMessages, /testId="messages-history-viewport"/);
   assert.match(header(), /openConversationInDock\(idSafe, \{ expandDock: true \}\)/);
+});
+
+test('visible chat surface DOM owns the saved background and opaque content layer', () => {
+  const markup = renderToStaticMarkup(
+    React.createElement(
+      ChatAppearanceSurface,
+      {
+        appearance: { kind: 'gradient', color: '#123456', colorEnd: '#abcdef', opacity: 0.8 },
+        testId: 'runtime-chat-surface'
+      },
+      React.createElement('span', null, 'message content')
+    )
+  );
+  assert.match(markup, /data-testid="runtime-chat-surface"/);
+  assert.match(markup, /data-testid="runtime-chat-surface-background"/);
+  assert.match(markup, /linear-gradient\(145deg, #123456, #abcdef\)/);
+  assert.match(markup, /message content/);
+  assert.match(markup, /relative z-\[1\]/);
 });
 
 test('duplicate surfaces share one socket listener per socket', () => {

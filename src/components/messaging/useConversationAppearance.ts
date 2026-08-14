@@ -3,6 +3,7 @@ import type { Socket } from 'socket.io-client';
 import { useSocket } from '../../context/SocketContext';
 import { MessagingService } from '../../services/messaging';
 import type { AppearanceInput } from '../../services/messaging/chatTextColorEngine';
+import { resolvePostAttachmentMediaUrl } from '../../utils/postAttachmentMedia';
 
 const EMPTY_APPEARANCE: AppearanceInput = { kind: 'none' };
 const MAX_APPEARANCE_CACHE_ENTRIES = 120;
@@ -26,8 +27,39 @@ const socketRegistries = new WeakMap<Socket, SocketAppearanceRegistry>();
 
 const normalizeAppearance = (value: unknown): AppearanceInput => {
   if (!value || typeof value !== 'object') return { ...EMPTY_APPEARANCE };
-  const raw = value as AppearanceInput;
-  return { ...raw, kind: String(raw.kind || 'none') };
+  const source = value as any;
+  const candidate =
+    source.appearance ||
+    source.chatAppearance ||
+    source.settings?.chatAppearance ||
+    source.data ||
+    source;
+  const raw = candidate && typeof candidate === 'object' ? candidate : {};
+  const fileId = String(
+    raw.fileId ||
+      raw.file_id ||
+      raw.backgroundFileId ||
+      raw.background_file_id ||
+      ''
+  ).trim();
+  const rawImageUrl =
+    raw.imageUrl ||
+    raw.image_url ||
+    raw.backgroundUrl ||
+    raw.background_url ||
+    raw.contentUrl ||
+    raw.content_url ||
+    raw.url ||
+    null;
+  const imageUrl = String(rawImageUrl || '').trim() ||
+    (fileId ? resolvePostAttachmentMediaUrl({ fileId }) : '') ||
+    null;
+  return {
+    ...raw,
+    kind: String(raw.kind || 'none'),
+    fileId: fileId || raw.fileId || null,
+    imageUrl: imageUrl || null
+  };
 };
 
 const cacheAppearance = (key: string, appearance: AppearanceInput) => {
@@ -89,7 +121,7 @@ const subscribeToAppearance = (
       if (!id) return;
       const subscribers = registry?.subscribers.get(id);
       if (!subscribers) return;
-      const appearance = normalizeAppearance(payload?.appearance);
+      const appearance = normalizeAppearance(payload?.appearance || payload);
       const actorId = String(payload?.userId || payload?.participantId || '').trim();
       subscribers.forEach((subscriber) => {
         if (actorId && subscriber.userId && actorId !== subscriber.userId) return;

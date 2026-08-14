@@ -38,9 +38,16 @@ import { jobsApi, Job } from '../../services/jobs';
 import { gigsApi, Gig } from '../../services/gigs';
 import { RecoService } from '../../services/reco';
 import { MessagingService } from '../../services/messaging';
-import { SearchService } from '../../services/search';
 import { listMarketplaceListings } from '../../services/marketplace';
 import type { MarketplaceListing } from '../../types/marketplace';
+import {
+  GLOBAL_SEARCH_GROUP_BADGES,
+  GLOBAL_SEARCH_GROUP_LABELS,
+  GLOBAL_SEARCH_GROUP_ORDER,
+  normalizeGlobalSearchType,
+  type GlobalSearchGroupKey
+} from '../../services/globalSearch';
+import { useGlobalSearch } from '../../hooks/useGlobalSearch';
 import { CMSService } from '../../services/cms';
 import { ProfessionalDiscoveryService } from '../../services/professionalDiscovery';
 import type { ProfessionalDiscoveryItem } from '../../services/professionalDiscovery';
@@ -510,27 +517,12 @@ type SearchResultItem = {
   meta?: Record<string, any>;
 };
 
-type SearchGroupKey = 'people' | 'pages' | 'jobs' | 'gigs' | 'marketplace' | 'posts';
+type SearchGroupKey = GlobalSearchGroupKey;
 type SearchGroupMap = Record<SearchGroupKey, SearchResultItem[]>;
 
-const SEARCH_GROUP_ORDER: SearchGroupKey[] = ['people', 'pages', 'jobs', 'gigs', 'marketplace', 'posts'];
-const SEARCH_GROUP_LABELS: Record<SearchGroupKey, string> = {
-  people: 'Users',
-  pages: 'Pages',
-  jobs: 'Jobs',
-  gigs: 'Gigs',
-  marketplace: 'Marketplace',
-  posts: 'Posts'
-};
-
-const SEARCH_GROUP_BADGES: Record<SearchGroupKey, string> = {
-  people: 'User',
-  pages: 'Page',
-  jobs: 'Job',
-  gigs: 'Gig',
-  marketplace: 'Item',
-  posts: 'Post'
-};
+const SEARCH_GROUP_ORDER = GLOBAL_SEARCH_GROUP_ORDER;
+const SEARCH_GROUP_LABELS = GLOBAL_SEARCH_GROUP_LABELS;
+const SEARCH_GROUP_BADGES = GLOBAL_SEARCH_GROUP_BADGES;
 
 const emptySearchGroups = (): SearchGroupMap => ({
   people: [],
@@ -538,7 +530,9 @@ const emptySearchGroups = (): SearchGroupMap => ({
   jobs: [],
   gigs: [],
   marketplace: [],
-  posts: []
+  posts: [],
+  blogs: [],
+  groups: []
 });
 
 const MEMBER_HOME_SEARCH_PROMPTS = [
@@ -1692,11 +1686,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [followingMap, setFollowingMap] = useState<Record<string, { followId?: string }>>({});
   const [followBusy, setFollowBusy] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
-  const [searchGroups, setSearchGroups] = useState<SearchGroupMap>(() => emptySearchGroups());
-  const [searchLoading, setSearchLoading] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const searchRequestRef = useRef(0);
   const [stories, setStories] = useState<any[]>([]);
   const [storiesLoading, setStoriesLoading] = useState(false);
   const [reels, setReels] = useState<ScrollVideo[]>([]);
@@ -2217,6 +2207,27 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     listingGigsPool
   ]);
   const currentUserId = String((user as any)?.id || (user as any)?.user_id || '').trim();
+  const {
+    payload: globalSearch,
+    loading: searchLoading,
+    searchNow
+  } = useGlobalSearch(searchQuery, {
+    enabled: showSearch && searchOpen,
+    maxResults: maxSearchResults,
+    userId: currentUserId || null,
+    saveHistory: true
+  });
+  const searchGroups = useMemo<SearchGroupMap>(() => {
+    const next = emptySearchGroups();
+    SEARCH_GROUP_ORDER.forEach((key) => {
+      next[key] = (globalSearch.groups[key] || []) as SearchResultItem[];
+    });
+    return next;
+  }, [globalSearch]);
+  const searchResults = useMemo(
+    () => (globalSearch.results || []) as SearchResultItem[],
+    [globalSearch]
+  );
   const feedTabStorageKey = `member_home_feed_tab:${currentUserId || 'guest'}`;
   const feedCacheKey = `member_home_feed_cache:v4:${currentUserId || 'guest'}`;
   const feedTabInitializedRef = useRef(false);
@@ -4319,84 +4330,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     }
   }, [showSlider, content?.sliderItems]);
 
-  const normalizeSearchType = useCallback((value: any): SearchGroupKey | undefined => {
-    const key = String(value || '').trim().toLowerCase();
-    if (!key) return undefined;
-    if (key === 'people' || key === 'person' || key === 'users' || key === 'user') return 'people';
-    if (key === 'pages' || key === 'page') return 'pages';
-    if (key === 'jobs' || key === 'job') return 'jobs';
-    if (key === 'gigs' || key === 'gig') return 'gigs';
-    if (key === 'marketplace' || key === 'marketplace_listing' || key === 'listing' || key === 'product' || key === 'item') return 'marketplace';
-    if (key === 'posts' || key === 'post') return 'posts';
-    return undefined;
-  }, []);
-
-  const normalizeSearchItem = useCallback((item: any): SearchResultItem => {
-    const normalizedType = normalizeSearchType(item.type || item.kind || item.entityType || item.category);
-    const title = item.title || item.name || item.username || 'Result';
-    const avatar = item.avatarUrl || item.avatar || item.image || item.cover || item.thumbnail || null;
-    return {
-      id: item.id || item._id,
-      type: normalizedType || item.type || item.kind || item.category,
-      title,
-      name: item.name || item.title || undefined,
-      username: item.username || item.handle || item.meta?.username || undefined,
-      subtitle: item.subtitle || undefined,
-      description: item.description || item.excerpt || item.summary || item.subtitle,
-      excerpt: item.excerpt,
-      url: resolveSearchItemUrl(item, normalizedType),
-      avatarUrl: avatar,
-      image: avatar || undefined,
-      category: item.category,
-      meta: item.meta || {}
-    };
-  }, [normalizeSearchType, resolveSearchItemUrl]);
-
-  const normalizeMarketplaceSearchItem = useCallback((listing: MarketplaceListing): SearchResultItem => {
-    const categoryName = String(listing?.category?.name || '').trim();
-    const location = String(listing?.location || '').trim();
-    const price = listing?.price !== undefined && listing?.price !== null && listing.price !== ''
-      ? `${listing.currency || 'USD'} ${listing.price}`
-      : '';
-    const subtitle = [price, categoryName, location].filter(Boolean).join(' - ');
-    const image =
-      listing.coverImage ||
-      (Array.isArray(listing.images) && listing.images.length
-        ? (typeof listing.images[0] === 'string' ? listing.images[0] : listing.images[0]?.url)
-        : null) ||
-      null;
-    return {
-      id: listing.id,
-      type: 'marketplace',
-      title: listing.title || 'Marketplace item',
-      subtitle: subtitle || 'Marketplace listing',
-      description: listing.description || undefined,
-      url: `/marketplace/listing/${encodeURIComponent(listing.slug || listing.id)}`,
-      avatarUrl: image,
-      image: image || undefined,
-      category: categoryName || 'Marketplace',
-      meta: {
-        price: listing.price,
-        currency: listing.currency,
-        brand: listing.brand,
-        location: listing.location
-      }
-    };
-  }, []);
-
   const resolveMarketplaceListingUrl = useCallback((listing: MarketplaceListing) => {
     const slugOrId = String(listing?.slug || listing?.id || '').trim();
     return slugOrId ? `/marketplace/listing/${encodeURIComponent(slugOrId)}` : '/marketplace';
   }, []);
-
-  const normalizeSearchGroups = useCallback((groups: any): SearchGroupMap => {
-    const next = emptySearchGroups();
-    SEARCH_GROUP_ORDER.forEach((key) => {
-      const list = Array.isArray(groups?.[key]) ? groups[key] : [];
-      next[key] = list.map(normalizeSearchItem).filter((entry) => Boolean(entry?.url));
-    });
-    return next;
-  }, [normalizeSearchItem]);
 
   const searchSections = useMemo(
     () =>
@@ -4426,78 +4363,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     }));
   }, [searchQuery]);
 
-  const performSearch = useCallback(async (term: string) => {
-    const clean = term.trim();
-    if (!clean) {
-      searchRequestRef.current += 1;
-      setSearchResults([]);
-      setSearchGroups(emptySearchGroups());
-      setSearchLoading(false);
-      return;
-    }
-    const requestId = searchRequestRef.current + 1;
-    searchRequestRef.current = requestId;
-    setSearchLoading(true);
-    try {
-      const perType = Math.max(2, Math.min(6, Math.ceil(maxSearchResults / 2)));
-      const [unified, posts, marketplaceResponse] = await Promise.all([
-        SearchService.searchUnified(clean, {
-          limit: Math.max(maxSearchResults, 12),
-          perType
-        }),
-        SearchService.search(clean, { type: 'posts', limit: Math.max(4, Math.min(8, maxSearchResults)) }).catch(() => []),
-        listMarketplaceListings({
-          search: clean,
-          page: 1,
-          pageSize: Math.max(4, Math.min(8, maxSearchResults)),
-          sort: 'recommended'
-        }).catch(() => null)
-      ]);
-      const marketplaceListings = Array.isArray(marketplaceResponse)
-        ? marketplaceResponse
-        : Array.isArray((marketplaceResponse as any)?.listings)
-          ? (marketplaceResponse as any).listings
-          : Array.isArray((marketplaceResponse as any)?.items)
-            ? (marketplaceResponse as any).items
-            : [];
-      const marketplaceItems = marketplaceListings.map(normalizeMarketplaceSearchItem);
-      const groups = normalizeSearchGroups({
-        ...(unified.groups || {}),
-        posts: Array.isArray((unified.groups as any)?.posts) && (unified.groups as any).posts.length
-          ? (unified.groups as any).posts
-          : posts,
-        marketplace: marketplaceItems
-      });
-      const merged = Array.isArray(unified.results) && unified.results.length
-        ? [...unified.results, ...(posts || [])].map(normalizeSearchItem).concat(marketplaceItems)
-        : SEARCH_GROUP_ORDER.flatMap((key) => groups[key]);
-      const unique = Array.from(
-        new Map(
-          merged
-            .filter((item) => Boolean(item?.url))
-            .map((item, index) => [
-              item.id ? `${item.type || 'result'}:${item.id}` : `${item.type || 'result'}:${item.url || ''}:${index}`,
-              item
-            ])
-        ).values()
-      );
-      if (searchRequestRef.current !== requestId) return;
-      setSearchGroups(groups);
-      setSearchResults(unique.slice(0, maxSearchResults));
-      if (user?.id) {
-        SearchService.saveSearchHistory(user.id, clean).catch(() => {});
-      }
-    } catch (error) {
-      if (searchRequestRef.current !== requestId) return;
-      console.error('Search failed', error);
-      setSearchResults([]);
-      setSearchGroups(emptySearchGroups());
-    } finally {
-      if (searchRequestRef.current === requestId) {
-        setSearchLoading(false);
-      }
-    }
-  }, [maxSearchResults, normalizeMarketplaceSearchItem, normalizeSearchGroups, normalizeSearchItem, user?.id]);
 
   useEffect(() => {
     if (!currentUserId) {
@@ -4554,22 +4419,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       active = false;
     };
   }, [currentUserId, user]);
-
-  useEffect(() => {
-    if (!showSearch) return;
-    const term = searchQuery.trim();
-    if (term.length < 2) {
-      searchRequestRef.current += 1;
-      setSearchResults([]);
-      setSearchGroups(emptySearchGroups());
-      setSearchLoading(false);
-      return;
-    }
-    const id = window.setTimeout(() => {
-      performSearch(term);
-    }, 350);
-    return () => window.clearTimeout(id);
-  }, [performSearch, searchQuery, showSearch]);
 
   useEffect(() => {
     if (!searchOpen) return;
@@ -8465,7 +8314,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     onFocus={() => setSearchOpen(true)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter') {
-                        performSearch(searchQuery);
+                        void searchNow(searchQuery);
                       }
                     }}
                     placeholder={searchPlaceholder}
@@ -8520,7 +8369,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
                               {section.items.map((result, index) => {
                                 const href = result.url || '#';
-                                const typeKey = normalizeSearchType(result.type) || section.key;
+                                const typeKey = normalizeGlobalSearchType(result.type) || section.key;
                                 const imageSrc = result.avatarUrl || result.image || null;
                                 const subtitle =
                                   result.subtitle ||

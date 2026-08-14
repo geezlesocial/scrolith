@@ -13,9 +13,9 @@ import {
     GLOBAL_SEARCH_GROUP_BADGES,
     GLOBAL_SEARCH_GROUP_LABELS,
     GLOBAL_SEARCH_GROUP_ORDER,
-    normalizeGlobalSearchType,
-    searchGlobalWithMarketplace
+    normalizeGlobalSearchType
 } from '../services/globalSearch';
+import { useGlobalSearch } from '../hooks/useGlobalSearch';
 import { SearchSuggestion } from '../types';
 import { useUser } from '../context/UserContext';
 import { CompassIcon as Compass, ShoppingCartIcon as ShoppingCart, UserIcon as User, UsersIcon as Users } from './icons/ShellIcons';
@@ -182,15 +182,11 @@ const SearchInput: React.FC<SearchInputProps> = ({
         placeholder ||
         (size === 'header' ? DEFAULT_HEADER_PLACEHOLDER : '');
     const [query, setQuery] = useState(initialQuery);
-    const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
     const [recommendedSuggestions, setRecommendedSuggestions] = useState<SearchSuggestion[]>(DEFAULT_SEARCH_RECOMMENDATIONS);
     const [isOpen, setIsOpen] = useState(false);
-    const [isThinking, setIsThinking] = useState(false);
     const [recommendationsLoaded, setRecommendationsLoaded] = useState(false);
-    const [suggestionsResolvedFor, setSuggestionsResolvedFor] = useState('');
     const [highlightIndex, setHighlightIndex] = useState(-1);
     const containerRef = useRef<HTMLDivElement>(null);
-    const suggestionRequestSeqRef = useRef(0);
     const listboxId = 'scrolith-search-listbox';
     const navigate = useNavigate();
     const { user } = useUser();
@@ -240,77 +236,16 @@ const SearchInput: React.FC<SearchInputProps> = ({
         }
     }, [recommendationsLoaded, user?.id]);
 
-    // Debounce Suggestions
+    const { payload: globalSearch, loading: isThinking } = useGlobalSearch(query, {
+        enabled: isOpen,
+        maxResults: 8,
+        userId: user?.id,
+        saveHistory: false
+    });
+
     useEffect(() => {
-        const clean = query.trim();
-        const requestSeq = ++suggestionRequestSeqRef.current;
-
-        const fetchSuggestions = async () => {
-            if (clean.length < 2) {
-                setSuggestions([]);
-                setSuggestionsResolvedFor('');
-                setIsThinking(false);
-                if (isOpen) {
-                    loadRecommendations();
-                }
-                return;
-            }
-            setIsThinking(true);
-            try {
-                const [results, globalResults] = await Promise.all([
-                    SearchService.getSuggestions(clean, user?.role).catch(() => []),
-                    searchGlobalWithMarketplace(clean, { maxResults: 8 }).catch(() => null)
-                ]);
-                if (suggestionRequestSeqRef.current !== requestSeq) return;
-                const liveRows: SearchSuggestion[] = [];
-                if (globalResults?.groups) {
-                    GLOBAL_SEARCH_GROUP_ORDER.forEach((key) => {
-                        (globalResults.groups[key] || []).slice(0, key === 'marketplace' ? 4 : 2).forEach((item: any) => {
-                            const text = String(item?.title || item?.name || item?.username || '').trim();
-                            if (!text) return;
-                            liveRows.push({
-                                text,
-                                type: 'result',
-                                group: key,
-                                category: GLOBAL_SEARCH_GROUP_BADGES[key] || GLOBAL_SEARCH_GROUP_LABELS[key],
-                                url: item.url,
-                                title: item?.title || item?.name,
-                                username: item?.username,
-                                image: item?.image || item?.avatarUrl || null,
-                                avatarUrl: item?.avatarUrl || item?.image || null,
-                                thumbnailUrl: item?.thumbnailUrl || item?.image || item?.avatarUrl || null,
-                                meta: item?.meta || undefined,
-                                profilePhotoFileId:
-                                    item?.meta?.profilePhotoFileId ||
-                                    item?.profilePhotoFileId ||
-                                    item?.profile_photo_file_id ||
-                                    undefined,
-                                description:
-                                    item.subtitle ||
-                                    item.description ||
-                                    item.excerpt ||
-                                    (item.username ? `@${item.username}` : GLOBAL_SEARCH_GROUP_LABELS[key])
-                            } as SearchSuggestion);
-                        });
-                    });
-                }
-                setSuggestions([...(Array.isArray(results) ? results : []), ...liveRows]);
-                setSuggestionsResolvedFor(clean);
-            } catch (error) {
-                if (suggestionRequestSeqRef.current !== requestSeq) return;
-                console.error("Failed to fetch suggestions", error);
-                setSuggestions([]);
-                setSuggestionsResolvedFor(clean);
-            } finally {
-                if (suggestionRequestSeqRef.current === requestSeq) {
-                    setIsThinking(false);
-                }
-            }
-        };
-
-        const timer = setTimeout(fetchSuggestions, 300);
-        return () => clearTimeout(timer);
-    }, [isOpen, loadRecommendations, query, user?.role]);
+        if (isOpen && query.trim().length < 2) loadRecommendations();
+    }, [isOpen, loadRecommendations, query]);
 
     // Outside Click Handler
     useEffect(() => {
@@ -372,7 +307,6 @@ const SearchInput: React.FC<SearchInputProps> = ({
 
     const clearSearch = () => {
         setQuery('');
-        setSuggestions([]);
         setIsOpen(true);
         setHighlightIndex(-1);
         loadRecommendations();
@@ -432,10 +366,43 @@ const SearchInput: React.FC<SearchInputProps> = ({
     const iconLeftPadding = size === 'header' ? 'pl-3.5' : 'pl-4';
     const effectiveAriaLabel = buttonAriaLabel || buttonLabel || resolvedPlaceholder || '';
     const cleanQuery = query.trim();
+    const suggestions = useMemo<SearchSuggestion[]>(() => {
+        const rows: SearchSuggestion[] = [];
+        GLOBAL_SEARCH_GROUP_ORDER.forEach((key) => {
+            (globalSearch.groups[key] || []).slice(0, key === 'marketplace' ? 4 : 2).forEach((item: any) => {
+                const text = String(item?.title || item?.name || item?.username || '').trim();
+                if (!text) return;
+                rows.push({
+                    text,
+                    type: 'result',
+                    group: key,
+                    category: GLOBAL_SEARCH_GROUP_BADGES[key] || GLOBAL_SEARCH_GROUP_LABELS[key],
+                    url: item.url,
+                    title: item?.title || item?.name,
+                    username: item?.username,
+                    image: item?.image || item?.avatarUrl || null,
+                    avatarUrl: item?.avatarUrl || item?.image || null,
+                    thumbnailUrl: item?.thumbnailUrl || item?.image || item?.avatarUrl || null,
+                    meta: item?.meta || undefined,
+                    profilePhotoFileId:
+                        item?.meta?.profilePhotoFileId ||
+                        item?.profilePhotoFileId ||
+                        item?.profile_photo_file_id ||
+                        undefined,
+                    description:
+                        item.subtitle ||
+                        item.description ||
+                        item.excerpt ||
+                        (item.username ? `@${item.username}` : GLOBAL_SEARCH_GROUP_LABELS[key])
+                } as SearchSuggestion);
+            });
+        });
+        return rows;
+    }, [globalSearch]);
     const activeSuggestions = useMemo(() => {
         const source =
             cleanQuery.length >= 2
-                ? (suggestionsResolvedFor === cleanQuery || isThinking ? suggestions : [])
+                ? (globalSearch.query === cleanQuery || isThinking ? suggestions : [])
                 : recommendedSuggestions;
         const deduped = new Map<string, SearchSuggestion>();
         source.forEach((item: any) => {
@@ -449,12 +416,12 @@ const SearchInput: React.FC<SearchInputProps> = ({
             });
         });
         return Array.from(deduped.values()).slice(0, cleanQuery.length >= 2 ? 8 : 6);
-    }, [cleanQuery, isThinking, recommendedSuggestions, suggestions, suggestionsResolvedFor]);
+    }, [cleanQuery, globalSearch.query, isThinking, recommendedSuggestions, suggestions]);
     const showEmptySearchState =
         isOpen &&
         cleanQuery.length >= 2 &&
         !isThinking &&
-        suggestionsResolvedFor === cleanQuery &&
+        globalSearch.query === cleanQuery &&
         activeSuggestions.length === 0;
     const shouldShowDropdown =
         isOpen &&
