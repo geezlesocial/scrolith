@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Loader2, PlusCircle, Radio, Volume2, VolumeX, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Clapperboard, Loader2, PlusCircle, Radio, Volume2, VolumeX, X } from 'lucide-react';
 import FeedLoadSkeleton from '../../components/feed/FeedLoadSkeleton';
 import type { AdCampaign, ScrollAdsRuntimePolicy } from '../../types';
 import ScrollCard from './ScrollCard';
@@ -1895,7 +1895,11 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   }, [embedded, navigate, onClose]);
 
   return (
-    <div className="relative h-screen bg-black text-white">
+    <div
+      className="relative h-screen min-h-[100dvh] overflow-hidden bg-black text-white"
+      data-testid="scroll-feed"
+      style={{ paddingTop: 'env(safe-area-inset-top)' }}
+    >
       {deepLinkError ? (
         <div
           className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-4 bg-black/95 px-6 text-center"
@@ -1920,7 +1924,10 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         Top chrome: Back | spacer | Mute + Create.
         Mute stays in the right cluster only — never centered over the author name.
       */}
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-40 flex items-center justify-between gap-2 px-3 py-3 sm:gap-3 sm:px-4 sm:py-4">
+      <header
+        className="pointer-events-none absolute inset-x-0 top-0 z-40 flex items-center justify-between gap-2 px-3 py-3 sm:gap-3 sm:px-4 sm:py-4"
+        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
+      >
         <button
           type="button"
           onClick={handleClose}
@@ -1929,18 +1936,27 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
+        <div className="pointer-events-auto mr-auto flex min-w-0 items-center gap-2 pl-1">
+          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-cyan-200/30 bg-cyan-300/15 text-cyan-100 shadow-lg backdrop-blur-md">
+            <Clapperboard className="h-4 w-4" aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold tracking-wide text-white">Scroll</p>
+            <p className="truncate text-[10px] uppercase tracking-[0.18em] text-white/55">Discover in motion</p>
+          </div>
+        </div>
         <div className="pointer-events-auto ml-auto flex shrink-0 items-center gap-2">
           <button
             type="button"
             onClick={() => setMuted((prev) => !prev)}
-            className="inline-flex h-10 max-w-full items-center gap-1.5 rounded-full border border-white/20 bg-black/55 px-3 text-xs font-semibold text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-black/75"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-black/45 text-xs font-semibold text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-black/75 sm:w-auto sm:gap-1.5 sm:px-3"
             aria-label={muted ? 'Unmute all Scrolls' : 'Mute all Scrolls'}
             aria-pressed={muted}
             data-testid="scroll-mute-control"
             title={muted ? 'Unmute' : 'Mute'}
           >
             {muted ? <VolumeX className="h-4 w-4 shrink-0" aria-hidden /> : <Volume2 className="h-4 w-4 shrink-0" aria-hidden />}
-            <span className="whitespace-nowrap">{muted ? 'Unmute' : 'Mute'}</span>
+            <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">{muted ? 'Unmute' : 'Mute'}</span>
           </button>
           <button
             type="button"
@@ -1950,7 +1966,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
               setRemixSource(null);
               setCreateOpen(true);
             }}
-            className="inline-flex shrink-0 items-center gap-2 rounded-full bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200 transition"
+            className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-full bg-cyan-300 px-3 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-950/20 hover:bg-cyan-200 transition sm:px-4"
           >
             <PlusCircle className="h-4 w-4" />
             Create
@@ -1992,8 +2008,13 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 
       <div
         ref={containerRef}
-        className="h-screen snap-y snap-mandatory overflow-y-auto"
-        style={{ WebkitOverflowScrolling: 'touch', overscrollBehaviorY: 'contain', touchAction: 'pan-y' }}
+        className="h-[100dvh] min-h-[100svh] snap-y snap-mandatory overflow-y-auto"
+        style={{
+          WebkitOverflowScrolling: 'touch',
+          overscrollBehaviorY: 'contain',
+          touchAction: 'pan-y',
+          scrollbarWidth: 'none'
+        }}
         onWheelCapture={(event) => {
           if (isInteractiveScrollControlTarget(event.target)) return;
           if (Math.abs(event.deltaY) <= Math.abs(event.deltaX) || Math.abs(event.deltaY) < 40) return;
