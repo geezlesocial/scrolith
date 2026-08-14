@@ -49,6 +49,7 @@ export type ContinuousFeedMode = 'initial' | 'more' | 'soft_refresh';
 
 export type UseContinuousFeedOptions = {
   surface: MemberFeedSurface;
+  viewerKey?: string | null;
   feedMode?: string;
   enabled?: boolean;
   isMobile?: boolean;
@@ -98,6 +99,7 @@ export type UseContinuousFeedResult = {
 export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinuousFeedResult {
   const {
     surface,
+    viewerKey,
     feedMode = 'for_you',
     enabled = true,
     isMobile = false,
@@ -353,6 +355,7 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
         if (isAuthenticated) {
           page = await MemberFeedService.tryFetchPage({
             surface,
+            viewerKey,
             mode: feedMode,
             limit: pageSize,
             cursor: mode === 'more' ? cursorRef.current || undefined : undefined,

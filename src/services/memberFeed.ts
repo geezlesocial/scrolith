@@ -205,6 +205,8 @@ export const partitionUnifiedFeedItems = (items: UnifiedFeedItem[]) => {
 
 export type FetchMemberFeedParams = {
   surface: MemberFeedSurface;
+  /** Stable authenticated viewer key used to prevent cross-session dedupe. */
+  viewerKey?: string | null;
   mode?: string;
   limit?: number;
   cursor?: string | null;
@@ -219,11 +221,95 @@ export type FetchMemberFeedParams = {
   hardFailAuth?: boolean;
 };
 
+type InFlightMemberFeedRequest = {
+  key: string;
+  controller: AbortController;
+  promise: Promise<MemberFeedPage>;
+  subscribers: number;
+};
+
+const inFlightRequests = new Map<string, InFlightMemberFeedRequest>();
+
+/** Canonical identity for one semantic member-feed page. */
+export const buildMemberFeedRequestKey = (params: FetchMemberFeedParams) =>
+  JSON.stringify({
+    viewer: String(params.viewerKey || '').trim(),
+    surface: params.surface,
+    mode: String(params.mode || 'for_you').trim(),
+    limit: Math.max(4, Math.min(40, Number(params.limit || 12) || 12)),
+    cursor: String(params.cursor || '').trim(),
+    topic: String(params.topic || '').trim(),
+    region: String(params.region || '').trim()
+  });
+
+const createAbortError = () => {
+  const error = new Error('The feed request was cancelled.');
+  error.name = 'AbortError';
+  return error;
+};
+
+const subscribeToRequest = <T>(entry: InFlightMemberFeedRequest, signal?: AbortSignal): Promise<T> => {
+  entry.subscribers += 1;
+  let settled = false;
+  const release = () => {
+    if (settled) return;
+    settled = true;
+    entry.subscribers = Math.max(0, entry.subscribers - 1);
+    if (entry.subscribers === 0 && inFlightRequests.get(entry.key) === entry) {
+      entry.controller.abort();
+    }
+  };
+
+  if (!signal) {
+    return entry.promise.then(
+      (value) => {
+        release();
+        return value as T;
+      },
+      (error) => {
+        release();
+        throw error;
+      }
+    );
+  }
+
+  if (signal.aborted) {
+    release();
+    return Promise.reject(createAbortError());
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener('abort', onAbort);
+      release();
+      reject(createAbortError());
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    entry.promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        if (settled) return;
+        release();
+        resolve(value as T);
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort);
+        if (settled) return;
+        release();
+        reject(error);
+      }
+    );
+  });
+};
+
 /**
  * Fetch one page from the enterprise orchestrator.
  * Throws on network/HTTP failure so callers can fall back to Phase 1.
  */
-export async function fetchMemberFeedPage(params: FetchMemberFeedParams): Promise<MemberFeedPage> {
+async function requestMemberFeedPage(
+  params: FetchMemberFeedParams,
+  signal: AbortSignal
+): Promise<MemberFeedPage> {
   const limit = Math.max(4, Math.min(40, Number(params.limit || 12) || 12));
   const { default: api } = await import('./api');
   const response = await api.get('/discovery/v2/member-feed', {
@@ -235,7 +321,7 @@ export async function fetchMemberFeedPage(params: FetchMemberFeedParams): Promis
       ...(params.topic ? { topic: params.topic } : {}),
       ...(params.region ? { region: params.region } : {})
     },
-    signal: params.signal as any,
+    signal: signal as any,
     timeout: Math.max(5000, Math.min(30000, Number(params.timeoutMs || 18000) || 18000))
   });
 
@@ -295,6 +381,29 @@ export async function fetchMemberFeedPage(params: FetchMemberFeedParams): Promis
     surface: data.surface || params.surface,
     source: 'orchestrated'
   };
+}
+
+/**
+ * Fetch one page with shared in-flight dedupe. A caller's abort only detaches
+ * that caller; a shared request continues while another consumer still needs it.
+ */
+export async function fetchMemberFeedPage(params: FetchMemberFeedParams): Promise<MemberFeedPage> {
+  const key = buildMemberFeedRequestKey(params);
+  const existing = inFlightRequests.get(key);
+  if (existing) return subscribeToRequest<MemberFeedPage>(existing, params.signal);
+
+  const controller = new AbortController();
+  const entry = {
+    key,
+    controller,
+    subscribers: 0,
+    promise: Promise.resolve(null as MemberFeedPage)
+  } as InFlightMemberFeedRequest;
+  entry.promise = requestMemberFeedPage(params, controller.signal).finally(() => {
+    if (inFlightRequests.get(key) === entry) inFlightRequests.delete(key);
+  });
+  inFlightRequests.set(key, entry);
+  return subscribeToRequest<MemberFeedPage>(entry, params.signal);
 }
 
 /**
