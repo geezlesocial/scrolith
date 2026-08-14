@@ -40,12 +40,12 @@ import SmartComposer from '../components/messaging/SmartComposer';
 import GroupManagePanel from '../components/messaging/GroupManagePanel';
 import GroupCreateWizard from '../components/messaging/GroupCreateWizard';
 import ChatAppearancePanel from '../components/messaging/ChatAppearancePanel';
+import { useConversationAppearance } from '../components/messaging/useConversationAppearance';
 import SafeMessageText from '../components/messaging/SafeMessageText';
 import {
   appearanceToBackgroundStyle,
   buildChatPalette,
-  paletteToCssVars,
-  type AppearanceInput
+  paletteToCssVars
 } from '../services/messaging/chatTextColorEngine';
 import { resolveUserAvatarUrl } from '../utils/userAvatar';
 import { extractStoryMessageReference } from '../utils/storyMessageMedia';
@@ -228,8 +228,6 @@ const Messages = () => {
   /** Phase 29.3 — enterprise group profile for active conversation */
   const [activeGroupProfile, setActiveGroupProfile] = useState<any>(null);
   const [groupPins, setGroupPins] = useState<any[]>([]);
-  const [chatAppearance, setChatAppearance] = useState<AppearanceInput>({ kind: 'none' });
-  const [chatAppearanceLoading, setChatAppearanceLoading] = useState(false);
   const [chatAppearanceOpen, setChatAppearanceOpen] = useState(false);
   const [groupSendAckStatus, setGroupSendAckStatus] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
@@ -314,7 +312,6 @@ const Messages = () => {
   const shouldAutoScrollRef = useRef(true);
   const messagesScrollMetricsRef = useRef({ scrollHeight: 0, scrollTop: 0, clientHeight: 0 });
   const activeConvoIdRef = useRef<string | null>(null);
-  const chatAppearanceRequestRef = useRef({ generation: 0, conversationId: '' });
   const lastPreloadConvoRef = useRef<string | null>(null);
   const [showJumpToUnread, setShowJumpToUnread] = useState(false);
   const userIdRef = useRef<string | null>(null);
@@ -992,6 +989,16 @@ const Messages = () => {
       return dedupedConversations.find((conversation) => getConversationMergeKey(conversation) === mergeKey);
   }, [activeConvoId, conversations, dedupedConversations]);
 
+  const {
+      appearance: chatAppearance,
+      loading: chatAppearanceLoading,
+      setAppearance: setChatAppearance
+  } = useConversationAppearance({
+      conversationId: activeConvoId,
+      userId: user?.id,
+      participants: activeConvo?.participants
+  });
+
   /**
    * Strict Scrolitha peer detection for inbox titles/avatars.
    * Do not use bare participant.label === 'system' or username === 'ai' — those false-positive
@@ -1361,57 +1368,6 @@ const Messages = () => {
       user?.id,
       activeConvo?.participants
   ]);
-
-  // Messages owns appearance hydration. The editor receives this state and never
-  // starts a second request, so a late response cannot repaint another chat.
-  useEffect(() => {
-      const conversationId = String(activeConvoId || '').trim();
-      const generation = chatAppearanceRequestRef.current.generation + 1;
-      chatAppearanceRequestRef.current = { generation, conversationId };
-      if (!conversationId) {
-          setChatAppearanceLoading(false);
-          setChatAppearance({ kind: 'none' });
-          return;
-      }
-
-      let cancelled = false;
-      const isCurrent = () =>
-          !cancelled &&
-          chatAppearanceRequestRef.current.generation === generation &&
-          chatAppearanceRequestRef.current.conversationId === conversationId &&
-          activeConvoIdRef.current === conversationId;
-
-      setChatAppearanceLoading(true);
-      setChatAppearance({ kind: 'none' });
-      void (async () => {
-          const selfId = String(user?.id || '').trim();
-          const parts = Array.isArray(activeConvo?.participants) ? activeConvo.participants : [];
-          const hasSelfMembership =
-              !selfId ||
-              parts.some(
-                  (p: any) =>
-                      String(p?.id || p?.userId || '').trim() === selfId &&
-                      !p?.deletedAt &&
-                      !p?.deleted_at
-              );
-          if (parts.length > 0 && selfId && !hasSelfMembership) {
-              if (isCurrent()) setChatAppearance({ kind: 'none' });
-              if (isCurrent()) setChatAppearanceLoading(false);
-              return;
-          }
-          try {
-              const appearance = await MessagingService.getChatAppearance(conversationId);
-              if (isCurrent()) setChatAppearance(appearance || { kind: 'none' });
-          } catch {
-              if (isCurrent()) setChatAppearance({ kind: 'none' });
-          } finally {
-              if (isCurrent()) setChatAppearanceLoading(false);
-          }
-      })();
-      return () => {
-          cancelled = true;
-      };
-  }, [activeConvoId, user?.id]);
 
   const chatSurfaceStyle = useMemo(() => {
       const vars = paletteToCssVars(buildChatPalette(chatAppearance));
@@ -2733,16 +2689,6 @@ const Messages = () => {
           }
       };
 
-      const handleAppearanceUpdated = (payload: any) => {
-          const convoId = String(payload?.conversationId || payload?.conversation_id || '').trim();
-          if (!convoId || convoId !== activeConvoIdRef.current) return;
-          const payloadUserId = String(payload?.userId || payload?.participantId || '').trim();
-          if (payloadUserId && user?.id && payloadUserId !== String(user.id)) return;
-          if (payload?.appearance) {
-              setChatAppearance(payload.appearance);
-          }
-      };
-
       const handleGroupUpdated = (payload: any) => {
           const convoId = String(payload?.conversationId || payload?.conversation_id || '').trim();
           if (!convoId) return;
@@ -2772,7 +2718,6 @@ const Messages = () => {
       };
 
       socket.on('messages:pin_updated', handlePinUpdated);
-      socket.on('messages:appearance_updated', handleAppearanceUpdated);
       socket.on('messages:group_updated', handleGroupUpdated);
       return () => {
           socket.off('messages:new', handleIncoming);
@@ -2789,7 +2734,6 @@ const Messages = () => {
           socket.off('messages:conversation_deleted', handleConversationDeleted);
           socket.off('messages:privacy:updated', handlePrivacyUpdated);
           socket.off('messages:pin_updated', handlePinUpdated);
-          socket.off('messages:appearance_updated', handleAppearanceUpdated);
           socket.off('messages:group_updated', handleGroupUpdated);
       };
   }, [socket, user, refreshMessages, navigate, showNotification]);

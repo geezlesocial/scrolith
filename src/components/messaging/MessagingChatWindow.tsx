@@ -22,10 +22,10 @@ import { MessagingService } from '../../services/messaging';
 import {
   appearanceToBackgroundStyle,
   buildChatPalette,
-  paletteToCssVars,
-  type AppearanceInput
+  paletteToCssVars
 } from '../../services/messaging/chatTextColorEngine';
 import ChatAppearancePanel from './ChatAppearancePanel';
+import { useConversationAppearance } from './useConversationAppearance';
 import type { Message } from '../../types';
 import { useMessages } from '../../context/MessageContext';
 import { useUser } from '../../context/UserContext';
@@ -190,8 +190,6 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
   const sending = Boolean(sendingConversationIds[conversationId]);
   const [sendError, setSendError] = useState<string | null>(null);
   const [pins, setPins] = useState<any[]>([]);
-  const [appearance, setAppearance] = useState<AppearanceInput>({ kind: 'none' });
-  const [appearanceLoading, setAppearanceLoading] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -205,6 +203,16 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
   const [suggestLoading, setSuggestLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const previousCountRef = useRef(0);
+
+  const {
+    appearance,
+    loading: appearanceLoading,
+    setAppearance
+  } = useConversationAppearance({
+    conversationId,
+    userId: user?.id,
+    participants: conversation?.participants
+  });
 
   const title = getConversationDisplayName(conversation, user?.id);
   const other = getConversationAvatarParticipant(conversation, user?.id);
@@ -283,34 +291,6 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
         setPins([]);
       }
 
-      // Appearance is personal membership state. Skip when participants are known
-      // and the viewer is not among them (avoids console 404 for foreign rows).
-      const selfId = String(user?.id || '').trim();
-      const parts = Array.isArray(conversation?.participants) ? conversation!.participants : [];
-      const hasSelf =
-        !selfId ||
-        parts.some(
-          (p: any) =>
-            String(p?.id || p?.userId || '').trim() === selfId &&
-            !p?.deletedAt &&
-            !p?.deleted_at
-        );
-      if (parts.length > 0 && selfId && !hasSelf) {
-        if (!cancelled) {
-          setAppearance({ kind: 'none' });
-          setAppearanceLoading(false);
-        }
-        return;
-      }
-      if (!cancelled) setAppearanceLoading(true);
-      try {
-        const app = await MessagingService.getChatAppearance(conversationId);
-        if (!cancelled) setAppearance(app || { kind: 'none' });
-      } catch {
-        if (!cancelled) setAppearance({ kind: 'none' });
-      } finally {
-        if (!cancelled) setAppearanceLoading(false);
-      }
     })();
     return () => {
       cancelled = true;

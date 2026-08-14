@@ -15,11 +15,16 @@ const read = (relativePath: string) => fs.readFileSync(path.join(root, relativeP
 test('chat appearance has one hydration owner and guarded realtime scope', () => {
   const panel = read('src/components/messaging/ChatAppearancePanel.tsx');
   const messages = read('src/messages/Messages.tsx');
+  const controller = read('src/components/messaging/useConversationAppearance.ts');
 
   assert.equal((panel.match(/getChatAppearance\s*\(/g) || []).length, 0);
-  assert.ok(messages.includes('chatAppearanceRequestRef'));
-  assert.ok(messages.includes('activeConvoIdRef.current === conversationId'));
-  assert.ok(messages.includes('payload?.participantId'));
+  assert.ok(messages.includes('useConversationAppearance'));
+  assert.equal((messages.match(/getChatAppearance\s*\(/g) || []).length, 0);
+  assert.ok(controller.includes('appearanceRequests'));
+  assert.ok(controller.includes('conversationId'));
+  assert.ok(controller.includes("socket.on('messages:appearance_updated'"));
+  assert.ok(controller.includes("socket.off('messages:appearance_updated'"));
+  assert.ok(controller.includes('actorId'));
   assert.ok(panel.includes('createPortal'));
   assert.ok(panel.includes("event.key === 'Escape'"));
   assert.ok(panel.includes("onPointerUp={() => commitSlider('opacity')}"));
