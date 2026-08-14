@@ -59,9 +59,10 @@ const loadAppearance = (key: string, conversationId: string): Promise<Appearance
       return next;
     })
     .catch(() => {
-      const next = { ...EMPTY_APPEARANCE };
-      cacheAppearance(key, next);
-      return next;
+      // A transient auth/metadata failure must not become a persisted blank
+      // appearance. The API remains the membership/security authority; the
+      // next surface can retry once the conversation/user data is hydrated.
+      return { ...EMPTY_APPEARANCE };
     })
     .finally(() => {
       appearanceRequests.delete(key);
@@ -133,6 +134,14 @@ export const useConversationAppearance = ({
   const membership = useMemo(() => {
     const parts = Array.isArray(participants) ? participants : [];
     if (!viewerId || parts.length === 0) return 'unknown';
+    // Header previews and search results may contain only the peer(s). Treat
+    // that partial list as unknown instead of blocking the API request. The
+    // backend still enforces conversation membership for the appearance read.
+    const includesViewer = parts.some((participant: any) => {
+      const participantId = String(participant?.id || participant?.userId || '').trim();
+      return participantId === viewerId;
+    });
+    if (!includesViewer) return 'unknown';
     return parts.some((participant: any) => {
       const participantId = String(participant?.id || participant?.userId || '').trim();
       return (
@@ -149,8 +158,11 @@ export const useConversationAppearance = ({
   const generationRef = useRef(0);
   const mountedRef = useRef(true);
 
-  useEffect(() => () => {
-    mountedRef.current = false;
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   const setAppearance = useCallback(

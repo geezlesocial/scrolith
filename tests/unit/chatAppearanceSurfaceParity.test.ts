@@ -64,6 +64,37 @@ test('realtime updates apply only to the matching conversation and viewer', () =
   assert.match(controller(), /actorId && subscriber\.userId && actorId !== subscriber\.userId/);
 });
 
+test('partial preview participants do not suppress the authoritative appearance read', () => {
+  assert.match(controller(), /const includesViewer = parts\.some/);
+  assert.match(controller(), /if \(!includesViewer\) return 'unknown'/);
+  assert.match(controller(), /backend still enforces conversation membership/);
+});
+
+test('transient appearance failures are retryable and never cached as blank state', () => {
+  const source = controller();
+  assert.match(source, /transient auth\/metadata failure/);
+  assert.doesNotMatch(
+    source,
+    /\.catch\(\(\) => \{[\s\S]*?cacheAppearance\(key, next\);[\s\S]*?return \{ \.\.\.EMPTY_APPEARANCE \};/
+  );
+});
+
+test('appearance lifecycle remains mounted across Strict Mode effect replay', () => {
+  const source = controller();
+  assert.match(source, /mountedRef\.current = true/);
+  assert.match(source, /mountedRef\.current = false/);
+});
+
+test('all appearance surfaces render the shared hydrated style', () => {
+  const floatingSource = windowSource();
+  const fullMessages = messages();
+  assert.match(floatingSource, /data-testid="chat-thread-surface"/);
+  assert.match(floatingSource, /style=\{chatSurfaceStyle\}/);
+  assert.match(fullMessages, /data-testid="messages-history-viewport"/);
+  assert.match(fullMessages, /style=\{chatSurfaceStyle\}/);
+  assert.match(header(), /openConversationInDock\(idSafe, \{ expandDock: true \}\)/);
+});
+
 test('duplicate surfaces share one socket listener per socket', () => {
   assert.match(controller(), /const socketRegistries = new WeakMap/);
   assert.match(controller(), /socketRegistries\.set\(socket, registry\)/);
