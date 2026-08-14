@@ -15,6 +15,7 @@ import {
   VolumeX
 } from 'lucide-react';
 import ConferenceParticipantsPanel from './ConferenceParticipantsPanel';
+import type { CallQualityState } from './callQuality';
 
 type ParticipantUser = {
   id: string;
@@ -53,6 +54,8 @@ type VoiceCallModalProps = {
   accepting?: boolean;
   ending?: boolean;
   reconnecting?: boolean;
+  qualityState?: CallQualityState;
+  qualityNotice?: string | null;
   onClose?: () => void;
   onAccept?: () => void;
   onReject?: () => void;
@@ -80,18 +83,19 @@ const AttachStreamVideo: React.FC<{
   muted?: boolean;
   className?: string;
   mirror?: boolean;
-}> = ({ stream, muted, className, mirror }) => {
+}> = ({ stream, muted = true, className, mirror }) => {
   const ref = useRef<HTMLVideoElement | null>(null);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+    el.muted = Boolean(muted);
     if (stream) {
       el.srcObject = stream;
       void el.play().catch(() => undefined);
     } else {
       el.srcObject = null;
     }
-  }, [stream]);
+  }, [muted, stream]);
   return (
     <video
       ref={ref}
@@ -103,24 +107,42 @@ const AttachStreamVideo: React.FC<{
   );
 };
 
+const remoteAudioSinkRegistry = new Map<string, Set<HTMLAudioElement>>();
+
 const RemoteAudio: React.FC<{ stream: MediaStream; speakerOn: boolean }> = ({ stream, speakerOn }) => {
   const ref = useRef<HTMLAudioElement | null>(null);
+  const sinkKey = stream.getAudioTracks().map((track) => track.id).sort().join('|');
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
+    if (!el || !sinkKey) return;
+    const sinks = remoteAudioSinkRegistry.get(sinkKey) || new Set<HTMLAudioElement>();
+    const isPrimarySink = sinks.size === 0;
+    sinks.add(el);
+    remoteAudioSinkRegistry.set(sinkKey, sinks);
     el.srcObject = stream;
     el.autoplay = true;
     el.playsInline = true;
     el.disableRemotePlayback = true;
-    el.muted = !speakerOn;
+    el.muted = !isPrimarySink || !speakerOn;
     el.volume = speakerOn ? 0.82 : 0;
-    void el.play().catch(() => undefined);
+    if (isPrimarySink) void el.play().catch(() => undefined);
     return () => {
       el.pause();
       el.srcObject = null;
+      sinks.delete(el);
+      if (!sinks.size) {
+        remoteAudioSinkRegistry.delete(sinkKey);
+        return;
+      }
+      const nextPrimary = sinks.values().next().value as HTMLAudioElement | undefined;
+      sinks.forEach((sink) => {
+        sink.muted = sink !== nextPrimary || !speakerOn;
+        sink.volume = speakerOn ? 0.82 : 0;
+      });
+      if (nextPrimary && speakerOn) void nextPrimary.play().catch(() => undefined);
     };
-  }, [stream, speakerOn]);
-  return <audio ref={ref} autoPlay playsInline className="hidden" aria-hidden />;
+  }, [sinkKey, stream, speakerOn]);
+  return <audio ref={ref} autoPlay playsInline className="hidden" aria-hidden data-call-audio-sink="true" data-track-ids={sinkKey} />;
 };
 
 const RemoteStreamAudioSinks: React.FC<{
@@ -212,6 +234,8 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   accepting = false,
   ending = false,
   reconnecting = false,
+  qualityState = 'GOOD',
+  qualityNotice = null,
   onClose,
   onAccept,
   onReject,
@@ -266,11 +290,21 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
       <RemoteStreamAudioSinks remoteStreams={remoteStreams} speakerOn={speakerOn} />
       <div className="pointer-events-none absolute inset-0 opacity-[0.08] [background-image:radial-gradient(circle_at_1px_1px,white_1px,transparent_0)] [background-size:28px_28px]" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(37,99,235,0.24),transparent_38%),linear-gradient(180deg,rgba(15,23,42,0.82),#020617)]" />
+      {qualityNotice ? (
+        <div
+          className="pointer-events-none absolute left-1/2 top-[5.5rem] z-10 -translate-x-1/2 rounded-full border border-amber-200/25 bg-slate-950/75 px-3 py-1.5 text-center text-xs font-semibold text-amber-100 shadow-lg backdrop-blur sm:top-24"
+          role="status"
+          aria-live="polite"
+          data-testid="call-quality-notice"
+        >
+          {qualityNotice}
+        </div>
+      ) : null}
 
       {isVideo && remoteEntries[0] ? (
         <AttachStreamVideo
           stream={remoteEntries[0][1]}
-          muted={!speakerOn}
+          muted
           className="absolute inset-0 h-full w-full object-cover"
         />
       ) : null}
@@ -309,6 +343,11 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
               {isConnecting ? <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" /> : null}
               <span className="truncate">{callStatusText}</span>
             </div>
+            {qualityState !== 'GOOD' && !qualityNotice ? (
+              <div className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-white/60" data-testid="call-quality-state">
+                {qualityState}
+              </div>
+            ) : null}
           </div>
           <button
             type="button"
@@ -349,7 +388,7 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
             <div className="grid w-full max-w-5xl grid-cols-1 gap-3 sm:grid-cols-2">
               {remoteEntries.slice(0, 4).map(([userId, stream]) => (
                 <div key={userId} className="relative aspect-video overflow-hidden rounded-2xl bg-slate-900 ring-1 ring-white/10">
-                  <AttachStreamVideo stream={stream} muted={!speakerOn} className="h-full w-full object-cover" />
+                  <AttachStreamVideo stream={stream} muted className="h-full w-full object-cover" />
                    <span className="absolute bottom-3 left-3 rounded-full bg-black/50 px-3 py-1 text-xs font-semibold">
                      {participantUsers.find((user) => user.id === userId)?.name || 'Participant'}
                    </span>

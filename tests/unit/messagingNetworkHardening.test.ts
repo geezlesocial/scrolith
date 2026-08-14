@@ -199,5 +199,5 @@ test('voice/video calls use mobile-friendly WebRTC and microphone constraints', 
   assert.ok(constraints.includes('echoCancellation: { ideal: true }'));
   assert.ok(constraints.includes('noiseSuppression: { ideal: true }'));
   assert.ok(constraints.includes('autoGainControl: { ideal: true }'));
-  assert.ok(constraints.includes('channelCount: { ideal: 1, max: 1 }'));
+  assert.ok(constraints.includes('channelCount: { ideal: 1 }'));
 });

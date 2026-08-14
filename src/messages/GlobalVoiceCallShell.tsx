@@ -94,7 +94,9 @@ const GlobalVoiceCallOverlay: React.FC = () => {
     accepting,
     ending,
     reconnecting,
-    remoteMediaStates
+    remoteMediaStates,
+    qualityState,
+    qualityNotice
   } = useVoiceCall();
 
   const title = useMemo(() => {
@@ -211,6 +213,8 @@ const GlobalVoiceCallOverlay: React.FC = () => {
       accepting={accepting}
       ending={ending}
       reconnecting={reconnecting}
+      qualityState={qualityState}
+      qualityNotice={qualityNotice}
       onClose={() => setMinimized(true)}
       onAccept={() =>
         void acceptCall().catch((error: any) =>

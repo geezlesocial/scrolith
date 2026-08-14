@@ -7,7 +7,21 @@ import {
   type RingtoneRole,
   type RingtoneStopReason
 } from './scrolithCallRingtone';
-import { buildCallMediaConstraints, buildCallMediaFallbackConstraints } from './callMediaConstraints';
+import {
+  applySenderBitrateCap,
+  buildCallMediaConstraints,
+  buildCallMediaFallbackConstraints,
+  preferOpusAudioCodecs,
+  readSanitizedAudioCapabilities,
+  readSanitizedAudioSettings
+} from './callMediaConstraints';
+import {
+  CallQualityController,
+  callQualityNotice,
+  mergeCallQualityMetrics,
+  summarizeRtcStats,
+  type CallQualityState
+} from './callQuality';
 import {
   canRollbackLocalDescription,
   createPeerNegotiationFlags,
@@ -92,6 +106,8 @@ type VoiceCallContextValue = {
   ending: boolean;
   reconnecting: boolean;
   remoteMediaStates: Record<string, RemoteMediaState>;
+  qualityState: CallQualityState;
+  qualityNotice: string | null;
 };
 
 const VoiceCallContext = createContext<VoiceCallContextValue | undefined>(undefined);
@@ -222,6 +238,8 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   const [ending, setEnding] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [remoteMediaStates, setRemoteMediaStates] = useState<Record<string, RemoteMediaState>>({});
+  const [qualityState, setQualityState] = useState<CallQualityState>('GOOD');
+  const [qualityNotice, setQualityNotice] = useState<string | null>(null);
 
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
@@ -233,6 +251,8 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         flags: PeerNegotiationFlags;
         remoteStream: MediaStream | null;
         reconnectTimer: number | null;
+        recoveryTimer: number | null;
+        recoveryAttempt: number;
       }
     >
   >(new Map());
@@ -253,6 +273,9 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   const pendingCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const activeStartTokenRef = useRef(0);
   const callGenerationRef = useRef(0);
+  const qualityControllerRef = useRef(new CallQualityController());
+  const qualityTelemetryKeyRef = useRef('');
+  const localMediaRecoveryRef = useRef(false);
   const endingCallIdRef = useRef<string>('');
   const acceptingCallIdRef = useRef<string>('');
 
@@ -271,6 +294,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   const clearPeers = useCallback(() => {
     peerRuntimeRef.current.forEach((runtime) => {
       if (runtime.reconnectTimer) window.clearTimeout(runtime.reconnectTimer);
+      if (runtime.recoveryTimer) window.clearTimeout(runtime.recoveryTimer);
     });
     peerRuntimeRef.current.clear();
     peerConnectionsRef.current.forEach((pc) => {
@@ -330,6 +354,10 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     setAddBusy(false);
     setAccepting(false);
     setEnding(false);
+    qualityControllerRef.current.reset();
+    qualityTelemetryKeyRef.current = '';
+    setQualityState('GOOD');
+    setQualityNotice(null);
     acceptingCallIdRef.current = '';
     endingCallIdRef.current = '';
     activeStartTokenRef.current += 1;
@@ -381,8 +409,9 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   const ensureLocalMedia = useCallback(async (wantVideo = false) => {
     const existing = localStreamRef.current;
     if (existing) {
+      const hasAudio = existing.getAudioTracks().some((track) => track.readyState === 'live');
       const hasVideo = existing.getVideoTracks().some((t) => t.readyState === 'live');
-      if (!wantVideo || hasVideo) {
+      if (hasAudio && (!wantVideo || hasVideo)) {
         setLocalStreamState(existing);
         return existing;
       }
@@ -394,6 +423,12 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       const stream = await navigator.mediaDevices.getUserMedia(buildCallMediaConstraints({ video: wantVideo }));
       localStreamRef.current = stream;
       setLocalStreamState(stream);
+      const audioTrack = stream.getAudioTracks()[0];
+      emitVoiceLifecycleEvent('media_acquired', {
+        mode: wantVideo ? 'video' : 'audio',
+        audioCapabilities: readSanitizedAudioCapabilities(audioTrack),
+        audioSettings: readSanitizedAudioSettings(audioTrack)
+      });
       return stream;
     } catch (error: any) {
       // Fallback if advanced constraints rejected by device.
@@ -401,6 +436,12 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         const stream = await navigator.mediaDevices.getUserMedia(buildCallMediaFallbackConstraints(wantVideo));
         localStreamRef.current = stream;
         setLocalStreamState(stream);
+        const audioTrack = stream.getAudioTracks()[0];
+        emitVoiceLifecycleEvent('media_acquired_fallback', {
+          mode: wantVideo ? 'video' : 'audio',
+          audioCapabilities: readSanitizedAudioCapabilities(audioTrack),
+          audioSettings: readSanitizedAudioSettings(audioTrack)
+        });
         return stream;
       } catch (fallbackError: any) {
         throw new Error(describeMediaError(fallbackError || error, wantVideo));
@@ -489,7 +530,9 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         generation,
         flags: createPeerNegotiationFlags(),
         remoteStream: null as MediaStream | null,
-        reconnectTimer: null as number | null
+        reconnectTimer: null as number | null,
+        recoveryTimer: null as number | null,
+        recoveryAttempt: 0
       };
       peerRuntimeRef.current.set(remoteUserId, runtime);
       peerConnectionsRef.current.set(remoteUserId, peer);
@@ -498,6 +541,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         stream.getTracks().forEach((track) => {
           peer.addTrack(track, stream as MediaStream);
         });
+        preferOpusAudioCodecs(peer);
       }
 
       peer.ontrack = (event) => {
@@ -547,13 +591,15 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
 
       const restartIce = async () => {
         if (!isCurrentPeer(remoteUserId, peer, generation) || iceRestartingRef.current.has(remoteUserId)) return;
-        if (peer.signalingState !== 'stable') return;
+        if (runtime.recoveryAttempt >= 3 || peer.signalingState !== 'stable') return;
         iceRestartingRef.current.add(remoteUserId);
+        runtime.recoveryAttempt += 1;
         runtime.flags.makingOffer = true;
         setReconnecting(true);
         emitVoiceLifecycleEvent('reconnecting', {
           callId: callIdRef.current,
-          peerUserId: remoteUserId
+          peerUserId: remoteUserId,
+          attempt: runtime.recoveryAttempt
         });
         try {
           const offer = await peer.createOffer({
@@ -565,37 +611,54 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
           await peer.setLocalDescription(offer);
           await sendSignal(remoteUserId, { type: 'offer', sdp: offer, iceRestart: true });
         } catch {
-          if (isCurrentPeer(remoteUserId, peer, generation)) {
-            setRemoteStreams((prev) => {
-              if (!prev[remoteUserId]) return prev;
-              const next = { ...prev };
-              delete next[remoteUserId];
-              return next;
-            });
-          }
+          // A later bounded attempt may recover a transient handoff.
         } finally {
           runtime.flags.makingOffer = false;
           window.setTimeout(() => {
             iceRestartingRef.current.delete(remoteUserId);
-            if (callGenerationRef.current === generation) setReconnecting(false);
+            if (callGenerationRef.current === generation && peer.connectionState === 'connected') {
+              setReconnecting(false);
+            }
           }, 8000);
         }
       };
 
-      peer.onconnectionstatechange = () => {
+      const scheduleIceRecovery = (delayMs: number) => {
+        if (!isCurrentPeer(remoteUserId, peer, generation) || runtime.recoveryTimer || runtime.recoveryAttempt >= 3) return;
+        runtime.recoveryTimer = window.setTimeout(() => {
+          runtime.recoveryTimer = null;
+          void restartIce();
+        }, Math.max(0, delayMs));
+      };
+
+      const markConnected = () => {
+        if (runtime.reconnectTimer) {
+          window.clearTimeout(runtime.reconnectTimer);
+          runtime.reconnectTimer = null;
+        }
+        if (runtime.recoveryTimer) {
+          window.clearTimeout(runtime.recoveryTimer);
+          runtime.recoveryTimer = null;
+        }
+        runtime.recoveryAttempt = 0;
+        iceRestartingRef.current.delete(remoteUserId);
+        setReconnecting(false);
+        setCallState((prev) => (prev ? { ...prev, status: 'active' } : prev));
+      };
+
+      const handleConnectionState = (state: string) => {
         if (!isCurrentPeer(remoteUserId, peer, generation)) return;
-        const state = peer.connectionState;
-        if (state === 'disconnected') {
-          if (!runtime.reconnectTimer) {
-            runtime.reconnectTimer = window.setTimeout(() => {
-              runtime.reconnectTimer = null;
-              if (peer.connectionState === 'disconnected') void restartIce();
-            }, 2500);
-          }
+        if (state === 'connected' || state === 'completed') {
+          markConnected();
+          return;
+        }
+        if (state === 'disconnected' || state === 'checking') {
+          if (state === 'disconnected') scheduleIceRecovery(2500 + runtime.recoveryAttempt * 2500);
           return;
         }
         if (state === 'failed') {
-          void restartIce();
+          scheduleIceRecovery(runtime.recoveryAttempt ? 2500 : 0);
+          return;
         }
         if (state === 'closed') {
           setRemoteStreams((prev) => {
@@ -606,16 +669,10 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
           });
           peerRuntimeRef.current.delete(remoteUserId);
         }
-      if (state === 'connected') {
-          if (runtime.reconnectTimer) {
-            window.clearTimeout(runtime.reconnectTimer);
-            runtime.reconnectTimer = null;
-          }
-          iceRestartingRef.current.delete(remoteUserId);
-          setReconnecting(false);
-          setCallState((prev) => (prev ? { ...prev, status: 'active' } : prev));
-        }
       };
+
+      peer.onconnectionstatechange = () => handleConnectionState(peer.connectionState);
+      peer.oniceconnectionstatechange = () => handleConnectionState(peer.iceConnectionState);
 
       return peer;
     },
@@ -703,6 +760,52 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       });
     });
   }, []);
+
+  const recoverLocalMedia = useCallback(async () => {
+    if (!callIdRef.current || localMediaRecoveryRef.current) return;
+    localMediaRecoveryRef.current = true;
+    const wantVideo = mediaModeRef.current === 'video';
+    try {
+      const current = localStreamRef.current;
+      current?.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+      setLocalStreamState(null);
+      const stream = await ensureLocalMedia(wantVideo);
+      publishLocalTracksToPeers(stream);
+      emitVoiceLifecycleEvent('media_recovered', {
+        callId: callIdRef.current,
+        conversationId: conversationIdRef.current,
+        mode: wantVideo ? 'video' : 'audio',
+        audioCapabilities: readSanitizedAudioCapabilities(stream.getAudioTracks()[0]),
+        audioSettings: readSanitizedAudioSettings(stream.getAudioTracks()[0])
+      });
+      await renegotiateAllPeerMedia();
+    } catch (error: any) {
+      emitVoiceLifecycleEvent('media_recovery_failed', {
+        callId: callIdRef.current,
+        conversationId: conversationIdRef.current,
+        error: String(error?.message || 'Unable to recover call media.')
+      });
+    } finally {
+      localMediaRecoveryRef.current = false;
+    }
+  }, [ensureLocalMedia, publishLocalTracksToPeers, renegotiateAllPeerMedia]);
+
+  useEffect(() => {
+    const stream = localStreamState;
+    if (!stream || !callState?.callId) return;
+    const onTrackEnded = () => void recoverLocalMedia();
+    const tracks = stream.getTracks();
+    tracks.forEach((track) => track.addEventListener('ended', onTrackEnded));
+    const onDeviceChange = () => {
+      if (tracks.some((track) => track.readyState === 'ended')) onTrackEnded();
+    };
+    navigator.mediaDevices?.addEventListener?.('devicechange', onDeviceChange);
+    return () => {
+      tracks.forEach((track) => track.removeEventListener('ended', onTrackEnded));
+      navigator.mediaDevices?.removeEventListener?.('devicechange', onDeviceChange);
+    };
+  }, [callState?.callId, localStreamState, recoverLocalMedia]);
 
   const emitMediaState = useCallback(
     (kind: 'microphone' | 'camera', enabled: boolean) => {
@@ -1296,6 +1399,67 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     startRingingAlert,
     stopRingingAlert
   ]);
+
+  // Keep quality feedback bounded to one short-lived monitor per active call.
+  useEffect(() => {
+    if (!callState?.callId) return;
+    let cancelled = false;
+    const sampleQuality = async () => {
+      const peers = Array.from(peerConnectionsRef.current.values()).filter(
+        (peer) => peer.connectionState !== 'closed'
+      );
+      if (!peers.length) return;
+      const samples = [];
+      for (const peer of peers) {
+        try {
+          samples.push(summarizeRtcStats(await peer.getStats()));
+        } catch {
+          // Stats are best-effort and must never interrupt the call.
+        }
+      }
+      if (cancelled || !samples.length) return;
+      const snapshot = qualityControllerRef.current.update(mergeCallQualityMetrics(samples));
+      const notice = callQualityNotice(snapshot);
+      setQualityState(snapshot.state);
+      setQualityNotice(notice);
+
+      if (mediaModeRef.current === 'video') {
+        const capKbps = snapshot.state === 'POOR' ? 500 : snapshot.state === 'DEGRADED' ? 900 : 1800;
+        peers.forEach((peer) => applySenderBitrateCap(peer, capKbps));
+      }
+
+      const telemetryKey = [
+        snapshot.state,
+        notice || '',
+        snapshot.codec || '',
+        snapshot.opusFec ? 'fec' : 'no-fec',
+        snapshot.selectedCandidateType || ''
+      ].join('|');
+      if (qualityTelemetryKeyRef.current !== telemetryKey) {
+        qualityTelemetryKeyRef.current = telemetryKey;
+        emitVoiceLifecycleEvent('quality_changed', {
+          callId: callIdRef.current,
+          conversationId: conversationIdRef.current,
+          state: snapshot.state,
+          packetLossRatio: Number(snapshot.packetLossRatio.toFixed(4)),
+          jitterMs: Number(snapshot.jitterMs.toFixed(1)),
+          roundTripTimeMs: Number(snapshot.roundTripTimeMs.toFixed(1)),
+          concealmentRatio: Number(snapshot.concealmentRatio.toFixed(4)),
+          codec: snapshot.codec,
+          opusFec: snapshot.opusFec,
+          selectedCandidateType: snapshot.selectedCandidateType,
+          possibleAcousticFeedback: snapshot.possibleAcousticFeedback
+        });
+      }
+    };
+
+    void sampleQuality();
+    const timer = window.setInterval(() => void sampleQuality(), 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [callState?.callId]);
 
   const startCall = useCallback(
     async (options?: StartCallOptions) => {
