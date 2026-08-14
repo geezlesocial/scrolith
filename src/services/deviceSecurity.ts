@@ -38,6 +38,13 @@ const writeStorage = async (key: string, value: string) => {
   try { localStorage.setItem(key, value); } catch {}
 };
 
+const removeStorage = async (key: string) => {
+  if (isNativeRuntime()) {
+    try { await Preferences.remove({ key }); } catch {}
+  }
+  try { localStorage.removeItem(key); } catch {}
+};
+
 const randomId = () => {
   try {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return `sd_${crypto.randomUUID()}`;
@@ -91,6 +98,21 @@ export const getOrCreateDeviceId = async () => {
   const deviceId = randomId();
   await writeStorage(DEVICE_ID_KEY, deviceId);
   return deviceId;
+};
+
+export const clearLocalDeviceSecurityMaterial = async () => {
+  await Promise.all([
+    removeStorage(DEVICE_ID_KEY),
+    removeStorage(`${DEVICE_ID_KEY}.publicKey`)
+  ]);
+  if (typeof indexedDB !== 'undefined') {
+    try {
+      await new Promise<void>((resolve) => {
+        const request = indexedDB.deleteDatabase(DEVICE_KEY_DB);
+        request.onsuccess = request.onerror = request.onblocked = () => resolve();
+      });
+    } catch {}
+  }
 };
 
 const getOrCreateKeyPair = async () => {
@@ -148,6 +170,12 @@ export const DeviceSecurityService = {
     const payload = unwrap(await api.get('/security/login-approvals/pending', { __skipRetry: true } as any));
     return Array.isArray(payload?.pendingApprovals) ? payload.pendingApprovals : [];
   },
+  listTrustedDevices: async () => {
+    const payload = unwrap(await api.get('/security/overview', { __skipRetry: true } as any));
+    return Array.isArray(payload?.devices) ? payload.devices : [];
+  },
+  revokeTrustedDevice: async (deviceRecordId: string) =>
+    unwrap(await api.delete(`/security/devices/${encodeURIComponent(deviceRecordId)}`, { __skipRetry: true } as any)),
   approveLogin: async (attemptId: string) =>
     unwrap(await api.post(`/security/login-approvals/${encodeURIComponent(attemptId)}/approve`, undefined, { __skipRetry: true } as any)),
   rejectLogin: async (attemptId: string) =>

@@ -46,13 +46,18 @@ test('human verification controls cannot submit or remount the surrounding auth 
   assert.match(guestAuth, /humanVerificationToken: loginHvToken/);
 });
 
-test('approval polling is gated by in-memory approval state and uses one in-flight request', () => {
+test('shared approval polling is gated by in-memory state and uses single-flight status and exchange calls', () => {
+  const flow = read('src/hooks/useLoginApprovalFlow.ts');
   const guestAuth = read('src/components/sections/GuestAuthExperience.tsx');
+  const login = read('src/auth/Login.tsx');
 
-  assert.match(guestAuth, /if \(!loginApproval\?\.id \|\| !loginApproval\.approvalToken\) return/);
-  assert.match(guestAuth, /approvalStatusInFlightRef\.current/);
-  assert.match(guestAuth, /window\.setInterval\(\(\) => void pollApproval\(\), 3000\)/);
-  assert.match(guestAuth, /DeviceSecurityService\.getApprovalStatus\(loginApproval\.id, loginApproval\.approvalToken\)/);
-  assert.match(guestAuth, /approvalExchangeInFlightRef\.current/);
-  assert.match(guestAuth, /window\.clearInterval\(timer\)/);
+  assert.match(flow, /statusInFlightRef\.current/);
+  assert.match(flow, /exchangeInFlightRef\.current/);
+  assert.match(flow, /window\.setInterval\(\(\) => void poll\(\), 3000\)/);
+  assert.match(flow, /DeviceSecurityService\.getApprovalStatus\(approval\.id, approval\.approvalToken\)/);
+  assert.match(flow, /AuthService\.exchangeApprovedLogin\(approval\.id, approval\.approvalToken\)/);
+  assert.match(flow, /window\.clearInterval\(timer\)/);
+  assert.match(guestAuth, /useLoginApprovalFlow/);
+  assert.match(login, /useLoginApprovalFlow/);
+  assert.doesNotMatch(flow, /localStorage|sessionStorage|approvalToken.*URL/);
 });

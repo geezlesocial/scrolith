@@ -36,6 +36,7 @@ type UserLoginOptions = {
   redirect?: boolean;
   humanVerificationToken?: string | null;
   onLoginApprovalRequired?: (approval: LoginApprovalRequiredPayload) => void;
+  onTwoFactorRequired?: (challengeToken: string) => void;
 };
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
@@ -223,6 +224,15 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return { status: 'approval_required', approval };
         }
         throw new Error(result.error || 'Approve this login from an existing trusted session.');
+      }
+
+      if (result.requires2FA && result.challengeToken) {
+        options?.onTwoFactorRequired?.(String(result.challengeToken));
+        return {
+          status: 'failed',
+          error: result.error || 'Authenticator code required',
+          code: '2FA_REQUIRED'
+        };
       }
       
       if (result.success && result.user) {

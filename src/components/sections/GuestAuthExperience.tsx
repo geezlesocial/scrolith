@@ -16,8 +16,7 @@ import {
 } from "../../types";
 import { buildScrolithaPath } from "../../utils/scrolithaLaunch";
 import { resolveAuthenticatedEntryPath } from "../../utils/authRedirect";
-
-type LoginApprovalState = { id: string; approvalToken: string; expiresAt?: string | null };
+import { useLoginApprovalFlow } from "../../hooks/useLoginApprovalFlow";
 
 const sanitizeLines = (value: any): string[] =>
   Array.isArray(value)
@@ -131,9 +130,19 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
   const [loginHvRequired, setLoginHvRequired] = React.useState(false);
   const [signupHvToken, setSignupHvToken] = React.useState<string | null>(null);
   const [signupHvRequired, setSignupHvRequired] = React.useState(false);
-  const [loginApproval, setLoginApproval] = React.useState<LoginApprovalState | null>(null);
-  const approvalStatusInFlightRef = React.useRef(false);
-  const approvalExchangeInFlightRef = React.useRef(false);
+  const loginApprovalFlow = useLoginApprovalFlow({
+    onApproved: (approvedUser) => {
+      window.dispatchEvent(new Event("scrolith:auth-changed"));
+      window.location.assign(resolveAuthenticatedEntryPath(approvedUser as any));
+    }
+  });
+  const {
+    approval: loginApproval,
+    start: startLoginApproval,
+    cancel: cancelLoginApproval,
+    terminalMessage: loginApprovalMessage,
+    isExchanging: loginApprovalExchanging
+  } = loginApprovalFlow;
   const embeddedModalSurface = hideStandaloneLinks;
   const formSpacingClass = embeddedModalSurface ? "space-y-3" : "space-y-4";
   const inputPaddingClass = embeddedModalSurface && !compactSurface ? "py-2.5" : "py-3";
@@ -164,56 +173,6 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
       cancel();
     };
   }, []);
-
-  React.useEffect(() => {
-    approvalStatusInFlightRef.current = false;
-    approvalExchangeInFlightRef.current = false;
-  }, [loginApproval?.id]);
-
-  React.useEffect(() => {
-    if (!loginApproval?.id || !loginApproval.approvalToken) return undefined;
-    let stopped = false;
-    const pollApproval = async () => {
-      if (approvalStatusInFlightRef.current || approvalExchangeInFlightRef.current) return;
-      approvalStatusInFlightRef.current = true;
-      try {
-        const { DeviceSecurityService, traceDeviceSecurity } = await import("../../services/deviceSecurity");
-        traceDeviceSecurity("approval_poll_started", { approvalStateInitialized: true, statusPollingStarted: true });
-        const status = await DeviceSecurityService.getApprovalStatus(loginApproval.id, loginApproval.approvalToken);
-        if (stopped) return;
-        const current = String(status?.status || "").toUpperCase();
-        if (!current || current === "PENDING") return;
-        if (current === "APPROVED") {
-          approvalExchangeInFlightRef.current = true;
-          setLoginLoading(true);
-          const { AuthService } = await import("../../services/authService");
-          const exchanged = await AuthService.exchangeApprovedLogin(loginApproval.id, loginApproval.approvalToken);
-          if (stopped) return;
-          if (exchanged.success && exchanged.user) {
-            window.dispatchEvent(new Event("scrolith:auth-changed"));
-            window.location.assign(resolveAuthenticatedEntryPath(exchanged.user as any));
-            return;
-          }
-          setLoginApproval(null);
-          setLoginError(exchanged.error || "Unable to complete approved login.");
-          return;
-        }
-        setLoginApproval(null);
-        setLoginError(current === "REJECTED" ? "This login was rejected from your trusted session." : current === "EXPIRED" ? "This login approval expired. Please sign in again." : "This login approval is no longer valid. Please sign in again.");
-      } catch (error: any) {
-        if (!stopped) {
-          setLoginApproval(null);
-          setLoginError(error?.response?.data?.error || error?.message || "Unable to check login approval.");
-        }
-      } finally {
-        approvalStatusInFlightRef.current = false;
-        if (!stopped && approvalExchangeInFlightRef.current) setLoginLoading(false);
-      }
-    };
-    void pollApproval();
-    const timer = window.setInterval(() => void pollApproval(), 3000);
-    return () => { stopped = true; window.clearInterval(timer); };
-  }, [loginApproval]);
 
   const socialConfig = authConfig?.social_auth ?? (authConfig as any)?.socialAuth;
   const signupContent = authConfig?.signup;
@@ -258,7 +217,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
           authTabWasManuallySelectedRef.current = true;
           onLoginApprovalRequired?.();
           setActiveTab("login");
-          setLoginApproval(approval);
+          startLoginApproval(approval);
           setLoginError("");
         }
       });
@@ -362,16 +321,16 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
           {content?.enableSocialLogin !== false ? (
             <AuthSocialButtons mode="login" config={socialConfig || undefined} redirectTo="/" />
           ) : null}
-          {loginError ? (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{loginError}</div>
+          {loginError || loginApprovalMessage ? (
+            <div className={`rounded-xl border px-3 py-2 text-sm ${loginApprovalMessage && !loginError ? "border-amber-200 bg-amber-50 text-amber-800" : "border-red-200 bg-red-50 text-red-700"}`}>{loginError || loginApprovalMessage}</div>
           ) : null}
           {loginApproval ? (
             <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 shadow-sm">
               <p className="font-semibold text-blue-950">Waiting for trusted-device approval</p>
               <p className="mt-1 leading-6">Open Scrolith on a device that is already signed in, go to Settings &gt; Security, then approve this login.</p>
               {formatLoginApprovalExpiry(loginApproval.expiresAt) ? <p className="mt-1 text-xs font-medium text-blue-800">Expires at {formatLoginApprovalExpiry(loginApproval.expiresAt)}</p> : null}
-              <button type="button" disabled={loginLoading} onClick={() => { if (!loginLoading) { setLoginApproval(null); setLoginError(""); } }} className="mt-3 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60">
-                {loginLoading ? "Completing approved login..." : "Cancel approval request"}
+              <button type="button" disabled={loginApprovalExchanging} onClick={() => { if (!loginApprovalExchanging) { cancelLoginApproval(); setLoginError(""); } }} className="mt-3 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60">
+                {loginApprovalExchanging ? "Completing approved login..." : "Cancel approval request"}
               </button>
             </div>
           ) : null}

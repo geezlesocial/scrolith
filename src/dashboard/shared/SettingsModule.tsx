@@ -18,7 +18,7 @@ import {
 } from '../../mobile/biometrics';
 import LanguageMultiSelect from '../../components/language/LanguageMultiSelect';
 import { LanguagePreferencesService, type UserLanguagePreferences } from '../../services/languagePreferences';
-import { DeviceSecurityService } from '../../services/deviceSecurity';
+import { clearLocalDeviceSecurityMaterial, DeviceSecurityService, getOrCreateDeviceId } from '../../services/deviceSecurity';
 import { listOnboardingLanguages } from '../../utils/supportedLanguages';
 import UserTwoFactorPanel from './UserTwoFactorPanel';
 
@@ -31,6 +31,20 @@ type PendingLoginApproval = {
     deviceModel?: string | null;
     browserName?: string | null;
     deviceType?: string | null;
+};
+
+type TrustedDevice = {
+    id: string;
+    deviceId?: string | null;
+    label?: string | null;
+    platform?: string | null;
+    deviceType?: string | null;
+    deviceModel?: string | null;
+    browserName?: string | null;
+    trustStatus?: string | null;
+    firstSeenAt?: string | null;
+    lastSeenAt?: string | null;
+    trustedAt?: string | null;
 };
 
 const formatApprovalDate = (value?: string | null) => {
@@ -228,7 +242,7 @@ const normalizeSettings = (value: UserSettings): UserSettings => ({
 });
 
 const SettingsModule = () => {
-    const { user, updateUser } = useUser();
+    const { user, updateUser, logout } = useUser();
     const { showNotification } = useNotification();
     const { currency, setCurrency, availableCurrencies } = useCurrency();
     const { profile, userDataSaver, setUserDataSaver } = usePerformanceProfile();
@@ -266,6 +280,10 @@ const SettingsModule = () => {
     const [pendingApprovals, setPendingApprovals] = useState<PendingLoginApproval[]>([]);
     const [pendingApprovalsLoading, setPendingApprovalsLoading] = useState(false);
     const [pendingApprovalBusy, setPendingApprovalBusy] = useState<string | null>(null);
+    const [trustedDevices, setTrustedDevices] = useState<TrustedDevice[]>([]);
+    const [trustedDevicesLoading, setTrustedDevicesLoading] = useState(false);
+    const [trustedDeviceBusy, setTrustedDeviceBusy] = useState<string | null>(null);
+    const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
     const [langPrefs, setLangPrefs] = useState<UserLanguagePreferences | null>(null);
     const [langSaving, setLangSaving] = useState(false);
     const onboardingLanguages = useMemo(() => listOnboardingLanguages(), []);
@@ -283,6 +301,27 @@ const SettingsModule = () => {
         }
     }, [showNotification, user?.id]);
 
+    const loadTrustedDevices = useCallback(async () => {
+        if (!user?.id) return;
+        setTrustedDevicesLoading(true);
+        try {
+            const [rows, deviceId] = await Promise.all([
+                DeviceSecurityService.listTrustedDevices(),
+                getOrCreateDeviceId()
+            ]);
+            setTrustedDevices(Array.isArray(rows) ? rows : []);
+            setCurrentDeviceId(deviceId || null);
+        } catch (error: any) {
+            showNotification('alert', 'Trusted Devices Unavailable', error?.message || 'Unable to load trusted devices.');
+        } finally {
+            setTrustedDevicesLoading(false);
+        }
+    }, [showNotification, user?.id]);
+
+    const loadDeviceSecurity = useCallback(() => {
+        void Promise.all([loadPendingApprovals(), loadTrustedDevices()]);
+    }, [loadPendingApprovals, loadTrustedDevices]);
+
     const resolvePendingApproval = useCallback(async (approvalId: string, action: 'approve' | 'reject') => {
         if (!approvalId || pendingApprovalBusy) return;
         setPendingApprovalBusy(approvalId);
@@ -297,6 +336,29 @@ const SettingsModule = () => {
             setPendingApprovalBusy(null);
         }
     }, [pendingApprovalBusy, showNotification]);
+
+    const revokeTrustedDevice = useCallback(async (device: TrustedDevice) => {
+        if (!device.id || trustedDeviceBusy) return;
+        const isCurrent = Boolean(currentDeviceId && device.deviceId && currentDeviceId === device.deviceId);
+        const message = isCurrent
+            ? 'This is your current device. Revoking it will clear its trusted-device key and sign you out. Continue?'
+            : 'Revoke this trusted device? It will no longer approve new sign-ins.';
+        if (typeof window !== 'undefined' && !window.confirm(message)) return;
+        setTrustedDeviceBusy(device.id);
+        try {
+            await DeviceSecurityService.revokeTrustedDevice(device.id);
+            setTrustedDevices((current) => current.filter((item) => item.id !== device.id));
+            showNotification('success', 'Trusted Device Revoked', isCurrent ? 'This device is no longer trusted.' : 'The device can no longer approve new sign-ins.');
+            if (isCurrent) {
+                await clearLocalDeviceSecurityMaterial();
+                logout();
+            }
+        } catch (error: any) {
+            showNotification('alert', 'Device Revocation Failed', error?.response?.data?.error || error?.message || 'Unable to revoke this trusted device.');
+        } finally {
+            setTrustedDeviceBusy(null);
+        }
+    }, [currentDeviceId, logout, showNotification, trustedDeviceBusy]);
 
     const preferenceKey = useMemo(() => ({
         language: 'Scrolith.pref.language',
@@ -382,8 +444,8 @@ const SettingsModule = () => {
 
     useEffect(() => {
         if (activeSection !== 'security' || !user?.id) return;
-        void loadPendingApprovals();
-    }, [activeSection, loadPendingApprovals, user?.id]);
+        loadDeviceSecurity();
+    }, [activeSection, loadDeviceSecurity, user?.id]);
 
     useEffect(() => {
         void LanguagePreferencesService.getMine()
@@ -943,11 +1005,11 @@ const SettingsModule = () => {
                                             </div>
                                             <button
                                                 type="button"
-                                                onClick={() => void loadPendingApprovals()}
-                                                disabled={pendingApprovalsLoading}
+                                                onClick={loadDeviceSecurity}
+                                                disabled={pendingApprovalsLoading || trustedDevicesLoading}
                                                 className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
                                             >
-                                                {pendingApprovalsLoading ? 'Refreshing...' : 'Refresh requests'}
+                                                {pendingApprovalsLoading || trustedDevicesLoading ? 'Refreshing...' : 'Refresh security'}
                                             </button>
                                         </div>
                                         <div className="mt-4 space-y-3">
@@ -987,6 +1049,52 @@ const SettingsModule = () => {
                                                         </div>
                                                     </div>
                                                 ))
+                                            )}
+                                        </div>
+                                    </section>
+
+                                    <section className="mb-8 rounded-2xl border border-gray-200 bg-white p-5" aria-labelledby="trusted-devices-title">
+                                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                            <div>
+                                                <h3 id="trusted-devices-title" className="flex items-center gap-2 text-base font-bold text-gray-900">
+                                                    <Smartphone className="h-5 w-5 text-indigo-700" /> Trusted devices / Approved browsers
+                                                </h3>
+                                                <p className="mt-1 text-sm text-gray-600">Active devices that can approve a new sign-in. Device identifiers and security keys are never shown.</p>
+                                            </div>
+                                        </div>
+                                        <div className="mt-4 space-y-3">
+                                            {trustedDevicesLoading && trustedDevices.length === 0 ? (
+                                                <div className="flex items-center gap-2 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+                                                    <Loader2 className="h-4 w-4 animate-spin text-indigo-600" /> Loading trusted devices...
+                                                </div>
+                                            ) : trustedDevices.length === 0 ? (
+                                                <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm text-gray-600">No active trusted devices.</div>
+                                            ) : (
+                                                trustedDevices.map((device) => {
+                                                    const isCurrent = Boolean(currentDeviceId && device.deviceId && currentDeviceId === device.deviceId);
+                                                    const label = [device.label, device.browserName, device.platform, device.deviceModel, device.deviceType]
+                                                        .map((value) => String(value || '').trim())
+                                                        .filter(Boolean);
+                                                    return (
+                                                        <div key={device.id} className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                                                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                                                <div>
+                                                                    <p className="font-semibold text-gray-900">{Array.from(new Set(label)).join(' - ') || 'Trusted Scrolith device'}</p>
+                                                                    <p className="mt-1 text-xs text-gray-500">Trusted {formatApprovalDate(device.trustedAt || device.firstSeenAt)} · Last used {formatApprovalDate(device.lastSeenAt)}</p>
+                                                                    <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-emerald-700">{isCurrent ? 'CURRENT DEVICE' : String(device.trustStatus || 'TRUSTED')}</p>
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => void revokeTrustedDevice(device)}
+                                                                    disabled={trustedDeviceBusy === device.id}
+                                                                    className="rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                                                                >
+                                                                    {trustedDeviceBusy === device.id ? 'Revoking...' : 'Revoke'}
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })
                                             )}
                                         </div>
                                     </section>

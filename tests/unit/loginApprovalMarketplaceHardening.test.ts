@@ -10,13 +10,15 @@ const read = (relativePath: string) => fs.readFileSync(path.join(root, relativeP
 test('homepage login approval keeps the token in memory and completes the existing signed exchange flow', () => {
   const context = read('src/context/UserContext.tsx');
   const guestAuth = read('src/components/sections/GuestAuthExperience.tsx');
+  const approvalFlow = read('src/hooks/useLoginApprovalFlow.ts');
   const authService = read('src/services/authService.ts');
   const deviceSecurity = read('src/services/deviceSecurity.ts');
 
   assert.match(context, /onLoginApprovalRequired/);
   assert.match(guestAuth, /Waiting for trusted-device approval/);
-  assert.match(guestAuth, /DeviceSecurityService\.getApprovalStatus/);
-  assert.match(guestAuth, /AuthService\.exchangeApprovedLogin/);
+  assert.match(guestAuth, /useLoginApprovalFlow/);
+  assert.match(approvalFlow, /DeviceSecurityService\.getApprovalStatus/);
+  assert.match(approvalFlow, /AuthService\.exchangeApprovedLogin/);
   assert.match(authService, /requiresLoginApproval/);
   assert.match(authService, /device: await getDeviceMetadata\(\)/);
   assert.match(deviceSecurity, /auth\/login\/approval\/exchange/);

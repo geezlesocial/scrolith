@@ -46,16 +46,27 @@ export const LoginApprovalOverlay: React.FC = () => {
   const [error, setError] = React.useState<string | null>(null);
   const isMountedRef = React.useRef(true);
 
-  const refreshPending = React.useCallback(async (attemptId?: string) => {
+  const refreshPending = React.useCallback(async (attemptId?: string, retry = 0) => {
     try {
       const rows = await DeviceSecurityService.listPendingApprovals();
       const pending = attemptId
         ? rows.find((row: PendingApproval) => String(row?.id) === attemptId)
         : rows[0];
       if (!isMountedRef.current) return;
-      if (pending && normalizeStatus(pending.status) === 'PENDING') setApproval(pending as PendingApproval);
+      if (pending && normalizeStatus(pending.status) === 'PENDING') {
+        setApproval(pending as PendingApproval);
+      } else if (attemptId && retry < 3) {
+        window.setTimeout(() => {
+          if (isMountedRef.current) void refreshPending(attemptId, retry + 1);
+        }, 500);
+      }
     } catch {
       // The realtime signal is advisory. An unavailable refresh must not affect the signed-in session.
+      if (attemptId && retry < 3) {
+        window.setTimeout(() => {
+          if (isMountedRef.current) void refreshPending(attemptId, retry + 1);
+        }, 500);
+      }
     }
   }, []);
 

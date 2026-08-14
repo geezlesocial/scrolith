@@ -8,6 +8,7 @@ import AuthSocialButtons from './AuthSocialButtons';
 import { useT } from '../i18n/useT';
 import { resolveAuthenticatedEntryPath } from '../utils/authRedirect';
 import ScrolithHumanVerification from '../components/human-verification/ScrolithHumanVerification';
+import { useLoginApprovalFlow } from '../hooks/useLoginApprovalFlow';
 
 const IS_MOBILE_APP_BUILD = import.meta.env.VITE_SCROLITH_MOBILE_APP === 'true';
 const BRAND_LOGO_FALLBACK = '/logo.png';
@@ -74,7 +75,7 @@ const isStoredAdminUser = () => {
 
 const Login = () => {
   const t = useT();
-  const { login } = useUser(); // Ensure login function accepts email and password only
+  const { login } = useUser();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -87,6 +88,23 @@ const Login = () => {
   const [hvRequired, setHvRequired] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+
+  const loginApprovalFlow = useLoginApprovalFlow({
+    onApproved: (approvedUser) => {
+      try {
+        window.dispatchEvent(new Event('scrolith:auth-changed'));
+      } catch {
+        /* ignore */
+      }
+      const role = String(approvedUser.role || '').toLowerCase();
+      if (role.includes('admin')) {
+        window.location.assign('/admin/dashboard');
+        return;
+      }
+      completePostLogin();
+      window.location.assign(resolveAuthenticatedEntryPath(approvedUser));
+    }
+  });
 
   const resetSuccess = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -159,6 +177,7 @@ const Login = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loginApprovalFlow.approval) return;
     setError('');
     setLoading(true);
 
@@ -190,36 +209,32 @@ const Login = () => {
         return;
       }
 
-      // Intercept Admin 2FA challenge before establishing a session.
-      const { AuthService } = await import('../services/authService');
-      const raw = await AuthService.login({
-        email,
-        password,
-        humanVerificationToken: hvToken || undefined
-      });
-      if ((raw as any).requires2FA && (raw as any).challengeToken) {
-        setTwoFAChallenge(String((raw as any).challengeToken));
-        setTwoFACode('');
-        setError('');
-        return;
-      }
-      if (raw.success && raw.user) {
-        // AuthService already persisted token + user; refresh app state and route.
-        try {
-          window.dispatchEvent(new Event('scrolith:auth-changed'));
-        } catch {
-          /* ignore */
+      const outcome = await login(email, password, {
+        redirect: false,
+        humanVerificationToken: hvToken || undefined,
+        onLoginApprovalRequired: (approval) => {
+          setError('');
+          loginApprovalFlow.start(approval);
+        },
+        onTwoFactorRequired: (challengeToken) => {
+          setTwoFAChallenge(challengeToken);
+          setTwoFACode('');
+          setError('');
         }
-        const role = String(raw.user.role || '').toLowerCase();
+      });
+      if (outcome.status === 'authenticated') {
+        const role = String(outcome.user.role || '').toLowerCase();
         if (role.includes('admin')) {
           window.location.assign('/admin/dashboard');
           return;
         }
         completePostLogin();
-        window.location.assign(resolveAuthenticatedEntryPath(raw.user as any));
+        window.location.assign(resolveAuthenticatedEntryPath(outcome.user));
         return;
       }
-      setError(raw.error || t('auth.login.invalid_credentials', 'Invalid credentials'));
+      if (outcome.status === 'failed' && outcome.code !== '2FA_REQUIRED') {
+        setError(outcome.error || t('auth.login.invalid_credentials', 'Invalid credentials'));
+      }
     } catch (err: any) {
       setError(err.message || t('auth.login.failed', 'Login failed'));
     } finally {
@@ -302,10 +317,25 @@ const Login = () => {
           )}
           <div
             aria-live="polite"
-            className={error ? 'rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700' : 'sr-only'}
+            className={error || loginApprovalFlow.terminalMessage ? (loginApprovalFlow.terminalMessage && !error ? 'rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800' : 'rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700') : 'sr-only'}
           >
-            {error || t('auth.login.error_region', 'Login status messages will appear here.')}
+            {error || loginApprovalFlow.terminalMessage || t('auth.login.error_region', 'Login status messages will appear here.')}
           </div>
+          {loginApprovalFlow.approval ? (
+            <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-4 text-sm text-blue-950">
+              <p className="font-semibold">Waiting for trusted-device approval</p>
+              <p className="mt-1 leading-6">Open Scrolith on a device that is already signed in, go to Settings &gt; Security, then approve this login.</p>
+              {loginApprovalFlow.approval.expiresAt ? <p className="mt-1 text-xs font-medium text-blue-800">Expires at {new Date(loginApprovalFlow.approval.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p> : null}
+              <button
+                type="button"
+                disabled={loginApprovalFlow.isExchanging}
+                onClick={loginApprovalFlow.cancel}
+                className="mt-3 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loginApprovalFlow.isExchanging ? 'Completing approved login...' : 'Cancel approval request'}
+              </button>
+            </div>
+          ) : null}
           <div className="space-y-4">
             {twoFAChallenge ? (
               <div className="space-y-3 rounded-xl border border-indigo-200 bg-indigo-50/60 p-4">
@@ -412,10 +442,10 @@ const Login = () => {
           <div>
             <button
               type="submit"
-              disabled={loading || (hvRequired && !hvToken && !twoFAChallenge)}
+              disabled={loading || Boolean(loginApprovalFlow.approval) || loginApprovalFlow.isExchanging || (hvRequired && !hvToken && !twoFAChallenge)}
               className="flex w-full items-center justify-center rounded-xl border border-transparent bg-slate-950 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-slate-950/15 transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
             >
-              {loading ? t('auth.login.loading', 'Signing in...') : loginContent.submit_label}
+              {loginApprovalFlow.approval ? 'Waiting for approval...' : loading ? t('auth.login.loading', 'Signing in...') : loginContent.submit_label}
             </button>
           </div>
 
