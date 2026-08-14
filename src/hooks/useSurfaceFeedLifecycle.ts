@@ -61,6 +61,7 @@ export function useSurfaceFeedLifecycle(
   const feed = useContinuousFeed({
     ...feedOptions,
     surface,
+    viewerKey,
     isMobile,
     dataSaver
   });

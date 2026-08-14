@@ -1209,6 +1209,7 @@ const CommunityHome = () => {
         try {
           const page = await MemberFeedService.tryFetchPage({
             surface: 'community',
+            viewerKey: user?.id,
             mode: 'for_you',
             limit: postsLimit,
             cursor,
@@ -1573,6 +1574,7 @@ const CommunityHome = () => {
           if (mayTryOrchestrated) {
           const orchestrated = await MemberFeedService.tryFetchPage({
             surface: 'community',
+            viewerKey: user?.id,
             mode: 'for_you',
             limit: postsLimit,
             timeoutMs: 15000
@@ -3539,6 +3541,7 @@ const CommunityHome = () => {
                     try {
                       const page = await MemberFeedService.tryFetchPage({
                         surface: 'community',
+                        viewerKey: user?.id,
                         mode: 'for_you',
                         limit: postsLimit,
                         timeoutMs: 12000

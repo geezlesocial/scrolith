@@ -1535,6 +1535,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const feedLoadRequestIdRef = useRef(0);
   const feedLoadingMoreRef = useRef(false);
   const feedLoadingRef = useRef(false);
+  const feedSoftRefreshTimerRef = useRef<number | null>(null);
   const feedNextCursorRef = useRef<string | null>(null);
   const feedOffsetFallbackRef = useRef(false);
   const feedTerminalRef = useRef(false);
@@ -2888,7 +2889,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     if (!user) return;
     // One in-flight initial/soft-refresh at a time (superseded by newer sequence).
     if (feedLoadingRef.current && !options?.hardReset) {
-      // Allow tab/filter changes to supersede via request sequence below.
+      return;
     }
     const requestId = ++feedLoadRequestIdRef.current;
     feedLoadingRef.current = true;
@@ -2954,6 +2955,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             : resolvedMode || (showIntentModes ? defaultIntentFeedTab : 'for_you') || 'for_you';
         const orchestrated = await MemberFeedService.tryFetchPage({
           surface: 'member_home',
+          viewerKey: userId,
           mode: String(orchestratedMode),
           limit: maxFeedItems,
           topic: scope === 'discover' && showCategoriesFilter ? feedTopic || undefined : undefined,
@@ -3354,6 +3356,29 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     user
   ]);
 
+  // Realtime updates can arrive in bursts. Coalesce them into one bounded
+  // soft refresh instead of starting a full feed request for every event.
+  const scheduleFeedSoftRefresh = useCallback(() => {
+    if (feedSoftRefreshTimerRef.current !== null) return;
+    feedSoftRefreshTimerRef.current = window.setTimeout(() => {
+      feedSoftRefreshTimerRef.current = null;
+      if (feedLoadingRef.current) {
+        scheduleFeedSoftRefresh();
+        return;
+      }
+      void loadFeed();
+    }, 1500);
+  }, [loadFeed]);
+
+  useEffect(() => {
+    return () => {
+      if (feedSoftRefreshTimerRef.current !== null) {
+        window.clearTimeout(feedSoftRefreshTimerRef.current);
+        feedSoftRefreshTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const loadMoreFeed = useCallback(async () => {
     if (!user || feedLoadingMoreRef.current || feedTerminalRef.current || feedLoadingRef.current) return;
     const cursor = String(feedNextCursorRef.current || '').trim();
@@ -3425,6 +3450,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               : resolvedMode || (showIntentModes ? defaultIntentFeedTab : 'for_you') || 'for_you';
           const page = await MemberFeedService.tryFetchPage({
             surface: 'member_home',
+            viewerKey: userId,
             mode: String(orchestratedMode),
             limit: maxFeedItems,
             cursor,
@@ -6105,6 +6131,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       // probe optional
     }
     void loadFeed({ forceRetryOrchestrated: true, hardReset: true });
+    return () => {
+      feedAbortRef.current?.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadFeed omitted intentionally to stop request loops
   }, [userId, feedTab, feedTopic, feedRegion, feedTabReady]);
 
@@ -6297,9 +6326,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   useEffect(() => {
     if (!socket || !user) return;
     // Phase 21.1.4 — socket soft refresh isolates into pending buffer (loadFeed soft path).
-    const softRefreshFeed = () => {
-      void loadFeed();
-    };
+    const softRefreshFeed = () => scheduleFeedSoftRefresh();
     const refreshStories = () => loadStories();
     const refreshSlider = () => loadSlider();
     const refreshSidebar = () => scheduleSidebarRefresh();
@@ -6472,7 +6499,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       socket.off('reco:config_updated', refreshSidebar);
       socket.off('reco:rules_updated', refreshSidebar);
     };
-  }, [socket, user, loadFeed, loadStories, loadSlider, scheduleSidebarRefresh, applyPostUpdate, applyStoryUpdate, normalizePost, syncCommentCount, filterActiveStories]);
+  }, [socket, user, scheduleFeedSoftRefresh, loadStories, loadSlider, scheduleSidebarRefresh, applyPostUpdate, applyStoryUpdate, normalizePost, syncCommentCount, filterActiveStories]);
 
   useEffect(() => {
     if (!user?.id) return;
