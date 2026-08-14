@@ -761,52 +761,6 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     });
   }, []);
 
-  const recoverLocalMedia = useCallback(async () => {
-    if (!callIdRef.current || localMediaRecoveryRef.current) return;
-    localMediaRecoveryRef.current = true;
-    const wantVideo = mediaModeRef.current === 'video';
-    try {
-      const current = localStreamRef.current;
-      current?.getTracks().forEach((track) => track.stop());
-      localStreamRef.current = null;
-      setLocalStreamState(null);
-      const stream = await ensureLocalMedia(wantVideo);
-      publishLocalTracksToPeers(stream);
-      emitVoiceLifecycleEvent('media_recovered', {
-        callId: callIdRef.current,
-        conversationId: conversationIdRef.current,
-        mode: wantVideo ? 'video' : 'audio',
-        audioCapabilities: readSanitizedAudioCapabilities(stream.getAudioTracks()[0]),
-        audioSettings: readSanitizedAudioSettings(stream.getAudioTracks()[0])
-      });
-      await renegotiateAllPeerMedia();
-    } catch (error: any) {
-      emitVoiceLifecycleEvent('media_recovery_failed', {
-        callId: callIdRef.current,
-        conversationId: conversationIdRef.current,
-        error: String(error?.message || 'Unable to recover call media.')
-      });
-    } finally {
-      localMediaRecoveryRef.current = false;
-    }
-  }, [ensureLocalMedia, publishLocalTracksToPeers, renegotiateAllPeerMedia]);
-
-  useEffect(() => {
-    const stream = localStreamState;
-    if (!stream || !callState?.callId) return;
-    const onTrackEnded = () => void recoverLocalMedia();
-    const tracks = stream.getTracks();
-    tracks.forEach((track) => track.addEventListener('ended', onTrackEnded));
-    const onDeviceChange = () => {
-      if (tracks.some((track) => track.readyState === 'ended')) onTrackEnded();
-    };
-    navigator.mediaDevices?.addEventListener?.('devicechange', onDeviceChange);
-    return () => {
-      tracks.forEach((track) => track.removeEventListener('ended', onTrackEnded));
-      navigator.mediaDevices?.removeEventListener?.('devicechange', onDeviceChange);
-    };
-  }, [callState?.callId, localStreamState, recoverLocalMedia]);
-
   const emitMediaState = useCallback(
     (kind: 'microphone' | 'camera', enabled: boolean) => {
       const callId = callIdRef.current;
@@ -857,6 +811,52 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     const entries = Array.from(peerConnectionsRef.current.entries());
     await Promise.all(entries.map(([remoteUserId, peer]) => renegotiatePeerMedia(remoteUserId, peer)));
   }, [renegotiatePeerMedia]);
+
+  const recoverLocalMedia = useCallback(async () => {
+    if (!callIdRef.current || localMediaRecoveryRef.current) return;
+    localMediaRecoveryRef.current = true;
+    const wantVideo = mediaModeRef.current === 'video';
+    try {
+      const current = localStreamRef.current;
+      current?.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+      setLocalStreamState(null);
+      const stream = await ensureLocalMedia(wantVideo);
+      publishLocalTracksToPeers(stream);
+      emitVoiceLifecycleEvent('media_recovered', {
+        callId: callIdRef.current,
+        conversationId: conversationIdRef.current,
+        mode: wantVideo ? 'video' : 'audio',
+        audioCapabilities: readSanitizedAudioCapabilities(stream.getAudioTracks()[0]),
+        audioSettings: readSanitizedAudioSettings(stream.getAudioTracks()[0])
+      });
+      await renegotiateAllPeerMedia();
+    } catch (error: any) {
+      emitVoiceLifecycleEvent('media_recovery_failed', {
+        callId: callIdRef.current,
+        conversationId: conversationIdRef.current,
+        error: String(error?.message || 'Unable to recover call media.')
+      });
+    } finally {
+      localMediaRecoveryRef.current = false;
+    }
+  }, [ensureLocalMedia, publishLocalTracksToPeers, renegotiateAllPeerMedia]);
+
+  useEffect(() => {
+    const stream = localStreamState;
+    if (!stream || !callState?.callId) return;
+    const onTrackEnded = () => void recoverLocalMedia();
+    const tracks = stream.getTracks();
+    tracks.forEach((track) => track.addEventListener('ended', onTrackEnded));
+    const onDeviceChange = () => {
+      if (tracks.some((track) => track.readyState === 'ended')) onTrackEnded();
+    };
+    navigator.mediaDevices?.addEventListener?.('devicechange', onDeviceChange);
+    return () => {
+      tracks.forEach((track) => track.removeEventListener('ended', onTrackEnded));
+      navigator.mediaDevices?.removeEventListener?.('devicechange', onDeviceChange);
+    };
+  }, [callState?.callId, localStreamState, recoverLocalMedia]);
 
   const switchToVideo = useCallback(async () => {
     const callId = callIdRef.current;
