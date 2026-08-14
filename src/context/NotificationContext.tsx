@@ -10,6 +10,7 @@ import {
   getNotificationCategoryMeta
 } from '../utils/notificationTaxonomy';
 import { isLoginApprovalNotification, openLoginApprovalNotification } from '../utils/notificationRouting';
+import { handleMessageReceiptRealtimeEvent, routeMessageLoginApproval } from '../utils/messageRealtime';
 
 type NotificationItem = Notification & {
   dismissed?: boolean;
@@ -267,9 +268,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       persist: options?.persist === true,
       localOnly: true
     });
-    if (isLoginApprovalNotification({ ...payload, metadata: data })) {
-      openLoginApprovalNotification({ ...payload, metadata: data });
-    }
+    routeMessageLoginApproval(payload);
   }, [addNotification, getRoleBasePath, user?.role]);
 
   const showForegroundPushNotification = useCallback((payload: any) => {
@@ -434,7 +433,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     };
 
     const onMessagesNew = (payload: any) => {
-      showMessageReceiptNotification(payload);
+      handleMessageReceiptRealtimeEvent(payload, showMessageReceiptNotification);
     };
 
     const onOrdersUpdated = (payload: any) => {
