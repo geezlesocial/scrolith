@@ -4,6 +4,7 @@ import { AuthService } from './authService';
 import { tokenStore } from './tokenStore';
 import { getApiBaseUrl, getBackendOrigin } from '../utils/apiBase';
 import { DEFAULT_MEMBER_HOME_REGIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../constants/defaultAudienceOptions';
+import { classifyRequestFailure, RequestCache } from './cmsRequestCache';
 
 // FIXED: Use relative URL for proxy instead of hardcoded localhost:5000
 // Resolve API base: prefer explicit backend URL in builds, otherwise use proxy '/api' in dev.
@@ -24,11 +25,30 @@ const BRAND_FAVICON_URL = 'https://scrolith.com/favicon.png';
 const AUTH_PAGES_CACHE_TTL_MS = 5 * 60 * 1000;
 const GUEST_HOMEPAGE_FETCH_TIMEOUT_MS = 3500;
 const GUEST_HOMEPAGE_CACHE_TTL_MS = 45 * 1000;
+const PUBLIC_CONFIG_CACHE_TTL_MS = 5 * 60 * 1000;
+const PUBLIC_CONFIG_FAILURE_COOLDOWN_MS = 30 * 1000;
+const PUBLIC_CONFIG_STALE_TTL_MS = 10 * 60 * 1000;
 
 let authPagesCache: { config: AuthPagesConfig | null; cachedAt: number } | null = null;
 let authPagesRequest: Promise<AuthPagesConfig | null> | null = null;
 let guestHomepageCache: { payload: any; cachedAt: number } | null = null;
 let guestHomepageRequest: Promise<any> | null = null;
+const publicConfigCache = new RequestCache<any>();
+
+const reportPublicConfigFailure = (key: string, error: unknown, kind: ReturnType<typeof classifyRequestFailure>) => {
+    if (!import.meta.env.PROD && kind !== 'abort') {
+        devWarn(`CMS config request ${key} failed as ${kind}:`, error);
+    }
+};
+
+export const __cmsPublicConfigTestHooks = {
+    reset: () => {
+        publicConfigCache.reset();
+        authPagesCache = null;
+        authPagesRequest = null;
+    },
+    snapshot: () => publicConfigCache.snapshot()
+};
 
 const devLog = (...args: any[]) => {
     if (!import.meta.env.PROD) console.log(...args);
@@ -1076,8 +1096,12 @@ const shouldIncludeBrowserCredentials = () => {
 };
 
 // --- API HELPER ---
+type CmsApiGetOptions = {
+    quiet?: boolean;
+};
+
 const api = {
-    get: async (endpoint: string) => {
+    get: async (endpoint: string, options: CmsApiGetOptions = {}) => {
         try {
             const url = `${getCmsApiUrl()}${endpoint}`;
             devLog(`🌐 API GET: ${url}`);
@@ -1110,7 +1134,12 @@ const api = {
             devLog(`✅ API GET success for ${endpoint}`);
             return data;
         } catch (e) {
-            console.error(`❌ API Get Error ${endpoint}:`, e);
+            const kind = classifyRequestFailure(e);
+            if (options.quiet || kind === 'abort') {
+                devWarn(`CMS GET ${endpoint} rejected as ${kind}`);
+            } else {
+                console.error(`❌ API Get Error ${endpoint}:`, e);
+            }
             throw e; // Propagate error
         }
     },
@@ -1741,9 +1770,9 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
     updateHomeSlideOrder: async (slides: any[]) => api.post('/cms/slides/reorder', { slides }),
 
     // --- Header Config ---
-    getHeaderConfig: async (): Promise<HeaderConfig> => {
+    loadHeaderConfig: async (): Promise<HeaderConfig> => {
         try {
-            const raw = unwrap(await api.get('/cms/header'));
+            const raw = unwrap(await api.get('/cms/header', { quiet: true }));
             const source = raw || {};
 
             const homeUrl = source.homeUrl ?? source.home_url ?? '/';
@@ -1859,7 +1888,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             } as unknown as HeaderConfig;
             return normalizeAssetUrls(header) as HeaderConfig;
         } catch (error) {
-            console.error('Failed to fetch header config:', error);
+            devWarn('Failed to fetch header config:', error);
             // Try public homepage endpoint as a fallback (some deployments restrict admin endpoints)
             try {
                 const homepageRaw = unwrap(await api.get('/cms/homepage')) || {};
@@ -1978,7 +2007,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                 } as unknown as HeaderConfig;
                 return normalizeAssetUrls(header) as HeaderConfig;
             } catch (e2) {
-                console.error('Failed to fetch public homepage as fallback for header config:', e2);
+                devWarn('Failed to fetch public homepage as fallback for header config:', e2);
                 // As a last resort, attempt to read platform settings which include faviconUrl
                 try {
                     const platformRaw = unwrap(await api.get('/admin/platform/settings')) || {};
@@ -2024,7 +2053,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                     } as unknown as HeaderConfig;
                     return normalizeAssetUrls(header) as HeaderConfig;
                 } catch (e3) {
-                    console.error('Failed to fetch platform settings as fallback for header config:', e3);
+                    devWarn('Failed to fetch platform settings as fallback for header config:', e3);
                 }
             }
             return {
@@ -2066,6 +2095,19 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             } as unknown as HeaderConfig;
         }
     },
+
+    getHeaderConfig: async (): Promise<HeaderConfig> =>
+        publicConfigCache.get(
+            'cms:header',
+            () => CMSService.loadHeaderConfig(),
+            () => ({}) as HeaderConfig,
+            {
+                ttlMs: PUBLIC_CONFIG_CACHE_TTL_MS,
+                staleTtlMs: PUBLIC_CONFIG_STALE_TTL_MS,
+                cooldownMs: PUBLIC_CONFIG_FAILURE_COOLDOWN_MS,
+                onError: (error, kind) => reportPublicConfigFailure('header', error, kind)
+            }
+        ),
 
     saveHeaderConfig: async (config: HeaderConfig): Promise<HeaderConfig> => {
         try {
@@ -2113,6 +2155,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
 
             const res = await api.post('/cms/header', payload);
             // Backend returns { success: true, message: '...', data: {...} }
+            publicConfigCache.invalidate('cms:header');
             return res?.data?.data || res?.data || config;
         } catch (error) {
             console.error('Failed to save header config:', error);
@@ -2368,9 +2411,9 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
     },
 
     // --- Hero Search Config ---
-    getHeroSearchConfig: async () => {
+    loadHeroSearchConfig: async () => {
         try {
-            const raw = unwrap(await api.get('/cms/hero-search'));
+            const raw = unwrap(await api.get('/cms/hero-search', { quiet: true }));
             const source = raw || {};
         const now = Date.now();
         const quickTagsSource = source.quickTags ?? source.quick_tags ?? [];
@@ -2517,7 +2560,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             value_prop: valueProp
             };
         } catch (error) {
-            console.error('Failed to fetch hero search config:', error);
+            devWarn('Failed to fetch hero search config:', error);
             // Fallback to unified public homepage endpoint
             try {
                 const homepage = unwrap(await api.get('/cms/homepage')) || {};
@@ -2666,11 +2709,24 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                     value_prop: valueProp
                 };
             } catch (fallbackError) {
-                console.error('Failed to fallback hero search config from homepage:', fallbackError);
+                devWarn('Failed to fallback hero search config from homepage:', fallbackError);
                 return {} as any;
             }
         }
     },
+    getHeroSearchConfig: async () =>
+        publicConfigCache.get(
+            'cms:hero-search',
+            () => CMSService.loadHeroSearchConfig(),
+            () => ({}) as HeroSearchConfig,
+            {
+                ttlMs: PUBLIC_CONFIG_CACHE_TTL_MS,
+                staleTtlMs: PUBLIC_CONFIG_STALE_TTL_MS,
+                cooldownMs: PUBLIC_CONFIG_FAILURE_COOLDOWN_MS,
+                onError: (error, kind) => reportPublicConfigFailure('hero-search', error, kind)
+            }
+        ),
+
     saveHeroSearchConfig: async (c: any) => {
         const sizeRaw = c?.search_size ?? c?.searchSize;
         const normalizedSize =
@@ -2694,7 +2750,9 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                 : {})
         };
         try {
-            return await api.post('/cms/hero-search', payload);
+            const response = await api.post('/cms/hero-search', payload);
+            publicConfigCache.invalidate('cms:hero-search');
+            return response;
         } catch (error) {
             console.error('Failed to save hero search config:', error);
             const status = error?.response?.status || error?.status;
