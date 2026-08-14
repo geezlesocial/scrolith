@@ -561,8 +561,6 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const postVideoNextCursorRef = useRef<string | null>(null);
   const loadingMoreRef = useRef(false);
   const pendingAutoAdvanceIndexRef = useRef<number | null>(null);
-  const wheelNavigationLockRef = useRef<number>(0);
-  const touchSwipeStartRef = useRef<{ x: number; y: number } | null>(null);
   const displayedScrollAdKeysRef = useRef<Set<string>>(new Set());
   const scrollAdTimerRef = useRef<number | null>(null);
   const sessionScrollAdCountRef = useRef(0);
@@ -2014,42 +2012,6 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
           overscrollBehaviorY: 'contain',
           touchAction: 'pan-y',
           scrollbarWidth: 'none'
-        }}
-        onWheelCapture={(event) => {
-          if (isInteractiveScrollControlTarget(event.target)) return;
-          if (Math.abs(event.deltaY) <= Math.abs(event.deltaX) || Math.abs(event.deltaY) < 40) return;
-          const now = Date.now();
-          if (now - wheelNavigationLockRef.current < 420) {
-            event.preventDefault();
-            return;
-          }
-          wheelNavigationLockRef.current = now;
-          event.preventDefault();
-          void navigateRelative(event.deltaY > 0 ? 1 : -1);
-        }}
-        onTouchStartCapture={(event) => {
-          if (isInteractiveScrollControlTarget(event.target)) {
-            touchSwipeStartRef.current = null;
-            return;
-          }
-          const touch = event.changedTouches?.[0];
-          if (!touch) {
-            touchSwipeStartRef.current = null;
-            return;
-          }
-          touchSwipeStartRef.current = { x: touch.clientX, y: touch.clientY };
-        }}
-        onTouchEndCapture={(event) => {
-          const start = touchSwipeStartRef.current;
-          touchSwipeStartRef.current = null;
-          if (!start || isInteractiveScrollControlTarget(event.target)) return;
-          const touch = event.changedTouches?.[0];
-          if (!touch) return;
-          const deltaX = touch.clientX - start.x;
-          const deltaY = touch.clientY - start.y;
-          if (Math.abs(deltaY) < 54 || Math.abs(deltaY) <= Math.abs(deltaX) * 1.2) return;
-          event.preventDefault();
-          void navigateRelative(deltaY > 0 ? -1 : 1);
         }}
       >
         {loading ? (
