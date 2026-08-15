@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Clapperboard, Loader2, PlusCircle, Radio, Volume2, VolumeX, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Clapperboard, Loader2, PlusCircle, Radio, Search, Volume2, VolumeX, X } from 'lucide-react';
 import FeedLoadSkeleton from '../../components/feed/FeedLoadSkeleton';
 import type { AdCampaign, ScrollAdsRuntimePolicy } from '../../types';
 import ScrollCard from './ScrollCard';
@@ -8,6 +8,7 @@ import ScrollAdOverlay from './ScrollAdOverlay';
 import ScrollCreateModal from './ScrollCreateModal';
 import ScrollCommentsSheet from './ScrollCommentsSheet';
 import ScrollSeriesModal from './ScrollSeriesModal';
+import ScrollSearchOverlay from './ScrollSearchOverlay';
 import {
   ScrollService,
   type ScrollConfig,
@@ -520,6 +521,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const [activeIndex, setActiveIndex] = useState(() => readStoredIndex());
   const [muted, setMuted] = useState(() => readMutedPreference());
   const [createOpen, setCreateOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [config, setConfig] = useState<ScrollConfig | null>(null);
   const [sourceVideo, setSourceVideo] = useState<PendingPostVideoScrollSource | null>(null);
   const [editingScroll, setEditingScroll] = useState<ScrollVideo | null>(null);
@@ -552,6 +554,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const autoAdvanceOnEnd = !embedded && SCROLL_VIDEO_ROUTE_PATTERN.test(location.pathname);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const searchTriggerRef = useRef<HTMLButtonElement | null>(null);
   const itemRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const observerRef = useRef<IntersectionObserver | null>(null);
   const viewerSeedSourceRef = useRef<PendingPostVideoScrollViewerSource | null>(null);
@@ -1957,6 +1960,20 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         </div>
         <div className="pointer-events-auto ml-auto flex shrink-0 items-center gap-2">
           <button
+            ref={searchTriggerRef}
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            className="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/20 bg-black/45 px-3 text-sm font-semibold text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-black/75"
+            aria-label="Search Scroll videos"
+            aria-expanded={searchOpen}
+            aria-controls="scroll-search-dialog"
+            aria-haspopup="dialog"
+            data-testid="scroll-search-trigger"
+          >
+            <Search className="h-4 w-4" aria-hidden />
+            <span className="hidden sm:inline">Search</span>
+          </button>
+          <button
             type="button"
             onClick={() => setMuted((prev) => !prev)}
             className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-black/45 text-xs font-semibold text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-black/75 sm:w-auto sm:gap-1.5 sm:px-3"
@@ -2086,7 +2103,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
                       return followStateMap[authorId] ?? scroll.viewer?.isFollowingAuthor;
                     })()
                   }
-                  autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                  autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY && !searchOpen}
                   muted={muted}
                   dataSaver={Boolean(profile.dataSaver || profile.lowBandwidth)}
                   networkClass={detectNetworkClass()}
@@ -2355,6 +2372,18 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
           setRemixSource(null);
         }}
         config={config}
+      />
+
+      <ScrollSearchOverlay
+        open={searchOpen}
+        onClose={() => {
+          setSearchOpen(false);
+          window.setTimeout(() => searchTriggerRef.current?.focus(), 0);
+        }}
+        onSelect={(selected) => {
+          setSearchOpen(false);
+          navigate(buildScrollVideoUrl(selected.id));
+        }}
       />
 
       <ScrollSeriesModal
