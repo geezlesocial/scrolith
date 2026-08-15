@@ -775,7 +775,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   return (
     <article
       ref={rootRef}
-      className="relative h-screen min-h-[100dvh] w-full snap-start overflow-hidden bg-black text-white"
+      className="relative h-[100dvh] min-h-[100svh] max-h-[100lvh] w-full snap-start overflow-x-hidden overflow-y-hidden bg-black text-white"
       aria-label={`Scroll by ${authorName}`}
       onMouseMove={revealControls}
       onMouseDown={revealControls}
@@ -976,7 +976,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
                   revealControls();
                   setOwnerMenuOpen((current) => !current);
                 }}
-                className="inline-flex h-10 min-w-[40px] items-center justify-center gap-1 rounded-full bg-black/55 px-2.5 text-white ring-1 ring-white/20 transition hover:bg-black/75 sm:min-w-0 sm:px-0 sm:w-10"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-full bg-black/55 px-2.5 text-white ring-1 ring-white/20 transition hover:bg-black/75 sm:min-w-0 sm:px-0 sm:w-11"
                 aria-label="Manage your Scroll"
                 aria-expanded={ownerMenuOpen}
               >
@@ -1070,7 +1070,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
                 }}
                 icon={action.icon}
                 label={action.label}
-                className="min-h-[42px] min-w-[58px] rounded-[18px] sm:min-h-[46px] sm:min-w-[64px] sm:rounded-2xl"
+                className="min-h-11 min-w-[58px] rounded-[18px] sm:min-h-[46px] sm:min-w-[64px] sm:rounded-2xl"
               />
               {count > 0 ? (
                 <button
@@ -1083,7 +1083,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
                   }}
                   onMouseDown={(event) => event.stopPropagation()}
                   onTouchStart={(event) => event.stopPropagation()}
-                  className="min-w-9 rounded-full border border-white/12 bg-black/45 px-2 py-0.5 text-center text-[10px] font-bold leading-4 text-white shadow-sm transition hover:bg-black/65"
+                  className="min-h-11 min-w-11 rounded-full border border-white/12 bg-black/45 px-2 py-0.5 text-center text-[10px] font-bold leading-4 text-white shadow-sm transition hover:bg-black/65"
                   title={`${countLabel} ${action.label.toLowerCase()}`}
                   aria-label={`${countLabel} ${action.label}`}
                 >
@@ -1100,7 +1100,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
           }}
           icon={Sparkles}
           label="Story"
-          className="min-h-[42px] min-w-[58px] rounded-[18px] sm:min-h-[46px] sm:min-w-[64px] sm:rounded-2xl"
+          className="min-h-11 min-w-[58px] rounded-[18px] sm:min-h-[46px] sm:min-w-[64px] sm:rounded-2xl"
         />
         <OverlayActionRailButton
           onClick={() => {
@@ -1110,7 +1110,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
           icon={Flag}
           label="Report"
           danger
-          className="min-h-[42px] min-w-[58px] rounded-[18px] sm:min-h-[46px] sm:min-w-[64px] sm:rounded-2xl"
+          className="min-h-11 min-w-[58px] rounded-[18px] sm:min-h-[46px] sm:min-w-[64px] sm:rounded-2xl"
         />
       </div>
 
@@ -1130,7 +1130,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
                 event.stopPropagation();
                 if (authorProfileUrl) navigate(authorProfileUrl, { state: { fromMobileHome: true } });
               }}
-              className="flex min-w-0 items-center gap-2 text-left"
+              className="flex min-h-11 min-w-0 items-center gap-2 text-left"
               aria-label={`Open ${authorName} profile`}
             >
               <span className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-white/15 ring-2 ring-white/75">
@@ -1155,7 +1155,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
               currentUserId={user?.id}
               initialIsFollowing={initialIsFollowing}
               tone="overlay"
-              className="ml-auto h-9 shrink-0 border-white/20 bg-white/12 px-3 text-[11px] text-white shadow-sm backdrop-blur-md hover:bg-white/20 hover:text-white"
+              className="ml-auto min-h-11 shrink-0 border-white/20 bg-white/12 px-3 text-[11px] text-white shadow-sm backdrop-blur-md hover:bg-white/20 hover:text-white"
             />
             <span className="sr-only" data-testid="scroll-brand-label">Scroll</span>
           </div>
@@ -1223,7 +1223,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
                   revealControls();
                   void onRemix(scroll, 'remix');
                 }}
-                className="inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1.5 text-xs font-semibold text-cyan-50 hover:bg-cyan-400/15"
+                className="inline-flex min-h-11 items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1.5 text-xs font-semibold text-cyan-50 hover:bg-cyan-400/15"
               >
                 <Link2 className="h-3.5 w-3.5" />
                 Remix
@@ -1234,7 +1234,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
                   revealControls();
                   void onRemix(scroll, 'duet');
                 }}
-                className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/85 hover:bg-white/10"
+                className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/85 hover:bg-white/10"
               >
                 <Clapperboard className="h-3.5 w-3.5" />
                 Duet

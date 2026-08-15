@@ -1909,7 +1909,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 
   return (
     <div
-      className="relative h-screen min-h-[100dvh] overflow-hidden bg-black text-white"
+      className="relative h-[100dvh] min-h-[100svh] max-h-[100lvh] overflow-x-hidden overflow-y-hidden bg-black text-white"
       data-testid="scroll-feed"
       style={{ paddingTop: 'env(safe-area-inset-top)' }}
     >
@@ -1938,7 +1938,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         Mute stays in the right cluster only — never centered over the author name.
       */}
       <header
-        className="pointer-events-none absolute inset-x-0 top-0 z-40 flex items-center justify-between gap-2 px-3 py-3 sm:gap-3 sm:px-4 sm:py-4"
+        className="pointer-events-none absolute inset-x-0 top-0 z-40 flex items-center justify-between gap-2 overflow-x-hidden px-3 py-3 sm:gap-3 sm:px-4 sm:py-4"
         style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
       >
         <button
@@ -2035,7 +2035,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 
       <div
         ref={containerRef}
-        className="h-[100dvh] min-h-[100svh] snap-y snap-mandatory overflow-y-auto"
+        className="h-[100dvh] min-h-[100svh] max-h-[100lvh] snap-y snap-mandatory overflow-x-hidden overflow-y-auto"
         style={{
           WebkitOverflowScrolling: 'touch',
           overscrollBehaviorY: 'contain',
@@ -2047,10 +2047,10 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
           <FeedLoadSkeleton
             variant="scroll"
             label="Loading Scroll feed"
-            className="h-screen w-full"
+            className="h-[100dvh] min-h-[100svh] w-full"
           />
         ) : items.length === 0 ? (
-          <div className="flex h-screen flex-col items-center justify-center px-6 text-center">
+          <div className="flex min-h-[100dvh] flex-col items-center justify-center px-6 text-center">
             <p className="text-xl font-semibold">No Scroll videos yet.</p>
             <p className="mt-2 text-sm text-white/70">Create the first one and start your vertical feed.</p>
               <button
@@ -2085,7 +2085,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
                 ref={(node) => {
                   itemRefs.current[index] = node;
                 }}
-                className="h-screen w-full"
+                className="h-[100dvh] min-h-[100svh] w-full"
                 data-index={index}
                 data-virtualized={inWindow ? 'hot' : 'cold'}
               >
@@ -2178,13 +2178,13 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
             <button
               type="button"
               onClick={() => setLiveDiscoveryOpen(false)}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-white/10 hover:bg-white/20"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/10 hover:bg-white/20"
               aria-label="Close live discovery"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
-          <div className="h-[calc(100vh-60px)] snap-y snap-mandatory overflow-y-auto">
+          <div className="h-[calc(100dvh-60px)] min-h-[calc(100svh-60px)] snap-y snap-mandatory overflow-x-hidden overflow-y-auto">
             {liveSessions.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
                 <p className="text-base font-semibold">No active live streams.</p>

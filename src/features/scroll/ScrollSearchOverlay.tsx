@@ -187,7 +187,7 @@ const ScrollSearchOverlay: React.FC<ScrollSearchOverlayProps> = ({ open, onClose
             <h2 id="scroll-search-title" className="text-base font-semibold">Search Scroll videos</h2>
             <p className="text-xs text-white/60">Find videos by creator, caption, title, location, or tag.</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close Scroll search" className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 text-white/80 hover:bg-white/10">
+          <button type="button" onClick={onClose} aria-label="Close Scroll search" className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/15 text-white/80 hover:bg-white/10">
             <X className="h-5 w-5" aria-hidden />
           </button>
         </div>

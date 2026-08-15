@@ -11,6 +11,7 @@ import {
   Edit3,
   Eye,
   Flag,
+  Filter,
   Heart,
   Image as ImageIcon,
   Loader2,
@@ -343,7 +344,7 @@ const MarketplaceChip: React.FC<{ active?: boolean; children: React.ReactNode; o
     type="button"
     onClick={onClick}
     className={[
-      'inline-flex min-h-10 shrink-0 whitespace-nowrap items-center gap-2 rounded-full border px-3 py-2 text-xs font-medium transition sm:text-sm',
+      'inline-flex min-h-11 shrink-0 whitespace-nowrap items-center gap-2 rounded-full border px-3 py-2 text-xs font-medium transition sm:text-sm',
       active
         ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
         : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
@@ -369,7 +370,7 @@ const MarketplaceBadge: React.FC<{ status?: MarketplaceListingStatus; children: 
 
 const MarketplaceSkeleton = () => (
   <div className="space-y-4">
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+    <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3">
       {Array.from({ length: 9 }).map((_, index) => (
         <div key={index} className="animate-pulse rounded-[20px] border border-slate-200 bg-white p-4">
           <div className="aspect-[4/3] rounded-2xl bg-slate-100" />
@@ -430,6 +431,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
   const [shareState, setShareState] = useState<'closed' | 'open' | 'copied'>('closed');
   const [distanceError, setDistanceError] = useState<string | null>(null);
   const [showSpacesDialog, setShowSpacesDialog] = useState(false);
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [spacesLoading, setSpacesLoading] = useState(false);
   const [joinedGroups, setJoinedGroups] = useState<CommunityClub[]>([]);
   const [recommendedGroups, setRecommendedGroups] = useState<CommunityClub[]>([]);
@@ -1343,10 +1345,10 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
   );
 
   const renderBrowse = () => (
-    <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
-      <div className="space-y-4">
+    <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="min-w-0 space-y-4">
         <div className="rounded-[24px] border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
-          <div className="grid gap-2 md:grid-cols-[1.4fr_1fr_1fr] md:gap-3">
+          <div className="grid min-w-0 gap-2 md:grid-cols-[1.4fr_1fr_1fr] md:gap-3">
             <SearchInput
               placeholder="Search items, brands, sellers..."
               className="lg:col-span-1"
@@ -1357,10 +1359,11 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                 setQuery((previous) => ({ ...previous, search: term, page: 1 }));
               }}
             />
+            <div className="hidden md:contents">
             <select
               value={query.categoryId || activeCategoryId || ''}
               onChange={(event) => setQuery((previous) => ({ ...previous, categoryId: event.target.value || null, page: 1 }))}
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+              className="min-h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
             >
               <option value="">All categories</option>
               {categories.map((category) => (
@@ -1372,7 +1375,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
             <select
               value={query.sort || 'newest'}
               onChange={(event) => setQuery((previous) => ({ ...previous, sort: event.target.value, page: 1 }))}
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+              className="min-h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
             >
               <option value="newest">Newest</option>
               <option value="price_low">Price low to high</option>
@@ -1381,9 +1384,24 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
               <option value="popular">Popular</option>
               <option value="recommended">Recommended</option>
             </select>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowMobileFilters(true)}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 md:hidden"
+              aria-label="Open marketplace filters"
+            >
+              <Filter className="h-4 w-4" aria-hidden />
+              Filters
+              {[query.categoryId, query.deliveryOption, query.condition, query.sort !== 'newest' ? query.sort : null].filter(Boolean).length > 0 ? (
+                <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[11px] text-white">
+                  {[query.categoryId, query.deliveryOption, query.condition, query.sort !== 'newest' ? query.sort : null].filter(Boolean).length}
+                </span>
+              ) : null}
+            </button>
           </div>
           <div className="mt-3 space-y-3">
-            <div className="flex flex-wrap items-center gap-2 sm:-mx-1 sm:flex-nowrap sm:overflow-x-auto sm:px-1 sm:pb-1">
+            <div className="hidden flex-wrap items-center gap-2 sm:-mx-1 sm:flex-nowrap sm:overflow-x-auto sm:px-1 sm:pb-1 md:flex">
               {(['pickup', 'local_delivery', 'shipping', 'cash_on_delivery'] as MarketplaceDeliveryOption[]).map((value) => (
                 <MarketplaceChip
                   key={value}
@@ -1478,7 +1496,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                 </div>
               </div>
             )}
-            <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+            <div className="grid min-w-0 gap-4 md:grid-cols-2 2xl:grid-cols-3">
               {visibleListings.map((listing) => (
                 <MarketplaceListingCard
                   key={listing.id}
@@ -1512,7 +1530,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
         )}
       </div>
 
-      <aside className="space-y-4">
+      <aside className="min-w-0 space-y-4">
         <div className="sticky top-4 space-y-4">
           <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between">
@@ -1596,6 +1614,87 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
           )}
         </div>
       </aside>
+
+      <MobileDialog
+        open={showMobileFilters}
+        onClose={() => setShowMobileFilters(false)}
+        title="Filter marketplace"
+        description="Choose the same marketplace filters used on desktop. Results update without leaving this page."
+        size="md"
+        footer={
+          <MobileDialogFooter>
+            <button
+              type="button"
+              onClick={() => {
+                setQuery({ page: 1, pageSize: DEFAULT_PAGE_SIZE, sort: 'newest' });
+                setShowMobileFilters(false);
+              }}
+              className="min-h-11 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700"
+            >
+              Clear filters
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowMobileFilters(false)}
+              className="min-h-11 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white"
+            >
+              Apply filters
+            </button>
+          </MobileDialogFooter>
+        }
+      >
+        <div className="space-y-4">
+          <label className="block text-sm font-semibold text-slate-900">
+            Category
+            <select
+              value={query.categoryId || activeCategoryId || ''}
+              onChange={(event) => setQuery((previous) => ({ ...previous, categoryId: event.target.value || null, page: 1 }))}
+              className="mt-2 min-h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-normal outline-none"
+            >
+              <option value="">All categories</option>
+              {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+            </select>
+          </label>
+          <label className="block text-sm font-semibold text-slate-900">
+            Sort by
+            <select
+              value={query.sort || 'newest'}
+              onChange={(event) => setQuery((previous) => ({ ...previous, sort: event.target.value, page: 1 }))}
+              className="mt-2 min-h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-normal outline-none"
+            >
+              <option value="newest">Newest</option>
+              <option value="price_low">Price low to high</option>
+              <option value="price_high">Price high to low</option>
+              <option value="nearest">Nearest</option>
+              <option value="popular">Popular</option>
+              <option value="recommended">Recommended</option>
+            </select>
+          </label>
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Delivery and condition</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {(['pickup', 'local_delivery', 'shipping', 'cash_on_delivery'] as MarketplaceDeliveryOption[]).map((value) => (
+                <MarketplaceChip
+                  key={value}
+                  active={query.deliveryOption === value}
+                  onClick={() => setQuery((previous) => ({ ...previous, deliveryOption: previous.deliveryOption === value ? null : value, page: 1 }))}
+                >
+                  {DELIVERY_OPTIONS.find((item) => item.value === value)?.label || value}
+                </MarketplaceChip>
+              ))}
+              {CONDITION_OPTIONS.map((option) => (
+                <MarketplaceChip
+                  key={option.value}
+                  active={query.condition === option.value}
+                  onClick={() => setQuery((previous) => ({ ...previous, condition: previous.condition === option.value ? null : option.value, page: 1 }))}
+                >
+                  {option.label}
+                </MarketplaceChip>
+              ))}
+            </div>
+          </div>
+        </div>
+      </MobileDialog>
     </div>
   );
 
@@ -2144,7 +2243,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
 
   const renderSavedMine = () => (
     <div className="space-y-4">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {visibleListings.map((listing) => (
           <MarketplaceListingCard
             key={listing.id}
@@ -2208,7 +2307,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
   );
 
   return (
-    <div ref={mainRef} className={isDashboardVariant ? 'space-y-6 overflow-x-hidden' : 'space-y-6 overflow-x-hidden pb-10'}>
+    <div ref={mainRef} className={isDashboardVariant ? 'space-y-6 overflow-x-hidden' : 'space-y-6 overflow-x-hidden pb-[calc(2.5rem+env(safe-area-inset-bottom))]'}>
       {renderHeader()}
       {(isBrowseRoute || isCategoryRoute) && !isDashboardVariant ? (
         <ProfessionalIntegrationStrip surface="marketplace" className="mx-auto w-full max-w-7xl px-3 sm:px-4" />
@@ -2445,7 +2544,7 @@ const MarketplaceListingCard: React.FC<{
   const seller = listing.seller;
 
   return (
-    <article className="group overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+    <article className="group min-w-0 overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
       <button type="button" onClick={onOpen} className="block w-full text-left">
         <div className="relative aspect-[4/3] overflow-hidden bg-slate-100">
           {cover ? (
@@ -2475,7 +2574,8 @@ const MarketplaceListingCard: React.FC<{
                 event.stopPropagation();
                 onFavorite();
               }}
-              className={`inline-flex h-9 w-9 items-center justify-center rounded-full backdrop-blur sm:h-10 sm:w-10 ${isSaved ? 'bg-rose-500 text-white' : 'bg-white/90 text-slate-700'}`}
+              className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-full backdrop-blur sm:h-11 sm:w-11 ${isSaved ? 'bg-rose-500 text-white' : 'bg-white/90 text-slate-700'}`}
+              aria-label={isSaved ? `Remove ${listing.title} from saved listings` : `Save ${listing.title}`}
             >
               <Heart className={`h-4 w-4 ${isSaved ? 'fill-current' : ''}`} />
             </button>
@@ -2485,7 +2585,8 @@ const MarketplaceListingCard: React.FC<{
                 event.stopPropagation();
                 onShare();
               }}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-slate-700 backdrop-blur sm:h-10 sm:w-10"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white/90 text-slate-700 backdrop-blur sm:h-11 sm:w-11"
+              aria-label={`Share ${listing.title}`}
             >
               <Share2 className="h-4 w-4" />
             </button>
@@ -2542,7 +2643,7 @@ const MarketplaceListingCard: React.FC<{
           <button
             type="button"
             onClick={onContact}
-            className="min-w-[8.5rem] rounded-full bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white sm:flex-1"
+            className="min-h-11 min-w-[8.5rem] rounded-full bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white sm:flex-1"
           >
             Contact
           </button>
@@ -2570,7 +2671,8 @@ const MarketplaceListingCard: React.FC<{
         <button
           type="button"
           onClick={onShare}
-          className="inline-flex h-10 w-full items-center justify-center rounded-full border border-slate-200 text-slate-700 sm:w-10"
+          className="inline-flex min-h-11 w-full items-center justify-center rounded-full border border-slate-200 text-slate-700 sm:w-11"
+          aria-label={`Send ${listing.title}`}
         >
           <Send className="h-4 w-4" />
         </button>
