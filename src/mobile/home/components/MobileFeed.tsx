@@ -2289,6 +2289,14 @@ export default function MobileFeed({
     sharedFeed
   ]);
 
+  // Keep lifecycle effects attached to the latest loader without making their
+  // subscriptions depend on the loader's render-time identity. The loader
+  // changes when feed state changes; recoveryTick does not.
+  const loadRef = useRef(load);
+  useEffect(() => {
+    loadRef.current = load;
+  }, [load]);
+
   // Phase 21.0 — predictive prefetch (disabled when shared lifecycle owns prefetch).
   useEffect(() => {
     if (USE_SHARED_FEED_LIFECYCLE) return;
@@ -2669,15 +2677,15 @@ export default function MobileFeed({
     if (isConnected || !shouldAttemptLiveConnections) return;
     const id = window.setInterval(() => {
       // Soft refresh when sockets are down — never wipe the feed.
-      void load(USE_SHARED_FEED_LIFECYCLE ? 'soft_refresh' : 'initial');
+      void loadRef.current(USE_SHARED_FEED_LIFECYCLE ? 'soft_refresh' : 'initial');
     }, 60000);
     return () => window.clearInterval(id);
-  }, [isConnected, load, shouldAttemptLiveConnections]);
+  }, [isConnected, shouldAttemptLiveConnections]);
 
   useEffect(() => {
     if (!isOnline || recoveryTick <= 0) return;
-    void load(USE_SHARED_FEED_LIFECYCLE ? 'soft_refresh' : 'initial');
-  }, [isOnline, recoveryTick, load]);
+    void loadRef.current(USE_SHARED_FEED_LIFECYCLE ? 'soft_refresh' : 'initial');
+  }, [isOnline, recoveryTick]);
 
   useEffect(() => {
     const onCreated = (event: Event) => {

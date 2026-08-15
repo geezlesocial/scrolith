@@ -543,6 +543,10 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
   const loadMore = useCallback(() => load('more'), [load]);
   const softRefresh = useCallback(() => load('soft_refresh'), [load]);
   const retry = useCallback(() => load('initial'), [load]);
+  const loadRef = useRef(load);
+  useEffect(() => {
+    loadRef.current = load;
+  }, [load]);
 
   const applyPendingNew = useCallback(() => {
     const pending = pendingNewRef.current;
@@ -683,8 +687,8 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
       });
       if (!recovered) return;
       setStatusMessage(null);
-      if (streamRef.current.length === 0) void load('initial');
-      else void load('soft_refresh');
+      if (streamRef.current.length === 0) void loadRef.current('initial');
+      else void loadRef.current('soft_refresh');
     };
     const onOffline = () => {
       wasOnline = false;
@@ -701,7 +705,7 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
     };
-  }, [load, surface]);
+  }, [surface]);
 
   // Phase 21.1.4 — focus must not rebuild visible sequence (soft refresh only).
   // Phase 21.1.7 — only soft-refresh on a real hidden→visible transition.
@@ -723,7 +727,7 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
       });
       if (!becameVisible) return;
       if (streamRef.current.length === 0) return;
-      void load('soft_refresh');
+      void loadRef.current('soft_refresh');
     };
     document.addEventListener('visibilitychange', onVis);
     // WebKit pageshow/pagehide (bfcache) — observe only; never hard-replace session.
@@ -751,7 +755,7 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
       window.removeEventListener('pageshow', onPageShow as EventListener);
       window.removeEventListener('pagehide', onPageHide);
     };
-  }, [load, surface]);
+  }, [surface]);
 
   const posts = useMemo(
     () => stream.filter((e) => e.kind === 'post' && e.post).map((e) => e.post),
