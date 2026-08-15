@@ -49,6 +49,7 @@ import { MessageAttachmentsList } from './MessageAttachmentRenderer';
 import SafeMessageText from './SafeMessageText';
 import { extractMessageAttachments } from '../../services/messagingMedia';
 import { getRecoverableActionMessage } from '../../mobile/runtime/requestRecovery';
+import { MAX_MESSAGE_CHARACTERS } from '../../services/messagingComposer';
 import { AIService } from '../../services/ai/ai.service';
 
 type MessagingChatWindowProps = {
@@ -713,7 +714,8 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
                       <div className="space-y-2">
                         <textarea
                           value={editDraft}
-                          onChange={(event) => setEditDraft(event.target.value)}
+                          onChange={(event) => setEditDraft(event.target.value.slice(0, MAX_MESSAGE_CHARACTERS))}
+                          maxLength={MAX_MESSAGE_CHARACTERS}
                           className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-900"
                           rows={3}
                           aria-label="Edit message"

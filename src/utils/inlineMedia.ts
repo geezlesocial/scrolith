@@ -12,6 +12,7 @@ export type ResolvedInlineMedia = {
   kind: InlineMediaKind;
   src: string;
   fallbackSrc?: string;
+  fileId?: string;
   poster?: string;
 };
 
@@ -120,6 +121,7 @@ export const resolveInlineMedia = (
     kind,
     src,
     fallbackSrc: fallbackSrc && fallbackSrc !== src ? fallbackSrc : undefined,
+    fileId: pair.fileId || undefined,
     poster: poster || undefined
   };
 };

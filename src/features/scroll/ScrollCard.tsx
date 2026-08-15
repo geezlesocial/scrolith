@@ -30,6 +30,7 @@ import OverlayActionRailButton from '../../components/media/OverlayActionRailBut
 import OptimizedImage from '../../components/media/OptimizedImage';
 import VideoCaptionOverlay from '../../components/media/VideoCaptionOverlay';
 import { resolvePostAttachmentMediaUrl } from '../../utils/postAttachmentMedia';
+import { isSignedOrTokenizedUrl } from '../../utils/mediaDescriptor';
 import ContentInterestSurvey from '../../components/recommendation/ContentInterestSurvey';
 import ReactionReactorsModal from '../../community/components/ReactionReactorsModal';
 import ReactionSummaryButton from '../../community/components/ReactionSummaryButton';
@@ -190,7 +191,11 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   const media = resolveInlineMedia(scroll?.media || scroll, { typeHint: 'video' });
   const mediaSourceCandidates = useMemo(() => {
     const seen = new Set<string>();
-    return [media.src, media.fallbackSrc]
+    return [
+      media.src,
+      media.fallbackSrc,
+      media.fileId ? resolvePostAttachmentMediaUrl({ fileId: media.fileId }) : ''
+    ]
       .map((value) => String(value || '').trim())
       .filter(Boolean)
       .filter((value) => {
@@ -198,13 +203,13 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         seen.add(value);
         return true;
       });
-  }, [media.fallbackSrc, media.src]);
+  }, [media.fallbackSrc, media.fileId, media.src]);
   const mediaUrl = mediaSourceCandidates[activeMediaSourceIndex] || mediaSourceCandidates[0] || '';
   const playbackSrc = (() => {
     const raw = String(mediaUrl || '').trim();
     if (!raw) return '';
     if (mediaReloadToken <= 0) return raw;
-    if (/^(blob:|data:)/i.test(raw)) return raw;
+    if (/^(blob:|data:)/i.test(raw) || isSignedOrTokenizedUrl(raw)) return raw;
     return `${raw}${raw.includes('?') ? '&' : '?'}_r=${mediaReloadToken}`;
   })();
   const safePoster =
@@ -877,6 +882,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
                 }
                 setMediaError(true);
               }}
+              onLoadedData={() => setMediaError(false)}
               poster={safePoster}
               onContextMenu={(event) => event.preventDefault()}
               onClick={(event) => {

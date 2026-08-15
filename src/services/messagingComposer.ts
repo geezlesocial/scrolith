@@ -14,6 +14,8 @@ export const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'
 
 export const DEFAULT_MAX_VOICE_NOTE_SECONDS = 180;
 export const DEFAULT_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+/** Shared limit for text messages across the full inbox and compact chat surfaces. */
+export const MAX_MESSAGE_CHARACTERS = 4000;
 
 export type PendingComposerAttachment = {
   id: string;

@@ -83,6 +83,7 @@ import {
   getReactionChipEntries,
   hasPendingUploadsInFlight,
   MESSAGE_UPLOAD_CONCURRENCY,
+  MAX_MESSAGE_CHARACTERS,
   pendingToAttachmentIds,
   reconcilePendingWithUploadedFile,
   revokePendingObjectUrls,
@@ -3134,6 +3135,10 @@ const Messages = () => {
       e.preventDefault();
       const trimmed = messageInput.trim();
       if ((!trimmed && pendingAttachments.length === 0) || !activeConvoId || !user) return;
+      if (trimmed.length > MAX_MESSAGE_CHARACTERS) {
+          showNotification('error', 'Messages', `Messages can be up to ${MAX_MESSAGE_CHARACTERS.toLocaleString()} characters.`);
+          return;
+      }
       if (isActiveGroupConversation && groupComposerRestriction.blocked) {
           showNotification('error', 'Group', groupComposerRestriction.message || 'Sending is disabled.');
           return;
@@ -3526,6 +3531,10 @@ const Messages = () => {
       const nextText = String(editDraft || '').trim();
       if (!nextText) {
           showNotification('error', 'Messages', 'Message text is required.');
+          return;
+      }
+      if (nextText.length > MAX_MESSAGE_CHARACTERS) {
+          showNotification('error', 'Messages', `Messages can be up to ${MAX_MESSAGE_CHARACTERS.toLocaleString()} characters.`);
           return;
       }
       traceClient('ui.edit_message.request', {

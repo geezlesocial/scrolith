@@ -15,6 +15,7 @@ import {
   X
 } from 'lucide-react';
 import { computeComposerTextareaHeight } from '../../messages/messagesWorkspaceLayout';
+import { MAX_MESSAGE_CHARACTERS } from '../../services/messagingComposer';
 
 export type SmartComposerProps = {
   value: string;
@@ -40,6 +41,7 @@ export type SmartComposerProps = {
   helperText?: string;
   isScrolitha?: boolean;
   compact?: boolean;
+  maxMessageLength?: number;
   testId?: string;
 };
 
@@ -75,6 +77,7 @@ const SmartComposer: React.FC<SmartComposerProps> = ({
   helperText,
   isScrolitha = false,
   compact = false,
+  maxMessageLength = MAX_MESSAGE_CHARACTERS,
   testId = 'smart-composer'
 }) => {
   const localTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -95,6 +98,7 @@ const SmartComposer: React.FC<SmartComposerProps> = ({
   // Mobile empty: mic only. Mobile with content: send only. Desktop: both.
   const showVoiceSlot = Boolean(voiceControl) && (mobilePrimary ? !hasDraft && !sending : true);
   const showSendButton = mobilePrimary ? hasDraft || sending || !voiceControl : true;
+  const messageLengthLimit = Math.max(1, Math.trunc(Number(maxMessageLength) || MAX_MESSAGE_CHARACTERS));
 
   const resizeTextarea = useCallback(() => {
     const el = textareaRef.current;
@@ -363,13 +367,16 @@ const SmartComposer: React.FC<SmartComposerProps> = ({
               placeholder={placeholder}
               value={value}
               disabled={disabled || sending}
-              onChange={(event) => onChange(event.target.value)}
+              onChange={(event) => onChange(event.target.value.slice(0, messageLengthLimit))}
               onKeyDown={onKeyDown}
               onFocus={onFocus}
               onClick={onFocus}
               rows={1}
               enterKeyHint="send"
+              maxLength={messageLengthLimit}
+              aria-describedby={`${testId}-message-length`}
               data-testid="messages-composer-textarea"
+              data-message-max-length={messageLengthLimit}
               aria-label={isScrolitha ? 'Message Scrolitha' : 'Message input'}
             />
           </div>
@@ -438,6 +445,9 @@ const SmartComposer: React.FC<SmartComposerProps> = ({
             {helperText}
           </p>
         ) : null}
+        <span id={`${testId}-message-length`} className="sr-only">
+          Messages can be up to {messageLengthLimit.toLocaleString()} characters.
+        </span>
       </form>
 
       {isMobile ? launcherPanel : null}
