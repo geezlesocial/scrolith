@@ -280,19 +280,24 @@ export const FileService = {
       options = args[2];
     }
 
-    const formData = new FormData();
-    formData.append('file', file);
-    if (file.name) formData.append('name', file.name);
-    if (category) formData.append('category', category);
+    // Recreate the multipart body for every retry. Some mobile WebViews and
+    // browser adapters cannot replay a consumed FormData stream reliably.
+    const createFormData = () => {
+      const formData = new FormData();
+      formData.append('file', file, file.name || 'upload.bin');
+      if (file.name) formData.append('name', file.name);
+      if (category) formData.append('category', category);
 
-    if (typeof options === 'string') {
-      formData.append('role', options);
-    } else if (options) {
-      if (options.role) formData.append('role', options.role);
-      if (options.visibility) formData.append('visibility', options.visibility.toUpperCase());
-      if (options.userId) formData.append('userId', options.userId);
-      if (options.user_id) formData.append('user_id', options.user_id);
-    }
+      if (typeof options === 'string') {
+        formData.append('role', options);
+      } else if (options) {
+        if (options.role) formData.append('role', options.role);
+        if (options.visibility) formData.append('visibility', options.visibility.toUpperCase());
+        if (options.userId) formData.append('userId', options.userId);
+        if (options.user_id) formData.append('user_id', options.user_id);
+      }
+      return formData;
+    };
 
     const onProgress =
       typeof options === 'object' && options
@@ -317,7 +322,7 @@ export const FileService = {
     let lastProgress = 0;
     for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
       try {
-        const response = await api.post<ApiResponse<UploadedFile>>('/files/upload', formData, {
+        const response = await api.post<ApiResponse<UploadedFile>>('/files/upload', createFormData(), {
           timeout: uploadTimeout,
           maxBodyLength: Infinity,
           maxContentLength: Infinity,
@@ -334,7 +339,12 @@ export const FileService = {
             : undefined
         });
         const data = handleApiResponse(response);
-        return normalizeUploadedFile(data);
+        const normalized = normalizeUploadedFile(data);
+        if (!String(normalized.id || normalized.fileId || '').trim()) {
+          throw new Error('Upload completed without a file identifier. Please retry.');
+        }
+        onProgress?.(100, {} as ProgressEvent);
+        return normalized;
       } catch (error: any) {
         const normalizedError = annotateRecoverableError(error);
         lastError = normalizedError;

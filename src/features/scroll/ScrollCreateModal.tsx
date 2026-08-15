@@ -107,6 +107,7 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
   const [creatingSeries, setCreatingSeries] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [uploadedFileId, setUploadedFileId] = useState('');
   const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
   const [locationSearching, setLocationSearching] = useState(false);
   const [locationResolving, setLocationResolving] = useState(false);
@@ -180,6 +181,7 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
     setCreatingSeries(false);
     setUploading(false);
     setProgress(0);
+    setUploadedFileId('');
     setLocationSuggestions([]);
     setLocationSearching(false);
     setLocationResolving(false);
@@ -242,6 +244,8 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
   const handleVideoInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.target.files?.[0] || null;
     setVideoFile(nextFile);
+    setUploadedFileId('');
+    setProgress(0);
     event.currentTarget.value = '';
   };
 
@@ -414,6 +418,7 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
     setCreatingSeries(false);
     setUploading(false);
     setProgress(0);
+    setUploadedFileId('');
     setLocationSuggestions([]);
     setLocationSearching(false);
     setLocationResolving(false);
@@ -424,7 +429,8 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
   };
 
   const handleSubmit = async () => {
-    if (!videoFile && !sourceVideo?.fileId && !editScroll?.media?.id) {
+    if (uploading) return;
+    if (!videoFile && !uploadedFileId && !sourceVideo?.fileId && !editScroll?.media?.id) {
       showNotification('error', 'Scroll', isEditing ? 'Scroll video is missing.' : 'Please choose a video file.');
       return;
     }
@@ -435,14 +441,18 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
 
     try {
       setUploading(true);
-      let fileId = String(sourceVideo?.fileId || '').trim();
-      if (videoFile) {
+      let fileId = String(sourceVideo?.fileId || uploadedFileId || '').trim();
+      if (videoFile && !fileId) {
         setProgress(2);
         const uploaded = await FileService.uploadFile(videoFile, 'portfolio' as any, {
           visibility: 'public',
           onProgress: (percent) => setProgress(percent)
         });
-        fileId = String(uploaded?.id || '').trim();
+        fileId = String(uploaded?.fileId || uploaded?.id || '').trim();
+        if (!fileId) {
+          throw new Error('The video uploaded but did not return a usable file identifier. Please retry.');
+        }
+        setUploadedFileId(fileId);
       }
       if (!fileId) {
         if (isEditing) {
