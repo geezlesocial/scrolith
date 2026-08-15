@@ -453,6 +453,7 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
           throw new Error('The video uploaded but did not return a usable file identifier. Please retry.');
         }
         setUploadedFileId(fileId);
+        setProgress(100);
       }
       if (!fileId) {
         if (isEditing) {

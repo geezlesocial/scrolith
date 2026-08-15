@@ -14,7 +14,6 @@ test('media uploads recreate multipart bodies and validate returned identifiers'
   assert.match(filesService, /const createFormData = \(\) =>/);
   assert.match(filesService, /api\.post<ApiResponse<UploadedFile>>\('\/files\/upload', createFormData\(\)/);
   assert.match(filesService, /normalized\.id \|\| normalized\.fileId/);
-  assert.match(filesService, /onProgress\?\.\(100/);
 });
 
 test('Scroll publish reuses a completed upload and accepts normalized fileId responses', () => {

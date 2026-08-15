@@ -343,7 +343,6 @@ export const FileService = {
         if (!String(normalized.id || normalized.fileId || '').trim()) {
           throw new Error('Upload completed without a file identifier. Please retry.');
         }
-        onProgress?.(100, {} as ProgressEvent);
         return normalized;
       } catch (error: any) {
         const normalizedError = annotateRecoverableError(error);
