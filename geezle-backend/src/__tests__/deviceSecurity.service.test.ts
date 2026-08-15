@@ -17,6 +17,13 @@ const mockLoginApprovalAttempt = {
 };
 
 const mockPrisma = {
+  appSetting: {
+    findUnique: jest.fn()
+  },
+  deviceApprovalWaiver: {
+    findFirst: jest.fn(),
+    updateMany: jest.fn()
+  },
   trustedDevice: mockTrustedDevice,
   loginApprovalAttempt: mockLoginApprovalAttempt,
   notification: {
@@ -115,6 +122,9 @@ const user = {
 describe('deviceSecurity.service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPrisma.appSetting.findUnique.mockResolvedValue(null);
+    mockPrisma.deviceApprovalWaiver.findFirst.mockResolvedValue(null);
+    mockPrisma.deviceApprovalWaiver.updateMany.mockResolvedValue({ count: 0 });
     mockPrisma.authAuditLog.create.mockResolvedValue({});
     mockPrisma.notification.create.mockResolvedValue({ id: 'notification-1' });
     mockSendPushToUser.mockResolvedValue(undefined);

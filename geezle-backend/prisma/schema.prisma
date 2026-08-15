@@ -175,6 +175,7 @@ model User {
   notificationsActed  Notification[]       @relation("NotificationActor")
   deviceTokens        DeviceToken[]
   trustedDevices      TrustedDevice[]
+  deviceApprovalWaivers DeviceApprovalWaiver[]
   loginApprovalAttempts LoginApprovalAttempt[]
   loginApprovalApprovals LoginApprovalAttempt[] @relation("LoginApprovalApprovedBy")
   passwordResetTokens PasswordResetToken[]
@@ -858,6 +859,29 @@ model AppSetting {
   data      Json
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
+}
+
+// Server-authoritative admin waiver for new-device login approval.
+// The active-row uniqueness rule is enforced by the additive SQL migration.
+model DeviceApprovalWaiver {
+  id                String   @id @default(cuid())
+  userId            String
+  mode              String
+  status            String   @default("ACTIVE")
+  createdByAdminId  String?
+  updatedByAdminId  String?
+  consumedAt        DateTime?
+  consumedByDeviceId String?
+  revokedAt         DateTime?
+  revokedByAdminId  String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model FxProvider {

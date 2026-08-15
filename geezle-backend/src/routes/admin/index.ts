@@ -48,6 +48,7 @@ import liveAdminRoutes from './live.routes';
 import systemDemoAccountsRoutes from './system-demo-accounts.routes';
 import marketplaceRoutes from './marketplace.routes';
 import securityAlertsRoutes from './security-alerts.routes';
+import deviceApprovalWaiverRoutes from './device-approval-waiver.routes';
 import procurementRoutes from './procurement.routes';
 import complianceRoutes from './compliance.routes';
 import talentCloudRoutes from './talent-cloud.routes';
@@ -495,6 +496,7 @@ router.use('/policies', policiesRoutes);
 router.use('/approvals', approvalRoutes);
 router.use('/audit', auditRoutes);
 router.use('/security-alerts', securityAlertsRoutes);
+router.use('/security/device-approval-waiver', deviceApprovalWaiverRoutes);
 router.use('/procurement', procurementRoutes);
 router.use('/compliance', complianceRoutes);
 router.use('/talent-cloud', talentCloudRoutes);
@@ -1348,4 +1350,3 @@ router.put('/profile', async (req, res) => {
 });
 
 export default router;
-

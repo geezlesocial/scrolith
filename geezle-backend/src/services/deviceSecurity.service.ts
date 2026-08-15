@@ -4,6 +4,7 @@ import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
 import { sendPushToUser } from './pushNotifications';
 import { ANDROID_CHANNEL_IDS } from './notificationAndroidChannels';
+import { claimDeviceApprovalWaiver, restoreOneTimeDeviceApprovalWaiver } from './deviceApprovalWaiver.service';
 
 type UserForSession = {
   id: string;
@@ -448,6 +449,18 @@ export const evaluateLoginDevice = async (user: UserForSession, req: Request) =>
     }).catch(() => null);
     return { approved: true, device, bootstrapped: false };
   }
+
+  const waiver = await claimDeviceApprovalWaiver(user.id, device.deviceId, req);
+  if (waiver.approved) {
+    try {
+      await ensureTrustedDevice(user.id, device, req);
+      return { approved: true, device, bootstrapped: false, adminWaiver: waiver };
+    } catch (error) {
+      if (waiver.consumed) await restoreOneTimeDeviceApprovalWaiver(waiver.waiverId, device.deviceId);
+      throw error;
+    }
+  }
+
   return createPendingLoginApproval(user, req, device, 'untrusted_device');
 };
 
