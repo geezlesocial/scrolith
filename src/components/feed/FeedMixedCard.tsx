@@ -34,11 +34,8 @@ import {
   type ScrollVideoRecommendationTarget
 } from '../../utils/scrollVideoRoutes';
 import { resolveVideoRecommendationScrollSource } from '../../utils/feedVideoScrollDestination';
-import {
-  buildPostVideoScrollViewerPath,
-  stashPendingPostVideoScrollViewerSource,
-  type PendingPostVideoScrollViewerSource
-} from '../../utils/postVideoScrollBridge';
+import { openVideoInScroll } from '../../utils/openVideoInScroll';
+import { buildPostVideoScrollViewerPath, type PendingPostVideoScrollViewerSource } from '../../utils/postVideoScrollBridge';
 import {
   trackScrollPreviewAttempt,
   trackScrollPreviewBlocked,
@@ -436,11 +433,6 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({
     card.kind === 'ad' ||
     Boolean(card.postVideoSource && card.mediaCandidates.length);
   const scrollTarget = card.scrollTarget;
-  const stashPostVideoSource = () => {
-    if (!card.postVideoSource) return;
-    stashPendingPostVideoScrollViewerSource(card.postVideoSource);
-  };
-
   const emitScrollClick = () => {
     if (!scrollTarget?.scrollVideoId) return;
     trackScrollRecommendationClick({
@@ -581,7 +573,15 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({
                   event.stopPropagation();
                   if (card.disabledNav || !card.href || card.href === '#') return;
                   if (isScroll) emitScrollClick();
-                  if (isPostVideoScroll) stashPostVideoSource();
+                  if (isPostVideoScroll && card.postVideoSource) {
+                    openVideoInScroll({
+                      navigate,
+                      source: card.postVideoSource,
+                      sourceSurface,
+                      returnTo: window.location.pathname + window.location.search
+                    });
+                    return;
+                  }
                   if (card.external) {
                     window.open(card.href, '_blank', 'noopener,noreferrer');
                     return;
@@ -680,9 +680,17 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({
   return (
     <Link
       to={card.href}
-      onClick={() => {
+      onClick={(event) => {
         if (isScroll) emitScrollClick();
-        if (isPostVideoScroll) stashPostVideoSource();
+        if (isPostVideoScroll && card.postVideoSource) {
+          event.preventDefault();
+          openVideoInScroll({
+            navigate,
+            source: card.postVideoSource,
+            sourceSurface,
+            returnTo: window.location.pathname + window.location.search
+          });
+        }
       }}
       className="block focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
       data-testid={isScroll || isPostVideoScroll ? 'feed-mixed-card-scroll-link' : undefined}

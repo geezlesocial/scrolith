@@ -44,11 +44,8 @@ import {
   resolvePostAttachmentMediaUrl,
   resolvePostAttachmentPosterUrl
 } from '../../../utils/postAttachmentMedia';
-import {
-  buildPostVideoScrollViewerPath,
-  stashPendingPostVideoScrollViewerSource,
-  type PendingPostVideoScrollViewerSource
-} from '../../../utils/postVideoScrollBridge';
+import { openVideoInScroll } from '../../../utils/openVideoInScroll';
+import type { PendingPostVideoScrollViewerSource } from '../../../utils/postVideoScrollBridge';
 import { resolveVerificationLevel } from '../../../utils/verification';
 import { resolveVideoCaption } from '../../../utils/videoCaption';
 import FeedAdCard from './FeedAdCard';
@@ -1665,15 +1662,11 @@ export default function MobileFeed({
           typeof post?.viewer?.isFollowingAuthor === 'boolean' ? Boolean(post.viewer.isFollowingAuthor) : null,
         createdAt: String(post?.createdAt || '').trim() || null
       };
-      if (onOpenPostVideoScroll) {
-        onOpenPostVideoScroll(sourcePayload);
-        return;
-      }
-      stashPendingPostVideoScrollViewerSource(sourcePayload);
-      navigate(buildPostVideoScrollViewerPath(sourcePayload), {
-        state: {
-          pendingViewerSource: sourcePayload
-        }
+      openVideoInScroll({
+        navigate,
+        source: sourcePayload,
+        sourceSurface: 'mobile-home',
+        onOpenOverlay: onOpenPostVideoScroll
       });
     },
     [navigate, onOpenPostVideoScroll]

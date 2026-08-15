@@ -358,7 +358,9 @@ const findPrimaryVideoAttachment = (post: any, preferredFileId?: string | null) 
   const normalizedPreferred = String(preferredFileId || '').trim();
   if (normalizedPreferred) {
     const exact = videos.find((attachment: any) => resolveAttachmentBridgeId(attachment) === normalizedPreferred);
-    if (exact) return exact;
+    // An explicit file deep link is authoritative. Never silently switch to a
+    // different attachment when the requested file is unavailable.
+    return exact || null;
   }
   return videos[0] || null;
 };
@@ -502,6 +504,8 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const isPostVideoRoute =
+    !embedded && new URLSearchParams(location.search).get('watch') === 'post-video';
   const routeState = (location.state as ScrollFeedRouteState | null) || null;
   const routePendingViewerSource = routeState?.pendingViewerSource || null;
   const { user } = useUser();
@@ -794,6 +798,14 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 
   const loadFeed = useCallback(
     async (cursor?: string | null) => {
+      // Direct post-video links are hydrated by the route resolver below. Do
+      // not start the normal Scroll feed loader as a competing source; that
+      // would fetch and then overwrite the canonical seeded viewer.
+      if (!cursor && isPostVideoRoute) {
+        setLoading(false);
+        setLoadingMore(false);
+        return;
+      }
       try {
         if (cursor) {
           setLoadingMore(true);
@@ -856,7 +868,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         setLoadingMore(false);
       }
     },
-    [loadPostVideoSeeds, profile.feedPageSize, showNotification]
+    [isPostVideoRoute, loadPostVideoSeeds, profile.feedPageSize, showNotification]
   );
 
   useEffect(() => {

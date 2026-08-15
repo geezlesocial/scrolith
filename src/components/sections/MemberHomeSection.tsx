@@ -158,11 +158,8 @@ import StoryUploadStatusCard from '../stories/StoryUploadStatusCard';
 import StoryAuthorAvatar from '../stories/StoryAuthorAvatar';
 import { usePerformanceProfile } from '../../hooks/usePerformanceProfile';
 import { Capacitor } from '@capacitor/core';
-import {
-  buildPostVideoScrollViewerPath,
-  stashPendingPostVideoScrollViewerSource,
-  type PendingPostVideoScrollViewerSource
-} from '../../utils/postVideoScrollBridge';
+import { openVideoInScroll } from '../../utils/openVideoInScroll';
+import type { PendingPostVideoScrollViewerSource } from '../../utils/postVideoScrollBridge';
 import { DEFAULT_MEMBER_HOME_REGIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../../constants/defaultAudienceOptions';
 import { normalizeContentOfferTags, type OfferTagSelection } from '../../utils/contentOffers';
 import { buildPublicAppUrl } from '../../utils/siteUrl';
@@ -1870,14 +1867,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           typeof post?.viewer?.isFollowingAuthor === 'boolean' ? Boolean(post.viewer.isFollowingAuthor) : null,
         createdAt: String(post?.createdAt || '').trim() || null
       };
-      stashPendingPostVideoScrollViewerSource(sourcePayload);
-      navigate(buildPostVideoScrollViewerPath(sourcePayload), {
-        state: {
-          pendingViewerSource: sourcePayload
-        }
+      openVideoInScroll({
+        navigate,
+        source: sourcePayload,
+        sourceSurface: 'member-home',
+        returnTo: location.pathname + location.search
       });
     },
-    [navigate]
+    [location.pathname, location.search, navigate]
   );
 
   const openPostCard = useCallback(

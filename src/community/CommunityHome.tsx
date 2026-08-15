@@ -88,11 +88,8 @@ import {
   findExistingActiveStoryById,
   resolveStoryIdentity
 } from '../utils/storyAvailability';
-import {
-  buildPostVideoScrollViewerPath,
-  stashPendingPostVideoScrollViewerSource,
-  type PendingPostVideoScrollViewerSource
-} from '../utils/postVideoScrollBridge';
+import { openVideoInScroll } from '../utils/openVideoInScroll';
+import type { PendingPostVideoScrollViewerSource } from '../utils/postVideoScrollBridge';
 import { buildPublicAppUrl } from '../utils/siteUrl';
 import { resolveVideoCaption } from '../utils/videoCaption';
 import { downloadToDevice } from '../utils/deviceDownload';
@@ -634,14 +631,14 @@ const CommunityHome = () => {
           typeof post?.viewer?.isFollowingAuthor === 'boolean' ? Boolean(post.viewer.isFollowingAuthor) : null,
         createdAt: String(post?.createdAt || '').trim() || null
       };
-      stashPendingPostVideoScrollViewerSource(sourcePayload);
-      navigate(buildPostVideoScrollViewerPath(sourcePayload), {
-        state: {
-          pendingViewerSource: sourcePayload
-        }
+      openVideoInScroll({
+        navigate,
+        source: sourcePayload,
+        sourceSurface: 'community',
+        returnTo: location.pathname + location.search
       });
     },
-    [navigate]
+    [location.pathname, location.search, navigate]
   );
 
   const openPostCard = useCallback(
