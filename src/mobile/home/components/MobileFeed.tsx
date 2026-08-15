@@ -575,6 +575,21 @@ export default function MobileFeed({
     );
   }, [user]);
 
+  const legacyMemberHomeFetch = useCallback(async ({ cursor, limit }: { cursor: string | null; limit: number }) => {
+    try {
+      const resp = await CommunityService.getFeed({
+        cursor: cursor || undefined,
+        limit,
+        scope: 'discover'
+      });
+      const posts = extractFeedItemList(resp);
+      const nextCursor = extractNextCursor(resp);
+      return { posts, nextCursor, hasMore: Boolean(nextCursor) };
+    } catch {
+      return null;
+    }
+  }, []);
+
   const sharedFeed = useSurfaceFeedLifecycle({
     surface: 'member_home',
     feedMode: sharedFeedMode,
@@ -585,20 +600,7 @@ export default function MobileFeed({
     isAuthenticated: Boolean(user?.id),
     viewerKey: currentUserId,
     compactCards: true,
-    legacyFetch: async ({ cursor, limit }) => {
-      try {
-        const resp = await CommunityService.getFeed({
-          cursor: cursor || undefined,
-          limit,
-          scope: 'discover'
-        });
-        const posts = extractFeedItemList(resp);
-        const nextCursor = extractNextCursor(resp);
-        return { posts, nextCursor, hasMore: Boolean(nextCursor) };
-      } catch {
-        return null;
-      }
-    }
+    legacyFetch: legacyMemberHomeFetch
   });
   const initialRenderCount = constrainedForFeed ? 4 : 6;
   const renderStep = constrainedForFeed ? 3 : 5;

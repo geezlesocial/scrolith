@@ -135,6 +135,13 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const scrollParentRef = useRef<HTMLElement | null>(null);
   const loadMoreArmedRef = useRef(false);
+  // Feed surfaces may provide an inline legacy fallback. Keep the loader
+  // identity independent from that render-time callback so lifecycle effects
+  // cannot repeatedly tear down and restart a cursorless request.
+  const legacyFetchRef = useRef(legacyFetch);
+  useEffect(() => {
+    legacyFetchRef.current = legacyFetch;
+  }, [legacyFetch]);
   const sessionIdRef = useRef(createFeedSessionId(surface));
   const sessionKeyRef = useRef(`${surface}:${feedMode}`);
   const lastHeadPostIdRef = useRef<string | null>(null);
@@ -449,8 +456,8 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
 
         // Legacy fallback
         setTransport('legacy');
-        if (legacyFetch) {
-          const legacy = await legacyFetch({
+        if (legacyFetchRef.current) {
+          const legacy = await legacyFetchRef.current({
             cursor: mode === 'more' ? cursorRef.current : null,
             limit: pageSize,
             mode,
@@ -534,7 +541,6 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
       feedMode,
       pageSize,
       isAuthenticated,
-      legacyFetch,
       policy.maxRetainedItems,
       commitStream
     ]

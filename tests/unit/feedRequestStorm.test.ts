@@ -36,6 +36,56 @@ test('shared mobile lifecycle passes the viewer identity to the transport', asyn
   assert.match(source, /surface,\s*viewerKey,\s*isMobile,\s*dataSaver/s);
 });
 
+test('shared feed loader does not churn when the legacy fallback callback is recreated', async () => {
+  const hook = await read('src/hooks/useContinuousFeed.ts');
+  const mobile = await read('src/mobile/home/components/MobileFeed.tsx');
+  assert.match(hook, /const legacyFetchRef = useRef\(legacyFetch\);/);
+  assert.match(hook, /legacyFetchRef\.current = legacyFetch/);
+  assert.match(hook, /legacyFetchRef\.current\(\{\s*cursor:/s);
+  assert.doesNotMatch(hook, /\n\s*legacyFetch,\n\s*policy\.maxRetainedItems/);
+  assert.match(mobile, /const legacyMemberHomeFetch = useCallback\(async/);
+  assert.match(mobile, /legacyFetch: legacyMemberHomeFetch/);
+});
+
+test('fetch-attempt model proves callback churn can abort preflight without completing GET', () => {
+  const simulate = (stableLoader: boolean) => {
+    let loadInvocations = 0;
+    let fetchInvocations = 0;
+    let completedGets = 0;
+    let aborted = 0;
+    let loaderIdentity = 0;
+    let activeLoader = -1;
+
+    for (let render = 0; render < 181; render += 1) {
+      const nextLoader = stableLoader ? 0 : loaderIdentity++;
+      if (nextLoader === activeLoader) continue;
+      if (activeLoader !== -1) aborted += 1;
+      activeLoader = nextLoader;
+      loadInvocations += 1;
+      fetchInvocations += 1;
+    }
+
+    // A lifecycle replacement during CORS preflight aborts prior attempts;
+    // the final stable attempt reaches the actual GET.
+    if (fetchInvocations > aborted) completedGets = 1;
+
+    return { loadInvocations, fetchInvocations, completedGets, aborted };
+  };
+
+  assert.deepEqual(simulate(false), {
+    loadInvocations: 181,
+    fetchInvocations: 181,
+    completedGets: 1,
+    aborted: 180
+  });
+  assert.deepEqual(simulate(true), {
+    loadInvocations: 1,
+    fetchInvocations: 1,
+    completedGets: 1,
+    aborted: 0
+  });
+});
+
 test('mobile recovery refresh is keyed by recovery transitions, not loader identity', async () => {
   const source = await read('src/mobile/home/components/MobileFeed.tsx');
   assert.match(source, /const loadRef = useRef\(load\);/);
