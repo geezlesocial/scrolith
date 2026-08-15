@@ -209,6 +209,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'security.login_approval.resolved', fn: forward('security.login_approval.resolved') }
       ,{ ev: 'security:login_approval_required', fn: forward('security:login_approval_required') }
       ,{ ev: 'security:login_approval_updated', fn: forward('security:login_approval_updated') }
+      ,{ ev: 'security:device_approval_waiver_updated', fn: forward('security:device_approval_waiver_updated') }
       ,{ ev: 'community:post_report_submitted', fn: forward('community:post_report_submitted') }
       ,{ ev: 'community:post_report_updated', fn: forward('community:post_report_updated') }
       ,{ ev: 'kyc.updated', fn: forward('kyc.updated') }

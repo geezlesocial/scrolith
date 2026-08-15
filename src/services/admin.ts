@@ -1745,6 +1745,30 @@ export const AdminService = {
     return Boolean(data?.success);
   },
 
+  getDeviceApprovalWaiverSettings: async (): Promise<{ enabled: boolean }> => {
+    return adminGet<{ enabled: boolean }>('/security/device-approval-waiver/settings');
+  },
+
+  updateDeviceApprovalWaiverSettings: async (enabled: boolean): Promise<{ enabled: boolean }> => {
+    return adminPatch<{ enabled: boolean }>('/security/device-approval-waiver/settings', { enabled });
+  },
+
+  findDeviceApprovalWaiverUser: async (email: string): Promise<any> => {
+    return adminGet<any>('/security/device-approval-waiver/user', { email });
+  },
+
+  getDeviceApprovalWaiverState: async (userId: string): Promise<any> => {
+    return adminGet<any>(`/security/device-approval-waiver/${encodeURIComponent(userId)}/history`);
+  },
+
+  grantDeviceApprovalWaiver: async (userId: string, mode: 'ONE_TIME' | 'UNLIMITED'): Promise<any> => {
+    return adminPut<any>(`/security/device-approval-waiver/${encodeURIComponent(userId)}`, { mode });
+  },
+
+  revokeDeviceApprovalWaiver: async (userId: string): Promise<any> => {
+    return adminDelete<any>(`/security/device-approval-waiver/${encodeURIComponent(userId)}`);
+  },
+
   getSettings: async (): Promise<PlatformSettings> => {
     return AdminService.getPlatformSettings();
   },
