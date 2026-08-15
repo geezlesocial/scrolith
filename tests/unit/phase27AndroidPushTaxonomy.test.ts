@@ -3,7 +3,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -18,13 +18,18 @@ import {
 } from '../../src/utils/notificationTaxonomy.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
+const workspaceCandidates = [join(here, '../..', '..'), join(here, '../..', '..', '..')];
+const workspaceRoot =
+  workspaceCandidates.find((candidate) => existsSync(join(candidate, 'mobile/android/app/src/main/AndroidManifest.xml'))) ||
+  workspaceCandidates[1];
+const mobileRoot = join(workspaceRoot, 'mobile');
 const pushSrc = readFileSync(join(here, '../../src/mobile/push.ts'), 'utf8');
 const manifest = readFileSync(
-  join(here, '../../../mobile/android/app/src/main/AndroidManifest.xml'),
+  join(mobileRoot, 'android/app/src/main/AndroidManifest.xml'),
   'utf8'
 );
-const gradle = readFileSync(join(here, '../../../mobile/android/app/build.gradle'), 'utf8');
-const capacitor = readFileSync(join(here, '../../../mobile/capacitor.config.ts'), 'utf8');
+const gradle = readFileSync(join(mobileRoot, 'android/app/build.gradle'), 'utf8');
+const capacitor = readFileSync(join(mobileRoot, 'capacitor.config.ts'), 'utf8');
 
 test('Phase 27 aliases map to enterprise categories and stable channels', () => {
   assert.equal(resolveNotificationCategory({ type: 'chat' }), 'message');
@@ -136,8 +141,8 @@ test('AndroidManifest FCM defaults and POST_NOTIFICATIONS', () => {
 });
 
 test('Phase 29 version and production Capacitor origin', () => {
-  assert.match(gradle, /versionCode 42/);
-  assert.match(gradle, /versionName "1.1.32"/);
+  assert.match(gradle, /versionCode 81/);
+  assert.match(gradle, /versionName "1.1.71"/);
   assert.match(gradle, /debugSymbolLevel/);
   assert.match(capacitor, /scrolith\.com/);
   assert.match(capacitor, /androidScheme: 'https'/);

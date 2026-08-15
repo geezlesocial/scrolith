@@ -456,18 +456,19 @@ export const resolveMediaDescriptor = (input?: any): MediaDescriptor => {
     };
   }
 
-  // 4+5 dual-path: prefer durable /api/files/content/{id} as primary, keep legacy
-  // /uploads as fallback. Azure production serves media via content API + blob;
-  // preferring /uploads first caused postcard/Scroll "Video unavailable" when
-  // ephemeral disk paths 404'd while the fileId content route still worked.
+  // 4+5 dual-path: an explicit /uploads URL is the producer's chosen media
+  // path, so preserve it as primary and keep the file-id content route as a
+  // fallback. When only storagePath is available, the durable content route
+  // remains primary because an inferred /uploads path may be stale.
   if (legacyUploads && contentFromId) {
+    const explicitLegacyUpload = Boolean(resolvedDirect && isLegacyUploadPath(resolvedDirect));
     return {
       fileId: contentId || undefined,
-      url: contentFromId,  // primary - durable on Azure
+      url: explicitLegacyUpload ? legacyUploads : contentFromId,
       fallbackUrl: uniqueNonEmpty(
         explicitFallback ? resolveAssetUrl(explicitFallback) : '',
-        legacyUploads
-      ).filter((value) => value !== contentFromId)[0],
+        explicitLegacyUpload ? contentFromId : legacyUploads
+      ).filter((value) => value !== (explicitLegacyUpload ? legacyUploads : contentFromId))[0],
       storagePath: storagePath || undefined,
       posterUrl: posterUrl || undefined,
       thumbnailUrl: posterUrl || undefined

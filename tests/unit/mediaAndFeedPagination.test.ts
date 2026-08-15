@@ -362,12 +362,14 @@ test('continuous feed keys dedupe by sourceType + sourceId across sources', asyn
     }).isTerminal,
     true
   );
+  // Secondary sources cannot override the zero-progress terminal guard; this
+  // prevents the socket-triggered empty-page request storm from resurfacing.
   assert.equal(
     resolveFeedTerminalState({
       nextCursor: null,
       uniqueAddedCount: 0,
       secondarySourcesRemaining: true
-    }).canContinue,
+    }).isTerminal,
     true
   );
 

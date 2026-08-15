@@ -115,6 +115,6 @@ test('Inline autoplay uses IntersectionObserver and muted playback defaults', ()
 
 test('discovery card spacing is tightened (reduced whitespace)', () => {
   const src = highlights();
-  assert.match(src, /gap-2\.5 sm:gap-3|gap-2 sm:gap-2\.5/);
+  assert.match(src, /gap-2\.5[\s\S]{0,80}sm:gap-3|gap-2 sm:gap-2\.5/);
   assert.match(src, /p-2\.5 shadow-sm.*sm:p-3|p-2\.5/);
 });

@@ -18,6 +18,7 @@ const headerCss = read('src/components/header/enterpriseHeader.css');
 const badgeSrc = read('src/components/header/HeaderUnreadBadge.tsx');
 const navItemSrc = read('src/components/header/HeaderPrimaryNavItem.tsx');
 const headerIndex = read('src/components/header/index.ts');
+const headerMessagesPopover = read('src/components/messaging/HeaderMessagesPopover.tsx');
 
 // ── Structure ──────────────────────────────────────────────────────────────
 
@@ -117,7 +118,9 @@ test('messages control preserves HeaderMessagesPopover + dock integration path',
   assert.match(navbar, /useMessages/);
   assert.match(navbar, /messagesPopoverId/);
   assert.match(navbar, /aria-controls=\{/);
-  assert.match(navbar, /to="\/messages"/);
+  // The full-page route is owned by the popover footer, not duplicated in the
+  // header controller. Keep the integration and route contract together.
+  assert.match(headerMessagesPopover, /to="\/messages"/);
 });
 
 // ── Notifications ──────────────────────────────────────────────────────────
@@ -134,7 +137,7 @@ test('notifications control keeps popup + mark-read wiring', () => {
 test('create menu only exposes existing platform routes with role filters', () => {
   assert.match(navbar, /renderCreateControl/);
   assert.match(navbar, /showCreateMenu/);
-  assert.match(navbar, /url: "\/member-home"/);
+  assert.match(navbar, /url: "\/post\/create"/);
   assert.match(navbar, /url: "\/create-job"/);
   assert.match(navbar, /url: "\/create-gig"/);
   assert.match(navbar, /url: "\/marketplace\/create"/);

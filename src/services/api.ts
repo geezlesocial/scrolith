@@ -3,14 +3,40 @@ import { tokenStore } from './tokenStore';
 import { getApiBaseUrl } from '../utils/apiBase';
 import { resolveAssetUrl } from '../utils/assetUrl';
 
+// Keep Vite replacements static while allowing Node-only unit imports where
+// import.meta.env has not been injected by the bundler.
+const vite = {
+  get PROD() {
+    try { return Boolean(import.meta.env.PROD); } catch { return false; }
+  },
+  get VITE_API_URL() {
+    try { return import.meta.env.VITE_API_URL as string | undefined; } catch { return undefined; }
+  },
+  get VITE_API_BASE_URL() {
+    try { return import.meta.env.VITE_API_BASE_URL as string | undefined; } catch { return undefined; }
+  },
+  get VITE_BACKEND_URL() {
+    try { return import.meta.env.VITE_BACKEND_URL as string | undefined; } catch { return undefined; }
+  },
+  get VITE_MOBILE_API_URL() {
+    try { return import.meta.env.VITE_MOBILE_API_URL as string | undefined; } catch { return undefined; }
+  },
+  get VITE_MOBILE_API_BASE_URL() {
+    try { return import.meta.env.VITE_MOBILE_API_BASE_URL as string | undefined; } catch { return undefined; }
+  },
+  get VITE_API_TIMEOUT_MS() {
+    try { return import.meta.env.VITE_API_TIMEOUT_MS as string | undefined; } catch { return undefined; }
+  }
+};
+
 const hasBackendEnv = Boolean(
-  import.meta.env.VITE_API_URL ||
-  import.meta.env.VITE_API_BASE_URL ||
-  import.meta.env.VITE_BACKEND_URL ||
-  import.meta.env.VITE_MOBILE_API_URL ||
-  import.meta.env.VITE_MOBILE_API_BASE_URL
+  vite.VITE_API_URL ||
+  vite.VITE_API_BASE_URL ||
+  vite.VITE_BACKEND_URL ||
+  vite.VITE_MOBILE_API_URL ||
+  vite.VITE_MOBILE_API_BASE_URL
 );
-if (import.meta.env.PROD && !hasBackendEnv) {
+if (vite.PROD && !hasBackendEnv) {
   throw new Error('VITE_BACKEND_URL (or VITE_API_URL) must be set when building for production');
 }
 
@@ -44,7 +70,7 @@ const isConstrainedNetwork = () => {
   return false;
 };
 const DEFAULT_TIMEOUT_MS = parseTimeoutMs(
-  import.meta.env.VITE_API_TIMEOUT_MS,
+  vite.VITE_API_TIMEOUT_MS,
   isNative()
     ? (isConstrainedNetwork() ? 22000 : 20000)
     : (isConstrainedNetwork() ? 18000 : 16000)

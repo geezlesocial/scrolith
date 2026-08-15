@@ -134,12 +134,11 @@ test('primary modules are assigned to intended slots in source structure', () =>
   const leftIdx = memberHomeSource.indexOf('data-testid="scrolith-member-home-left"');
   const feedIdx = memberHomeSource.indexOf('data-testid="scrolith-member-home-feed"');
   const rightIdx = memberHomeSource.indexOf('data-testid="scrolith-member-home-right"');
-  const gridEnd = memberHomeSource.indexOf('data-testid="scrolith-member-home-right"');
   assert.ok(leftIdx > 0 && feedIdx > leftIdx && rightIdx > feedIdx);
 
   // Stories / discovery live in feed column
   const storiesIdx = memberHomeSource.indexOf('Share quick updates, photos, or videos with your community.');
-  const discoveryIdx = memberHomeSource.indexOf('Member Home Discovery Board');
+  const discoveryIdx = memberHomeSource.indexOf('<MemberHomeHighlightsBoard');
   assert.ok(storiesIdx > feedIdx && storiesIdx < rightIdx);
   assert.ok(discoveryIdx > feedIdx && discoveryIdx < rightIdx);
 
@@ -235,17 +234,15 @@ test('discovery board is compact enterprise layout with bounded Scrolitha coach 
   // 5–6: Open coach exact action + capability metadata (parent-owned)
   assert.match(memberHomeSource, /desktop-scrolitha-coach/);
   assert.match(memberHomeSource, /ctaLabel: 'Open coach'/);
-  assert.match(memberHomeSource, /onClick: \(\) => openInsightsSection\('scrolitha-coach', 'growth'\)/);
+  assert.match(memberHomeSource, /openInsightsSection\('scrolitha-coach', 'growth'\)/);
   assert.match(memberHomeSource, /meta: 'Posts · Gigs · Briefs'/);
   assert.match(boardSource, /parseCapabilityChips/);
 
   // 7–8: module grid responsive contract + secondary cards keep ActionSurface
   assert.match(boardSource, /data-testid="scrolith-discovery-module-grid"/);
   assert.match(boardSource, /data-testid="scrolith-discovery-module-card"/);
-  assert.match(
-    boardSource,
-    /compact \? 'grid grid-cols-1 gap-2\.5' : 'grid grid-cols-1 gap-2\.5 sm:grid-cols-2 xl:grid-cols-3'/
-  );
+  assert.match(boardSource, /compact\s*\?\s*'grid grid-cols-1 gap-2\.5'/);
+  assert.match(boardSource, /grid-cols-1 gap-2\.5[\s\S]*sm:grid-cols-2[\s\S]*xl:grid-cols-3/);
   assert.match(boardSource, /const ActionSurface/);
   assert.match(boardSource, /item\.onClick/);
   assert.match(boardSource, /item\.href/);

@@ -4,13 +4,17 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '../..');
-const monorepo = join(root, '..');
+const monorepoCandidates = [join(root, '..'), join(root, '..', '..')];
+const monorepo =
+  monorepoCandidates.find((candidate) =>
+    existsSync(join(candidate, 'geezle-backend/src/middleware/admin.middleware.ts'))
+  ) || monorepoCandidates[0];
 
 const avatar = readFileSync(join(root, 'src/components/common/EnterpriseAvatar.tsx'), 'utf8');
 const social = readFileSync(join(root, 'src/auth/AuthSocialButtons.tsx'), 'utf8');

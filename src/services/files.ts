@@ -21,12 +21,31 @@ interface ApiError {
   code?: string;
 }
 
-const FILE_LIST_TIMEOUT_MS = Number(import.meta.env.VITE_FILES_LIST_TIMEOUT_MS ?? 30000);
-const FILE_UPLOAD_TIMEOUT_BASE_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_BASE_MS ?? 90000);
-const FILE_UPLOAD_TIMEOUT_PER_MB_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_PER_MB_MS ?? 15000);
-const FILE_UPLOAD_TIMEOUT_MAX_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_MAX_MS ?? 1800000);
-const FILE_LIST_RETRY_ATTEMPTS = Number(import.meta.env.VITE_FILES_LIST_RETRY_ATTEMPTS ?? 2);
-const FILE_UPLOAD_RETRY_ATTEMPTS = Number(import.meta.env.VITE_FILE_UPLOAD_RETRY_ATTEMPTS ?? 2);
+const readFileListTimeout = () => {
+  try { return Number(import.meta.env.VITE_FILES_LIST_TIMEOUT_MS ?? 30000); } catch { return 30000; }
+};
+const readUploadTimeoutBase = () => {
+  try { return Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_BASE_MS ?? 90000); } catch { return 90000; }
+};
+const readUploadTimeoutPerMb = () => {
+  try { return Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_PER_MB_MS ?? 15000); } catch { return 15000; }
+};
+const readUploadTimeoutMax = () => {
+  try { return Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_MAX_MS ?? 1800000); } catch { return 1800000; }
+};
+const readFileListRetries = () => {
+  try { return Number(import.meta.env.VITE_FILES_LIST_RETRY_ATTEMPTS ?? 2); } catch { return 2; }
+};
+const readFileUploadRetries = () => {
+  try { return Number(import.meta.env.VITE_FILE_UPLOAD_RETRY_ATTEMPTS ?? 2); } catch { return 2; }
+};
+
+const FILE_LIST_TIMEOUT_MS = readFileListTimeout();
+const FILE_UPLOAD_TIMEOUT_BASE_MS = readUploadTimeoutBase();
+const FILE_UPLOAD_TIMEOUT_PER_MB_MS = readUploadTimeoutPerMb();
+const FILE_UPLOAD_TIMEOUT_MAX_MS = readUploadTimeoutMax();
+const FILE_LIST_RETRY_ATTEMPTS = readFileListRetries();
+const FILE_UPLOAD_RETRY_ATTEMPTS = readFileUploadRetries();
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 

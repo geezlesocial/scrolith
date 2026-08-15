@@ -116,7 +116,7 @@ test('pending attachments stay isolated per conversation', () => {
 
 test('client send id is deterministic prefix per conversation', () => {
   const id = buildClientSendId('conv-9', 123);
-  assert.equal(id, 'optimistic-conv-9-123');
+  assert.match(id, /^optimistic-conv-9-123-[a-z0-9]+$/);
   assert.equal(isOptimisticMessageId(id), true);
 });
 

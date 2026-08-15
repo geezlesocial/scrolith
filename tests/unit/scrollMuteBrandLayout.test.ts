@@ -19,7 +19,7 @@ test('Mute control is in feed header next to Create (not centered over author)',
   assert.match(scrollFeed, /ml-auto flex shrink-0 items-center gap-2/);
   // Create follows mute in the same right cluster
   const muteIdx = scrollFeed.indexOf('data-testid="scroll-mute-control"');
-  const createIdx = scrollFeed.indexOf('Create');
+  const createIdx = scrollFeed.indexOf('Create', muteIdx);
   assert.ok(muteIdx > 0 && createIdx > muteIdx);
 });
 

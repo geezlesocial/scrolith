@@ -22,31 +22,37 @@ import {
 } from '../../src/utils/notificationTaxonomy.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
+const workspaceCandidates = [join(here, '../..', '..'), join(here, '../..', '..', '..')];
+const workspaceRoot =
+  workspaceCandidates.find((candidate) => existsSync(join(candidate, 'mobile/android/app/src/main/AndroidManifest.xml'))) ||
+  workspaceCandidates[1];
+const mobileRoot = join(workspaceRoot, 'mobile');
+const backendRoot = join(workspaceRoot, 'geezle-backend');
 const pushSrc = readFileSync(join(here, '../../src/mobile/push.ts'), 'utf8');
 const manifest = readFileSync(
-  join(here, '../../../mobile/android/app/src/main/AndroidManifest.xml'),
+  join(mobileRoot, 'android/app/src/main/AndroidManifest.xml'),
   'utf8'
 );
-const gradle = readFileSync(join(here, '../../../mobile/android/app/build.gradle'), 'utf8');
-const capacitor = readFileSync(join(here, '../../../mobile/capacitor.config.ts'), 'utf8');
+const gradle = readFileSync(join(mobileRoot, 'android/app/build.gradle'), 'utf8');
+const capacitor = readFileSync(join(mobileRoot, 'capacitor.config.ts'), 'utf8');
 const packageJson = JSON.parse(
-  readFileSync(join(here, '../../../mobile/package.json'), 'utf8')
+  readFileSync(join(mobileRoot, 'package.json'), 'utf8')
 );
-const rawSoundPath = join(here, '../../../mobile/android/app/src/main/res/raw/scrolith.wav');
+const rawSoundPath = join(mobileRoot, 'android/app/src/main/res/raw/scrolith.wav');
 const smallIconPath = join(
-  here,
-  '../../../mobile/android/app/src/main/res/drawable/ic_stat_scrolith.xml'
+  mobileRoot,
+  'android/app/src/main/res/drawable/ic_stat_scrolith.xml'
 );
 const networkSecurity = readFileSync(
-  join(here, '../../../mobile/android/app/src/main/res/xml/network_security_config.xml'),
+  join(mobileRoot, 'android/app/src/main/res/xml/network_security_config.xml'),
   'utf8'
 );
 const beChannels = readFileSync(
-  join(here, '../../../geezle-backend/src/services/notificationAndroidChannels.ts'),
+  join(backendRoot, 'src/services/notificationAndroidChannels.ts'),
   'utf8'
 );
 const bePush = readFileSync(
-  join(here, '../../../geezle-backend/src/services/pushNotifications.ts'),
+  join(backendRoot, 'src/services/pushNotifications.ts'),
   'utf8'
 );
 
@@ -133,10 +139,10 @@ test('Phase 29 manifest icon, default channel, production hosts, POST_NOTIFICATI
 });
 
 test('Phase 29 version code > 35 and package identity', () => {
-  assert.match(gradle, /versionCode 42/);
-  assert.match(gradle, /versionName "1.1.32"/);
+  assert.match(gradle, /versionCode 81/);
+  assert.match(gradle, /versionName "1.1.71"/);
   assert.match(gradle, /applicationId "com\.scrolith\.scrolith"/);
-  assert.equal(packageJson.version, '1.1.31');
+  assert.equal(packageJson.version, '1.1.71');
   assert.match(capacitor, /hostname: 'scrolith\.com'/);
   assert.match(capacitor, /androidScheme: 'https'/);
   assert.doesNotMatch(capacitor, /localhost:3000/);
