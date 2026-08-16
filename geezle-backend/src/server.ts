@@ -651,7 +651,14 @@ const toUniqueIds = (input: any): string[] => {
 
 const emitVoiceEventToUsers = (userIds: string[], event: string, payload: Record<string, any>) => {
   userIds.forEach((id) => {
-    communityNs.to(`community:user:${id}`).emit(event, payload);
+    // Prefer the authenticated socket registry so a reconnect/join race cannot
+    // drop an incoming call while the socket is connected but not yet in its
+    // per-user room. Fall back to the room for compatibility with sockets that
+    // predate registry registration or run through a room-aware adapter.
+    const directDeliveries = emitToCommunityUserSockets(id, event, payload);
+    if (!directDeliveries) {
+      communityNs.to(`community:user:${id}`).emit(event, payload);
+    }
   });
 };
 
