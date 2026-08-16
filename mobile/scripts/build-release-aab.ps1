@@ -11,9 +11,9 @@ $GeezleRoot = if ($env:SCROLITH_RELEASE_GEEZLE_ROOT) {
   $DefaultGeezleRoot
 }
 $AndroidRoot = Join-Path $MobileRoot 'android'
-$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.70'
-$VersionCode = 80
-$VersionName = '1.1.70'
+$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.73'
+$VersionCode = 83
+$VersionName = '1.1.73'
 $WebCommit = (git -C $GeezleRoot rev-parse --short HEAD 2>$null)
 if (-not $WebCommit) { $WebCommit = 'unknown' }
 
@@ -48,7 +48,7 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $LogDir = Join-Path $OutDir 'logs'
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $ReleaseWebDir = Join-Path $OutDir 'web-dist'
-$RelativeReleaseWebDir = 'release-artifacts/android-1.1.70/web-dist'
+$RelativeReleaseWebDir = 'release-artifacts/android-1.1.73/web-dist'
 $env:SCROLITH_CAPACITOR_WEB_DIR = $RelativeReleaseWebDir
 
 # npm/vite write warnings to stderr; do not treat native stderr as terminating errors.
@@ -161,12 +161,12 @@ $meta = @{
   webCommit = $WebCommit
   minifyEnabled = $true
   shrinkResources = $true
-  phase = 'device-security-login-approval'
+  phase = 'messaging-longtext-socket-7ef95a74'
   targetSdk = 36
   compileSdk = 36
   minSdk = 24
-  productionBackendRevision = 'ca-scrolith-backend--device-security-4dc5f3e0'
-  productionFrontendRevision = 'ca-scrolith-frontend--device-security-dce92f8b'
+  productionBackendRevision = 'ca-scrolith-backend--azure-video-range-5526ccec'
+  productionFrontendRevision = 'ca-scrolith-frontend--callfix-2bf20282'
   productionApi = 'https://api.scrolith.com'
   productionAppUrl = 'https://scrolith.com'
   googlePlayUploadPerformed = $false

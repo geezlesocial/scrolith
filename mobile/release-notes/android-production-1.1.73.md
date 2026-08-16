@@ -5,6 +5,10 @@
 - Added mobile-friendly More/Less controls for messages longer than 500 characters.
 - Preserved complete message content across inbox, header chat, and the floating Messaging widget.
 - Improved long-message wrapping and readability on compact screens.
+- Added a clear More/Less control for messages longer than 500 characters,
+  with the complete message body preserved for both participants.
+- Improved realtime socket startup and recovery so messaging and incoming-call
+  events survive transient WebSocket handshake failures.
 - Hardened Scroll video playback recovery for transient signed-media failures.
 - Preserved existing calls, messaging, authentication, trusted devices, marketplace, captions, reactions, and sharing.
 
