@@ -164,7 +164,7 @@ test('resolvePostAttachmentMediaUrl returns empty for malformed/empty media', as
   assert.equal(resolvePostAttachmentMediaUrl({ name: 'no-media' }), '');
 });
 
-test('marketplace dual-path prefers working /uploads over orphaned fileId content URL', async () => {
+test('marketplace dual-path prefers durable file content with /uploads fallback', async () => {
   const { resolvePostAttachmentMediaUrl, resolvePostAttachmentMediaPair, resolveMediaDescriptor } =
     await loadMediaUtils();
   const media = {
@@ -173,16 +173,16 @@ test('marketplace dual-path prefers working /uploads over orphaned fileId conten
     storagePath: '1783047535108-photo.jpg'
   };
   const preferred = resolvePostAttachmentMediaUrl(media);
-  assert.ok(preferred.includes('/uploads/1783047535108-photo.jpg'));
-  assert.ok(!preferred.includes('/api/files/content/cee0cdb0'));
+  assert.ok(preferred.includes('/api/files/content/cee0cdb0'));
+  assert.ok(!preferred.includes('/uploads/1783047535108-photo.jpg'));
 
   const pair = resolvePostAttachmentMediaPair(media);
-  assert.ok(pair.url.includes('/uploads/'));
-  assert.ok(pair.fallbackUrl.includes('/api/files/content/'));
+  assert.ok(pair.url.includes('/api/files/content/'));
+  assert.ok(pair.fallbackUrl.includes('/uploads/'));
 
   const descriptor = resolveMediaDescriptor(media);
-  assert.ok(String(descriptor.url || '').includes('/uploads/'));
-  assert.ok(String(descriptor.fallbackUrl || '').includes('/api/files/content/'));
+  assert.ok(String(descriptor.url || '').includes('/api/files/content/'));
+  assert.ok(String(descriptor.fallbackUrl || '').includes('/uploads/'));
 });
 
 test('signed URL receives no transforms and no dual rewrite', async () => {
@@ -367,7 +367,7 @@ test('continuous feed keys dedupe by sourceType + sourceId across sources', asyn
       nextCursor: null,
       uniqueAddedCount: 0,
       secondarySourcesRemaining: true
-    }).canContinue,
+    }).isTerminal,
     true
   );
 

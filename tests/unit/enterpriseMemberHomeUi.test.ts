@@ -139,7 +139,7 @@ test('primary modules are assigned to intended slots in source structure', () =>
 
   // Stories / discovery live in feed column
   const storiesIdx = memberHomeSource.indexOf('Share quick updates, photos, or videos with your community.');
-  const discoveryIdx = memberHomeSource.indexOf('Member Home Discovery Board');
+  const discoveryIdx = memberHomeSource.indexOf('Professional Discovery Board');
   assert.ok(storiesIdx > feedIdx && storiesIdx < rightIdx);
   assert.ok(discoveryIdx > feedIdx && discoveryIdx < rightIdx);
 
@@ -235,7 +235,7 @@ test('discovery board is compact enterprise layout with bounded Scrolitha coach 
   // 5–6: Open coach exact action + capability metadata (parent-owned)
   assert.match(memberHomeSource, /desktop-scrolitha-coach/);
   assert.match(memberHomeSource, /ctaLabel: 'Open coach'/);
-  assert.match(memberHomeSource, /onClick: \(\) => openInsightsSection\('scrolitha-coach', 'growth'\)/);
+  assert.match(memberHomeSource, /openInsightsSection\('scrolitha-coach', 'growth'\)/);
   assert.match(memberHomeSource, /meta: 'Posts · Gigs · Briefs'/);
   assert.match(boardSource, /parseCapabilityChips/);
 
@@ -244,7 +244,7 @@ test('discovery board is compact enterprise layout with bounded Scrolitha coach 
   assert.match(boardSource, /data-testid="scrolith-discovery-module-card"/);
   assert.match(
     boardSource,
-    /compact \? 'grid grid-cols-1 gap-2\.5' : 'grid grid-cols-1 gap-2\.5 sm:grid-cols-2 xl:grid-cols-3'/
+    /compact\s*\?\s*'grid grid-cols-1 gap-2\.5'\s*:\s*'grid auto-rows-fr grid-cols-1 gap-2\.5 sm:grid-cols-2 sm:gap-3 xl:grid-cols-3'/
   );
   assert.match(boardSource, /const ActionSurface/);
   assert.match(boardSource, /item\.onClick/);

@@ -21,12 +21,15 @@ interface ApiError {
   code?: string;
 }
 
-const FILE_LIST_TIMEOUT_MS = Number(import.meta.env.VITE_FILES_LIST_TIMEOUT_MS ?? 30000);
-const FILE_UPLOAD_TIMEOUT_BASE_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_BASE_MS ?? 90000);
-const FILE_UPLOAD_TIMEOUT_PER_MB_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_PER_MB_MS ?? 15000);
-const FILE_UPLOAD_TIMEOUT_MAX_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_MAX_MS ?? 1800000);
-const FILE_LIST_RETRY_ATTEMPTS = Number(import.meta.env.VITE_FILES_LIST_RETRY_ATTEMPTS ?? 2);
-const FILE_UPLOAD_RETRY_ATTEMPTS = Number(import.meta.env.VITE_FILE_UPLOAD_RETRY_ATTEMPTS ?? 2);
+// Vite injects import.meta.env in the browser; keep service imports safe for
+// Node-based tests and other non-Vite runtimes as well.
+const viteEnv = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env || {};
+const FILE_LIST_TIMEOUT_MS = Number(viteEnv.VITE_FILES_LIST_TIMEOUT_MS ?? 30000);
+const FILE_UPLOAD_TIMEOUT_BASE_MS = Number(viteEnv.VITE_FILE_UPLOAD_TIMEOUT_BASE_MS ?? 90000);
+const FILE_UPLOAD_TIMEOUT_PER_MB_MS = Number(viteEnv.VITE_FILE_UPLOAD_TIMEOUT_PER_MB_MS ?? 15000);
+const FILE_UPLOAD_TIMEOUT_MAX_MS = Number(viteEnv.VITE_FILE_UPLOAD_TIMEOUT_MAX_MS ?? 1800000);
+const FILE_LIST_RETRY_ATTEMPTS = Number(viteEnv.VITE_FILES_LIST_RETRY_ATTEMPTS ?? 2);
+const FILE_UPLOAD_RETRY_ATTEMPTS = Number(viteEnv.VITE_FILE_UPLOAD_RETRY_ATTEMPTS ?? 2);
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 

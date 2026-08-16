@@ -115,7 +115,10 @@ test('messages control preserves HeaderMessagesPopover + dock integration path',
   assert.match(navbar, /useMessages/);
   assert.match(navbar, /messagesPopoverId/);
   assert.match(navbar, /aria-controls=\{/);
-  assert.match(navbar, /to="\/messages"/);
+  const messagesPopover = read('src/components/messaging/HeaderMessagesPopover.tsx');
+  assert.match(messagesPopover, /onSelect=\{openConversation\}/);
+  assert.match(messagesPopover, /to="\/messages"/);
+  assert.match(messagesPopover, /buildMessagingSoftOpenState/);
 });
 
 // ── Notifications ──────────────────────────────────────────────────────────
@@ -132,7 +135,7 @@ test('notifications control keeps popup + mark-read wiring', () => {
 test('create menu only exposes existing platform routes with role filters', () => {
   assert.match(navbar, /renderCreateControl/);
   assert.match(navbar, /showCreateMenu/);
-  assert.match(navbar, /url: "\/member-home"/);
+  assert.match(navbar, /url: "\/post\/create"/);
   assert.match(navbar, /url: "\/create-job"/);
   assert.match(navbar, /url: "\/create-gig"/);
   assert.match(navbar, /url: "\/marketplace\/create"/);

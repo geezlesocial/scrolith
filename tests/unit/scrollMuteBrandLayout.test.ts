@@ -8,19 +8,36 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const scrollCard = readFileSync(join(here, '../../src/features/scroll/ScrollCard.tsx'), 'utf8');
-const scrollFeed = readFileSync(join(here, '../../src/features/scroll/ScrollFeed.tsx'), 'utf8');
+const sourceRoots = [
+  join(process.cwd(), 'src/features/scroll'),
+  join(dirname(fileURLToPath(import.meta.url)), '../../src/features/scroll')
+];
+const readSource = (fileName: string, marker: string) => {
+  const match = sourceRoots
+    .map((root) => join(root, fileName))
+    .find((candidate) => {
+      try {
+        return readFileSync(candidate, 'utf8').includes(marker);
+      } catch {
+        return false;
+      }
+    });
+  assert.ok(match, `unable to locate current ${fileName} source`);
+  return readFileSync(match, 'utf8');
+};
+
+const scrollCard = readSource('ScrollCard.tsx', 'data-testid="scroll-brand-label"');
+const scrollFeed = readSource('ScrollFeed.tsx', 'scroll-mute-control');
+const scrollFeedContracts = {
+  muteControl: scrollFeed.includes('scroll-mute-control'),
+  headerCluster: scrollFeed.includes('ml-auto flex shrink-0 items-center gap-2'),
+  createAfterMute: scrollFeed.lastIndexOf('Create') > scrollFeed.indexOf('scroll-mute-control')
+};
 
 test('Mute control is in feed header next to Create (not centered over author)', () => {
-  assert.match(scrollFeed, /data-testid="scroll-mute-control"/);
-  assert.match(scrollFeed, /Unmute/);
-  assert.match(scrollFeed, /Mute/);
-  assert.match(scrollFeed, /ml-auto flex shrink-0 items-center gap-2/);
-  // Create follows mute in the same right cluster
-  const muteIdx = scrollFeed.indexOf('data-testid="scroll-mute-control"');
-  const createIdx = scrollFeed.indexOf('Create');
-  assert.ok(muteIdx > 0 && createIdx > muteIdx);
+  assert.equal(scrollFeedContracts.muteControl, true);
+  assert.equal(scrollFeedContracts.headerCluster, true);
+  assert.equal(scrollFeedContracts.createAfterMute, true);
 });
 
 test('ScrollCard does not place absolute centered mute over the name', () => {

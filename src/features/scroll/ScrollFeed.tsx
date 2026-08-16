@@ -71,6 +71,9 @@ import {
 } from '../../utils/scrollLearningEngine';
 import { resolveInlineMedia } from '../../utils/inlineMedia';
 
+const SCROLL_MUTE_LABEL = 'Mute all Scrolls';
+const SCROLL_UNMUTE_LABEL = 'Unmute all Scrolls';
+
 const LAST_SCROLL_INDEX_KEY = 'scroll:lastIndex';
 const GLOBAL_SCROLL_MUTED_KEY = 'scroll:muted';
 const SCROLL_AD_CAP_STATE_KEY = 'scroll:ads:frequencyCaps';
@@ -1934,7 +1937,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
             type="button"
             onClick={() => setMuted((prev) => !prev)}
             className="inline-flex h-10 max-w-full items-center gap-1.5 rounded-full border border-white/20 bg-black/55 px-3 text-xs font-semibold text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-black/75"
-            aria-label={muted ? 'Unmute all Scrolls' : 'Mute all Scrolls'}
+            aria-label={muted ? SCROLL_UNMUTE_LABEL : SCROLL_MUTE_LABEL}
             aria-pressed={muted}
             data-testid="scroll-mute-control"
             title={muted ? 'Unmute' : 'Mute'}

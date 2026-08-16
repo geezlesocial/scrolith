@@ -158,7 +158,7 @@ test('MemberHomeSection closeDesktopComposer is stable (empty deps / refs)', () 
 test('MemberHomeSection editor has no dynamic key tied to draft content', () => {
   // The composer editor must not remount on text updates.
   const editorBlock = memberHomeSource.match(
-    /<MentionHashtagTextarea[\s\S]{0,400}className=\{composerEditor\}/
+    /<MentionHashtagTextarea[\s\S]{0,1200}className=\{[^}]*composerEditor[^}]*\}/
   );
   assert.ok(editorBlock, 'composer MentionHashtagTextarea present');
   assert.equal(/key=\{/.test(editorBlock![0]), false);

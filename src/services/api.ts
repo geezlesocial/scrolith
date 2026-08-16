@@ -3,14 +3,17 @@ import { tokenStore } from './tokenStore';
 import { getApiBaseUrl } from '../utils/apiBase';
 import { resolveAssetUrl } from '../utils/assetUrl';
 
+// Vite injects import.meta.env in the browser build; keep direct Node-based
+// service tests and SSR-like tooling safe when that object is absent.
+const viteEnv = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env || {};
 const hasBackendEnv = Boolean(
-  import.meta.env.VITE_API_URL ||
-  import.meta.env.VITE_API_BASE_URL ||
-  import.meta.env.VITE_BACKEND_URL ||
-  import.meta.env.VITE_MOBILE_API_URL ||
-  import.meta.env.VITE_MOBILE_API_BASE_URL
+  viteEnv.VITE_API_URL ||
+  viteEnv.VITE_API_BASE_URL ||
+  viteEnv.VITE_BACKEND_URL ||
+  viteEnv.VITE_MOBILE_API_URL ||
+  viteEnv.VITE_MOBILE_API_BASE_URL
 );
-if (import.meta.env.PROD && !hasBackendEnv) {
+if (viteEnv.PROD && !hasBackendEnv) {
   throw new Error('VITE_BACKEND_URL (or VITE_API_URL) must be set when building for production');
 }
 
@@ -44,7 +47,7 @@ const isConstrainedNetwork = () => {
   return false;
 };
 const DEFAULT_TIMEOUT_MS = parseTimeoutMs(
-  import.meta.env.VITE_API_TIMEOUT_MS,
+  viteEnv.VITE_API_TIMEOUT_MS,
   isNative()
     ? (isConstrainedNetwork() ? 22000 : 20000)
     : (isConstrainedNetwork() ? 18000 : 16000)

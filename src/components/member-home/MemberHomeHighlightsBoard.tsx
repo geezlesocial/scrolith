@@ -492,7 +492,7 @@ const CoachCard = ({
   return (
     <div
       className={[
-        'rounded-2xl border p-3.5 shadow-sm sm:p-4',
+        'rounded-2xl border p-2.5 shadow-sm sm:p-3',
         tone.ring,
         'bg-gradient-to-r from-violet-50/80 via-white to-white'
       ].join(' ')}
@@ -589,8 +589,8 @@ const ModuleCard = ({
   return (
     <div
       className={[
-        'h-full min-h-[7.5rem] min-w-0 overflow-hidden rounded-2xl border p-3 shadow-sm transition',
-        'hover:border-slate-300 hover:shadow-md sm:min-h-[8rem] sm:p-3.5',
+        'h-full min-h-[7.5rem] min-w-0 overflow-hidden rounded-2xl border p-2.5 shadow-sm transition',
+        'hover:border-slate-300 hover:shadow-md sm:min-h-[8rem] sm:p-3',
         tone.ring
       ].join(' ')}
       data-testid="scrolith-discovery-module-card"

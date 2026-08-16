@@ -1,6 +1,30 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
+const ensureViteEnv = () => {
+  const meta = import.meta as ImportMeta & { env?: Record<string, unknown> };
+  if (!meta.env || typeof meta.env !== 'object') {
+    Object.defineProperty(meta, 'env', {
+      value: {},
+      writable: true,
+      configurable: true,
+      enumerable: true
+    });
+  }
+  Object.assign(meta.env, {
+    PROD: false,
+    DEV: true,
+    MODE: 'test',
+    BASE_URL: '/',
+    VITE_API_URL: 'https://api.scrolith.com/api',
+    VITE_API_BASE_URL: 'https://api.scrolith.com/api',
+    VITE_BACKEND_URL: 'https://api.scrolith.com',
+    VITE_PUBLIC_APP_DOMAIN: 'scrolith.com'
+  });
+};
+
+ensureViteEnv();
+
+const {
   BoundedIdSet,
   buildMessagingEventFingerprint,
   canAutoRetryOutgoing,
@@ -16,8 +40,8 @@ import {
   trackOutgoingMessage,
   __resetMessagingEventBusForTests,
   MAX_OUTGOING_AUTO_RETRIES
-} from '../../src/services/messagingEngine';
-import { reconcileOptimisticMessage } from '../../src/services/messagingSurfaces';
+} = await import('../../src/services/messagingEngine');
+const { reconcileOptimisticMessage } = await import('../../src/services/messagingSurfaces');
 
 test('event bus publishes typed and wildcard events with sequences', () => {
   __resetMessagingEventBusForTests();
