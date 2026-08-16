@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
+import { PassThrough } from 'stream';
 import { execFile } from 'child_process';
 import jwt from 'jsonwebtoken';
 import { Jimp } from 'jimp';
@@ -24,6 +25,7 @@ import {
   downloadBlobByName,
   deleteBlobByName,
   extractBlobNameFromUrl,
+  getBlobPropertiesByName,
   isAzureBlobConfigured,
   uploadBufferToBlob
 } from '../services/storage/blobStorage';
@@ -1574,6 +1576,66 @@ const redirectToBrandAssetFallback = (res: Response, assetName?: string | null) 
   res.redirect(302, fallbackUrl);
 };
 
+type AzureRangedServeResult = 'served' | 'missing' | 'error';
+
+const createAzureBlobRangeStream = (blobName: string, start: number, end: number) => {
+  const output = new PassThrough();
+  const count = Math.max(0, end - start + 1);
+
+  void downloadBlobByName(blobName, { offset: start, count })
+    .then((response) => {
+      const source = response.readableStreamBody;
+      if (!source) {
+        output.destroy(new Error('Azure blob stream unavailable'));
+        return;
+      }
+      source.on('error', (error) => output.destroy(error));
+      source.pipe(output);
+    })
+    .catch((error) => output.destroy(error));
+
+  return output;
+};
+
+const serveAzureBlobRange = async (options: {
+  blobName: string;
+  req: Request;
+  res: Response;
+  contentType?: string | null;
+  cacheControl: string;
+}): Promise<AzureRangedServeResult> => {
+  try {
+    const properties = await getBlobPropertiesByName(options.blobName);
+    const size = Number(properties.contentLength || 0);
+    if (!Number.isFinite(size) || size < 0) return 'error';
+
+    const { serveRangedObject } = require('../utils/httpRange') as typeof import('../utils/httpRange');
+    serveRangedObject({
+      req: options.req,
+      res: options.res,
+      size,
+      contentType:
+        String(properties.contentType || '').trim() ||
+        String(options.contentType || '').trim() ||
+        'application/octet-stream',
+      cacheControl: options.cacheControl,
+      etag: properties.etag || null,
+      lastModified: properties.lastModified || null,
+      openStream: (start, end) => createAzureBlobRangeStream(options.blobName, start, end)
+    });
+    return 'served';
+  } catch (error: any) {
+    const statusCode = Number(error?.statusCode || 0);
+    const errorCode = String(error?.code || '');
+    if (statusCode === 404 || errorCode === 'BlobNotFound') return 'missing';
+    console.warn('Failed to prepare Azure ranged media response:', {
+      statusCode,
+      errorCode
+    });
+    return 'error';
+  }
+};
+
 const tryServeManagedStorageUploadAsset = async (relativePath: string, req: Request, res: Response) => {
   const normalizedPath = normalizeSlashes(relativePath).replace(/^\/+/, '');
   if (!normalizedPath) return false;
@@ -1656,39 +1718,14 @@ const tryServeManagedStorageUploadAsset = async (relativePath: string, req: Requ
   }
 
   if (isAzureBlobConfigured()) {
-    try {
-      const blobResponse = await downloadBlobByName(normalizedPath);
-      const contentType =
-        blobResponse.contentType ||
-        getMimeTypeFromFilename(normalizedPath);
-      applyFileResponseHeaders(res, {
-        contentType,
-        contentLength: blobResponse.contentLength,
-        cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL
-      });
-      const stream = blobResponse.readableStreamBody;
-      if (!stream) return false;
-      stream.on('error', (streamError) => {
-        console.error('Azure blob stream error (direct legacy upload):', streamError);
-        if (!res.headersSent) {
-          res.status(500).end();
-        } else {
-          res.end();
-        }
-      });
-      stream.pipe(res);
-      return true;
-    } catch (error: any) {
-      const statusCode = Number(error?.statusCode || 0);
-      const errorCode = String(error?.code || '');
-      if (statusCode === 404 || errorCode === 'BlobNotFound') {
-        return false;
-      }
-      console.warn('Failed to serve direct Azure legacy upload asset:', {
-        relativePath: normalizedPath,
-        error
-      });
-    }
+    const result = await serveAzureBlobRange({
+      blobName: normalizedPath,
+      req,
+      res,
+      contentType: getMimeTypeFromFilename(normalizedPath),
+      cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL
+    });
+    if (result === 'served') return true;
   }
 
   return false;
@@ -2197,42 +2234,20 @@ export const serveFileContent = async (req: Request, res: Response) => {
         return;
       }
 
-      try {
-        const blobResponse = await downloadBlobByName(file.storageKey);
-        const contentType = blobResponse.contentType || file.mimeType || 'application/octet-stream';
-        applyFileResponseHeaders(res, {
-          contentType,
-          contentLength: blobResponse.contentLength,
-          cacheControl
-        });
-
-        const stream = blobResponse.readableStreamBody;
-        if (!stream) {
-          res.status(404).json({ success: false, error: 'File not found in storage' });
-          return;
-        }
-
-        stream.on('error', (streamError) => {
-          console.error('Azure blob stream error:', streamError);
-          if (!res.headersSent) {
-            res.status(500).end();
-          } else {
-            res.end();
-          }
-        });
-        stream.pipe(res);
-        return;
-      } catch (error: any) {
-        const statusCode = Number(error?.statusCode || 0);
-        const errorCode = String(error?.code || '');
-        if (statusCode === 404 || errorCode === 'BlobNotFound') {
-          res.status(404).json({ success: false, error: 'File not found in storage' });
-          return;
-        }
-        console.error('Failed to stream Azure blob:', error);
-        res.status(500).json({ success: false, error: 'Failed to read file from storage' });
+      const result = await serveAzureBlobRange({
+        blobName: file.storageKey,
+        req,
+        res,
+        contentType: file.mimeType,
+        cacheControl
+      });
+      if (result === 'served') return;
+      if (result === 'missing') {
+        res.status(404).json({ success: false, error: 'File not found in storage' });
         return;
       }
+      res.status(500).json({ success: false, error: 'Failed to read file from storage' });
+      return;
     }
 
     const storageKeyPath = file.storageKey ? stripUploadsPrefix(file.storageKey) : '';
@@ -2652,38 +2667,19 @@ export const serveLegacyUploadAsset = async (req: Request, res: Response) => {
       ) as string[];
 
       for (const blobName of blobCandidates) {
-        try {
-          const blobResponse = await downloadBlobByName(blobName);
-          const contentType =
-            blobResponse.contentType ||
+        const result = await serveAzureBlobRange({
+          blobName,
+          req,
+          res,
+          contentType:
             legacyMatch.mimeType ||
-            getMimeTypeFromFilename(legacyMatch.filename || baseName);
-
-          applyFileResponseHeaders(res, {
-            contentType,
-            contentLength: blobResponse.contentLength,
-            cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL
-          });
-
-          const stream = blobResponse.readableStreamBody;
-          if (!stream) continue;
-          stream.on('error', (streamError) => {
-            console.error('Azure blob stream error (legacy upload):', streamError);
-            if (!res.headersSent) {
-              res.status(500).end();
-            } else {
-              res.end();
-            }
-          });
-          stream.pipe(res);
+            getMimeTypeFromFilename(legacyMatch.filename || baseName),
+          cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL
+        });
+        if (result === 'served') return;
+        if (result === 'error') {
+          res.status(500).json({ success: false, error: 'Failed to read file from storage' });
           return;
-        } catch (error: any) {
-          const statusCode = Number(error?.statusCode || 0);
-          const errorCode = String(error?.code || '');
-          if (statusCode === 404 || errorCode === 'BlobNotFound') {
-            continue;
-          }
-          throw error;
         }
       }
 

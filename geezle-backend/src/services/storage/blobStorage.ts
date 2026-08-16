@@ -100,11 +100,16 @@ export async function getBlobPropertiesByName(blobName: string) {
   return container.getBlobClient(normalized).getProperties();
 }
 
-export async function downloadBlobByName(blobName: string) {
+export type BlobDownloadOptions = {
+  offset?: number;
+  count?: number;
+};
+
+export async function downloadBlobByName(blobName: string, options: BlobDownloadOptions = {}) {
   const container = getContainerClient();
   const normalized = normalizeBlobName(blobName);
   const blobClient = container.getBlobClient(normalized);
-  return blobClient.download();
+  return blobClient.download(options.offset, options.count);
 }
 
 export async function downloadBlobBufferByName(blobName: string) {
