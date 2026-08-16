@@ -5,6 +5,8 @@
 - Improved message composition across the inbox, floating Messaging panel, and conversations opened from the header.
 - Added a shared 4,000-character message limit with predictable behavior on compact mobile layouts and desktop chat.
 - Improved long-message wrapping and editing behavior so messages remain readable without breaking the conversation layout.
+- Added a mobile-friendly More/Less expansion control for messages longer than 500 characters across inbox, header chat, and the floating Messaging widget.
+- Preserved the complete message body for recipients instead of truncating conversation content to a short preview.
 - Hardened Scroll video playback with bounded attachment fallbacks and safer retry behavior for signed media URLs.
 - Improved recovery after transient media-load failures without changing existing reactions, captions, comments, sharing, follow, or analytics behavior.
 - Preserved existing call, messaging, authentication, trusted-device, and marketplace functionality.
