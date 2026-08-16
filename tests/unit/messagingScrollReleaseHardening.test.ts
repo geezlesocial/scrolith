@@ -21,6 +21,19 @@ test('messaging surfaces share the 4000 character contract', () => {
   assert.match(window, /maxLength=\{MAX_MESSAGE_CHARACTERS\}/);
 });
 
+test('conversation messages preserve full text and expose More at 500 characters', () => {
+  const window = read('src/components/messaging/MessagingChatWindow.tsx');
+  const policy = read('src/services/messagingComposer.ts');
+
+  assert.match(policy, /MESSAGE_DISPLAY_EXPANSION_LIMIT\s*=\s*500/);
+  assert.match(window, /const messageText = String\(message\.text \|\| ''\)/);
+  assert.match(window, /<ExpandablePreviewText/);
+  assert.match(window, /limit=\{MESSAGE_DISPLAY_EXPANSION_LIMIT\}/);
+  assert.match(window, /moreLabel="More"/);
+  assert.match(window, /lessLabel="Less"/);
+  assert.doesNotMatch(window, /text=\{getMessagePreviewText\(message\) \|\| message\.text\}/);
+});
+
 test('Scroll retries do not mutate signed URLs and retain attachment fallback', () => {
   const card = read('src/features/scroll/ScrollCard.tsx');
   const inline = read('src/utils/inlineMedia.ts');

@@ -27,6 +27,7 @@ import { useMessages } from '../../context/MessageContext';
 import { useUser } from '../../context/UserContext';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
 import EnterpriseAvatar from '../common/EnterpriseAvatar';
+import ExpandablePreviewText from '../common/ExpandablePreviewText';
 import {
   formatRelativeMessageTime,
   getConversationAvatarParticipant,
@@ -49,7 +50,10 @@ import { MessageAttachmentsList } from './MessageAttachmentRenderer';
 import SafeMessageText from './SafeMessageText';
 import { extractMessageAttachments } from '../../services/messagingMedia';
 import { getRecoverableActionMessage } from '../../mobile/runtime/requestRecovery';
-import { MAX_MESSAGE_CHARACTERS } from '../../services/messagingComposer';
+import {
+  MAX_MESSAGE_CHARACTERS,
+  MESSAGE_DISPLAY_EXPANSION_LIMIT
+} from '../../services/messagingComposer';
 import { AIService } from '../../services/ai/ai.service';
 
 type MessagingChatWindowProps = {
@@ -664,6 +668,7 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
             const reactionCounts = getReactionCounts(message);
             const reactionChips = deleted ? [] : getReactionChipEntries(message);
             const mediaAttachments = deleted ? [] : extractMessageAttachments(message);
+            const messageText = String(message.text || '');
 
             const isPinnedMsg = pins.some(
               (p) => String(p.messageId || p.message?.id || '') === String(message.id)
@@ -756,20 +761,33 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
                       </div>
                     ) : (
                       <>
-                        {(!deleted && String(message.text || '').trim()) || deleted ? (
+                        {(!deleted && messageText.trim()) || deleted ? (
                           <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                             {deleted ? (
                               '[Message deleted]'
                             ) : (
-                              <SafeMessageText
-                                text={getMessagePreviewText(message) || message.text}
-                                outgoing={mine && !failed}
-                                navigate={navigate}
-                                mentionClassName={
+                              <ExpandablePreviewText
+                                text={messageText}
+                                limit={MESSAGE_DISPLAY_EXPANSION_LIMIT}
+                                moreLabel="More"
+                                lessLabel="Less"
+                                buttonClassName={
                                   mine && !failed
-                                    ? 'font-semibold text-blue-100 underline decoration-blue-200/80'
-                                    : 'font-semibold text-indigo-600'
+                                    ? 'text-blue-100 hover:text-white'
+                                    : 'text-blue-700 hover:text-blue-800'
                                 }
+                                renderText={(visibleText) => (
+                                  <SafeMessageText
+                                    text={visibleText}
+                                    outgoing={mine && !failed}
+                                    navigate={navigate}
+                                    mentionClassName={
+                                      mine && !failed
+                                        ? 'font-semibold text-blue-100 underline decoration-blue-200/80'
+                                        : 'font-semibold text-indigo-600'
+                                    }
+                                  />
+                                )}
                               />
                             )}
                           </div>

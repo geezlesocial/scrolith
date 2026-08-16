@@ -16,6 +16,7 @@ export const DEFAULT_MAX_VOICE_NOTE_SECONDS = 180;
 export const DEFAULT_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 /** Shared limit for text messages across the full inbox and compact chat surfaces. */
 export const MAX_MESSAGE_CHARACTERS = 4000;
+export const MESSAGE_DISPLAY_EXPANSION_LIMIT = 500;
 
 export type PendingComposerAttachment = {
   id: string;
