@@ -21,6 +21,7 @@ class SocketService {
   private reconnectAttempts = 0
   private maxReconnectAttempts = 10
   private pingInterval: ReturnType<typeof setInterval> | null = null
+  private connectionAttempt = 0
 
   async connect(options: SocketConnectOptions) {
     const nextSignature = JSON.stringify({
@@ -43,6 +44,7 @@ class SocketService {
     }
 
     this.disconnect()
+    const attempt = ++this.connectionAttempt
 
     const namespace = options.namespace
       ? (options.namespace.startsWith('/') ? options.namespace : `/${options.namespace}`)
@@ -57,9 +59,20 @@ class SocketService {
 
     this.socketSignature = nextSignature
     const { io } = await import('socket.io-client')
+    // Auth/recovery state can request another connection while the dynamic
+    // client import is still pending. Do not let a stale attempt create a
+    // second socket after the newer attempt has taken ownership.
+    if (attempt !== this.connectionAttempt) return null
+
     this.socket = io(socketUrl, {
       path: '/socket.io',
-      transports: ['websocket', 'polling'],
+      // Establish the Engine.IO session over HTTP first, then upgrade when
+      // WebSocket is available. This avoids losing the initial call/message
+      // events when a direct WebSocket handshake is closed by a proxy.
+      transports: ['polling', 'websocket'],
+      upgrade: true,
+      rememberUpgrade: false,
+      tryAllTransports: true,
       reconnection: true,
       reconnectionAttempts: this.maxReconnectAttempts,
       reconnectionDelay: 1000,
@@ -148,6 +161,7 @@ class SocketService {
   }
 
   disconnect() {
+    this.connectionAttempt += 1
     this.stopPing()
     if (this.socket) {
       this.socket.removeAllListeners()

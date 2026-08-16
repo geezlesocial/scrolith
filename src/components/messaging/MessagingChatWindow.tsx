@@ -50,7 +50,7 @@ import {
 } from '../../services/messagingComposer';
 import InlineMessageComposer from './InlineMessageComposer';
 import { MessageAttachmentsList } from './MessageAttachmentRenderer';
-import SafeMessageText from './SafeMessageText';
+import ExpandableMessageText from './ExpandableMessageText';
 import { extractMessageAttachments } from '../../services/messagingMedia';
 import { getRecoverableActionMessage } from '../../mobile/runtime/requestRecovery';
 import { AIService } from '../../services/ai/ai.service';
@@ -792,8 +792,9 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
                             {deleted ? (
                               '[Message deleted]'
                             ) : (
-                              <SafeMessageText
-                                text={getMessagePreviewText(message) || message.text}
+                              <ExpandableMessageText
+                                messageId={String(message.id)}
+                                text={String(message.text || '')}
                                 outgoing={mine && !failed}
                                 navigate={navigate}
                                 mentionClassName={

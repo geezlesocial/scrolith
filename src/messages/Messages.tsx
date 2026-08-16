@@ -40,7 +40,7 @@ import SmartComposer from '../components/messaging/SmartComposer';
 import GroupManagePanel from '../components/messaging/GroupManagePanel';
 import GroupCreateWizard from '../components/messaging/GroupCreateWizard';
 import ChatAppearancePanel from '../components/messaging/ChatAppearancePanel';
-import SafeMessageText from '../components/messaging/SafeMessageText';
+import ExpandableMessageText from '../components/messaging/ExpandableMessageText';
 import {
   appearanceToBackgroundStyle,
   buildChatPalette,
@@ -4818,7 +4818,8 @@ const Messages = () => {
                                                     'max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word]'
                                                 ].join(' ')}
                                             >
-                                                <SafeMessageText
+                                                <ExpandableMessageText
+                                                    messageId={String(msg.id)}
                                                     text={
                                                         isScrolithaAuthoredMessage(msg)
                                                             ? normalizeScrolithaDisplayText(String(msg.text || ''))
