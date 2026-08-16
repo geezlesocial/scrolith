@@ -33,6 +33,8 @@ test('call listeners are lifecycle-scoped and media state uses exact cleanup', (
   assert.ok(provider.includes('if (!matchesCurrentCall(payload)) return;'));
   assert.ok(provider.includes("socket.on('call:media', onMediaState)"));
   assert.ok(provider.includes("socket.off('call:media', onMediaState)"));
+  assert.ok(provider.includes("socket.on('messenger:call_started', onRinging)"));
+  assert.ok(provider.includes("socket.off('messenger:call_started', onRinging)"));
   assert.ok(provider.includes('acceptingCallIdRef.current === callId'));
   assert.ok(provider.includes('endingCallIdRef.current === callId'));
   assert.ok(provider.includes('setReconnecting(true)'));

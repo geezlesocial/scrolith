@@ -1181,6 +1181,11 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
 
     socket.on('call:initiate', onInitiated);
     socket.on('call:ringing', onRinging);
+    // The backend also broadcasts this participant-scoped lifecycle event to
+    // every invited user. Keep it as a delivery fallback when the room-scoped
+    // ringing event races a reconnect or room join. onRinging is idempotent by
+    // callId, so receiving both events cannot duplicate the call UI or tone.
+    socket.on('messenger:call_started', onRinging);
     socket.on('call:participant:joined', onParticipantJoined);
     socket.on('call:participant:add', onParticipantAdded);
     socket.on('call:participant:left', onParticipantLeft);
@@ -1270,6 +1275,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     return () => {
       socket.off('call:initiate', onInitiated);
       socket.off('call:ringing', onRinging);
+      socket.off('messenger:call_started', onRinging);
       socket.off('call:participant:joined', onParticipantJoined);
       socket.off('call:participant:add', onParticipantAdded);
       socket.off('call:participant:left', onParticipantLeft);
