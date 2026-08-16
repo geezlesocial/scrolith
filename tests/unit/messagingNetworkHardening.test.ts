@@ -201,3 +201,12 @@ test('voice/video calls use mobile-friendly WebRTC and microphone constraints', 
   assert.ok(constraints.includes('autoGainControl: { ideal: true }'));
   assert.ok(constraints.includes('channelCount: { ideal: 1, max: 1 }'));
 });
+
+test('remote video playback stays muted because hidden audio sinks own speaker output', () => {
+  const modal = read('src/messages/VoiceCallModal.tsx');
+  assert.match(modal, /RemoteStreamAudioSinks remoteStreams=\{remoteStreams\} speakerOn=\{speakerOn\}/);
+  assert.match(modal, /stream=\{remoteEntries\[0\]\[1\]\}[\s\S]{0,600}muted\s*className=/);
+  assert.match(modal, /stream=\{stream\}\s+muted\s+className=/);
+  assert.doesNotMatch(modal, /stream=\{remoteEntries\[0\]\[1\]\}[\s\S]{0,600}muted=\{!speakerOn\}/);
+  assert.doesNotMatch(modal, /stream=\{stream\}\s+muted=\{!speakerOn\}/);
+});

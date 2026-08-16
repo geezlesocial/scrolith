@@ -270,7 +270,10 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
       {isVideo && remoteEntries[0] ? (
         <AttachStreamVideo
           stream={remoteEntries[0][1]}
-          muted={!speakerOn}
+          // Remote audio is owned by RemoteStreamAudioSinks below. Keeping
+          // every remote video element muted prevents duplicate playback and
+          // same-room feedback while preserving the speaker control there.
+          muted
           className="absolute inset-0 h-full w-full object-cover"
         />
       ) : null}
@@ -349,7 +352,7 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
             <div className="grid w-full max-w-5xl grid-cols-1 gap-3 sm:grid-cols-2">
               {remoteEntries.slice(0, 4).map(([userId, stream]) => (
                 <div key={userId} className="relative aspect-video overflow-hidden rounded-2xl bg-slate-900 ring-1 ring-white/10">
-                  <AttachStreamVideo stream={stream} muted={!speakerOn} className="h-full w-full object-cover" />
+                  <AttachStreamVideo stream={stream} muted className="h-full w-full object-cover" />
                    <span className="absolute bottom-3 left-3 rounded-full bg-black/50 px-3 py-1 text-xs font-semibold">
                      {participantUsers.find((user) => user.id === userId)?.name || 'Participant'}
                    </span>
