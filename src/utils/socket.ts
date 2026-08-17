@@ -1,5 +1,17 @@
 import type { Socket } from 'socket.io-client'
 
+export type SocketTransport = 'polling' | 'websocket'
+
+export function resolveSocketTransports(value?: string): SocketTransport[] {
+  const configured = String(value || 'polling,websocket')
+    .split(',')
+    .map((transport) => transport.trim().toLowerCase())
+    .filter((transport): transport is SocketTransport =>
+      transport === 'polling' || transport === 'websocket'
+    )
+  return configured.length > 0 ? configured : ['polling', 'websocket']
+}
+
 export type SocketConnectOptions = {
   url: string
   namespace?: string
@@ -64,13 +76,15 @@ class SocketService {
     // second socket after the newer attempt has taken ownership.
     if (attempt !== this.connectionAttempt) return null
 
+    const transports = resolveSocketTransports(import.meta.env.VITE_SOCKET_TRANSPORTS)
+
     this.socket = io(socketUrl, {
       path: '/socket.io',
-      // Establish the Engine.IO session over HTTP first, then upgrade when
-      // WebSocket is available. This avoids losing the initial call/message
-      // events when a direct WebSocket handshake is closed by a proxy.
-      transports: ['polling', 'websocket'],
-      upgrade: true,
+      // Production keeps polling-first upgrade behavior. QA can explicitly
+      // select websocket-only when the ingress cannot preserve polling
+      // session affinity across replicas.
+      transports,
+      upgrade: transports.length > 1,
       rememberUpgrade: false,
       tryAllTransports: true,
       reconnection: true,

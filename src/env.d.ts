@@ -7,6 +7,7 @@ interface ImportMetaEnv {
   readonly VITE_APP_DOMAIN?: string;
   readonly VITE_PUBLIC_APP_DOMAIN?: string;
   readonly VITE_SOCKET_URL?: string;
+  readonly VITE_SOCKET_TRANSPORTS?: string;
   readonly VITE_SENTRY_DSN?: string;
   readonly VITE_OPENAI_API_KEY?: string;
   readonly VITE_GEMINI_KEY?: string;
