@@ -14,6 +14,7 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import validateEnv from './utils/validateEnv';
 import { resolveDirectMediaUrl, resolveFileBaseUrl } from './utils/mediaUrl';
 import { runtimePolicy } from './config/runtimePolicy';
+import { installSocketRedisAdapter } from './services/realtime/socketRedisAdapter';
 
 // Import routes
 import cmsRoutes from './routes/cms';
@@ -4959,6 +4960,7 @@ app.use((err: Error, req: Request, res: Response, next: any) => {
 const PORT = parseInt(process.env.PORT!) || 5000;
 if (runtimePolicy.backgroundWorkersEnabled) {
   void (async () => {
+    const realtimeRedis = await installSocketRedisAdapter(io);
     let prismaReadyForWorkers = false;
     try {
       await ensurePrismaReady();
@@ -4967,6 +4969,14 @@ if (runtimePolicy.backgroundWorkersEnabled) {
     } catch (error) {
       console.error('[prisma] initial connect failed; continuing in degraded mode', error);
     }
+
+    const shutdown = async (signal: string) => {
+      console.log(`[shutdown] received ${signal}; closing realtime infrastructure.`);
+      await realtimeRedis.close();
+      server.close();
+    };
+    process.once('SIGTERM', () => void shutdown('SIGTERM'));
+    process.once('SIGINT', () => void shutdown('SIGINT'));
 
     server.listen(PORT, async () => {
     console.log(`========================================`);
@@ -5132,7 +5142,11 @@ if (runtimePolicy.backgroundWorkersEnabled) {
       console.warn('[cron] retention purge worker not started because Prisma is not ready.');
     }
   });
-  })();
+  })().catch((error) => {
+    const errorName = error instanceof Error ? error.name : 'UnknownError';
+    console.error(`[startup] realtime infrastructure initialization failed (${errorName}); server not started.`);
+    process.exitCode = 1;
+  });
 } else {
   console.log('Server auto-start skipped (test/runtime policy disabled background workers).');
 }
