@@ -1024,11 +1024,13 @@ const SupportWidget: React.FC = () => {
   const allowVoiceInput = widgetConfig.allowVoiceInput !== false;
   const allowFileUpload = widgetConfig.allowFileUpload !== false;
   const showStatusBadge = widgetConfig.showStatusBadge !== false;
-  const logoUrl = getScrolithaProfilePhotoUrl(widgetConfig.logoUrl || undefined);
+  const logoUrl = widgetConfig.logoUrl
+    ? getScrolithaProfilePhotoUrl(widgetConfig.logoUrl)
+    : '/logo.png';
   const handleLogoError = (event: React.SyntheticEvent<HTMLImageElement>) => {
     const image = event.currentTarget;
     image.onerror = null;
-    image.src = getScrolithaProfilePhotoUrl();
+    image.src = '/logo.png';
   };
   const statusLabel = isAuthenticated ? (isConnected ? 'Live assistant' : 'Assistant available') : 'Guided support';
 

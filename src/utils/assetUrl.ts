@@ -203,9 +203,24 @@ export const resolveAssetUrl = (value?: string | null) => {
       // Never rewrite signed URLs (signature is bound to host + path + query).
       if (isSignedOrTokenizedUrl(url)) return trimmed;
 
-      // Never rewrite already-valid API/backend file-content (or upload) URLs.
-      // Example: https://api.scrolith.com/api/files/content/<id>
-      if (isCanonicalApiAssetHost(hostname)) return trimmed;
+      // Production API responses can contain unsigned absolute content URLs.
+      // On a QA/candidate frontend those URLs point back to api.scrolith.com,
+      // whose same-origin resource policy blocks media embedded by the candidate.
+      // Rebase only unsigned platform content URLs to the configured backend;
+      // signed URLs and production-to-production URLs remain unchanged.
+      if (isCanonicalApiAssetHost(hostname)) {
+        if (hostname === 'api.scrolith.com' && backendOrigin) {
+          try {
+            const backendHost = new URL(backendOrigin).hostname.toLowerCase();
+            if (backendHost && backendHost !== hostname) {
+              return `${backendOrigin}${url.pathname}${url.search}${url.hash}`;
+            }
+          } catch {
+            // Keep the original absolute URL if the configured origin is invalid.
+          }
+        }
+        return trimmed;
+      }
 
       // Only rewrite SPA hosts that would otherwise return HTML for /api or /uploads.
       if (!isSpaAssetHost(hostname)) return trimmed;
