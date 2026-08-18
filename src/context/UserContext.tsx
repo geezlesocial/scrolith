@@ -5,6 +5,7 @@ import { resolveAuthenticatedEntryPath } from '../utils/authRedirect';
 
 interface UserContextType {
   user: User | null;
+  activeRole: UserRole | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   getAdminProfile: () => any;
@@ -24,6 +25,7 @@ interface UserContextType {
     humanVerificationToken?: string | null
   ) => Promise<boolean>;
   updateUser: (updates: any) => void;
+  setActiveRole: (role: UserRole.FREELANCER | UserRole.EMPLOYER) => void;
   switchRole: () => void;
 }
 
@@ -66,6 +68,16 @@ const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, fallback:
 
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [activeRoleOverride, setActiveRoleOverride] = useState<UserRole | null>(() => {
+    try {
+      const storedRole = String(window.sessionStorage.getItem('activeRole') || '').toLowerCase();
+      if (storedRole.includes('freelancer') || storedRole.includes('seller')) return UserRole.FREELANCER;
+      if (storedRole.includes('employer') || storedRole.includes('client')) return UserRole.EMPLOYER;
+    } catch {
+      // Session storage is best-effort.
+    }
+    return null;
+  });
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -316,10 +328,12 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = () => {
     setUser(null);
+    setActiveRoleOverride(null);
     setIsAuthenticated(false);
     try {
       localStorage.removeItem('admin_profile');
       localStorage.removeItem('user');
+      window.sessionStorage.removeItem('activeRole');
     } catch {}
 
     // Drop all private messaging media object URLs before navigation.
@@ -352,6 +366,17 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
+  const setActiveRole = (nextRole: UserRole.FREELANCER | UserRole.EMPLOYER) => {
+    if (!user || user.role === UserRole.ADMIN) return;
+    setActiveRoleOverride(nextRole);
+    try {
+      window.sessionStorage.setItem('activeRole', String(nextRole));
+      window.dispatchEvent(new CustomEvent('scrolith:active-role-changed', { detail: { role: nextRole } }));
+    } catch {
+      // Session storage and custom events are best-effort.
+    }
+  };
+
   const switchRole = () => {
     if (!user) return;
     // Prevent admins from using this toggle which is intended for freelancers/employers.
@@ -379,6 +404,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <UserContext.Provider value={{
       user,
+      activeRole: activeRoleOverride || user?.role || null,
       isAuthenticated,
       isLoading,
       getAdminProfile,
@@ -387,6 +413,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       logout,
       register,
       updateUser,
+      setActiveRole,
       switchRole
     }}>
       {children}
