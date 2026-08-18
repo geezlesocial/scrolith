@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Tag, Clock, FileText, FileImage, FileVideo, ExternalLink, Upload, Heart, ShoppingCart } from 'lucide-react';
 import { JobsService } from '../services/jobs';
-import { Job, UploadedFile } from '../types';
+import { Job, UploadedFile, UserRole } from '../types';
 import { useNotification } from '../context/NotificationContext';
 import { useUser } from '../context/UserContext';
 import FilePickerModal from '../dashboard/shared/FilePickerModal';
@@ -17,7 +17,8 @@ import ListingBodyContent from '../components/ListingBodyContent';
 const JobDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user } = useUser();
+  const [searchParams] = useSearchParams();
+  const { user, activeRole, setActiveRole } = useUser();
   const { showNotification } = useNotification();
   const { toggleFavorite, isFavorite } = useFavorites();
   const { addJobToCart, isJobInCart } = useCart();
@@ -104,11 +105,17 @@ const JobDetail = () => {
     };
   }, [id]);
 
-  const role = String(user?.role || '').toLowerCase();
+  const role = String(activeRole || user?.role || '').toLowerCase();
   const isFreelancer = role.includes('freelancer') || role.includes('seller');
   const canApply = Boolean(job && (job.status || '').toLowerCase() === 'active');
   const liked = Boolean(job && isFavorite('job', job.id));
   const inCart = Boolean(job && isJobInCart(job.id));
+
+  useEffect(() => {
+    if (!job || !user || searchParams.get('intent') !== 'apply' || !canApply || applyOpen) return;
+    if (!isFreelancer) setActiveRole(UserRole.FREELANCER);
+    setApplyOpen(true);
+  }, [applyOpen, canApply, isFreelancer, job, searchParams, setActiveRole, user]);
 
   const handleToggleFavorite = async () => {
     if (!job || jobActionLoading) return;
@@ -154,10 +161,7 @@ const JobDetail = () => {
       showNotification('alert', 'Sign in required', 'Please sign in to apply for this job.');
       return;
     }
-    if (!isFreelancer) {
-      showNotification('alert', 'Not allowed', 'Only freelancers can submit proposals.');
-      return;
-    }
+    if (!isFreelancer) setActiveRole(UserRole.FREELANCER);
 
     if (!coverLetter.trim() || coverLetter.trim().length < 10) {
       showNotification('alert', 'Cover letter required', 'Please add at least 10 characters.');
@@ -332,8 +336,8 @@ const JobDetail = () => {
                      return;
                    }
                    if (!isFreelancer) {
-                     showNotification('alert', 'Not allowed', 'Only freelancers can submit proposals.');
-                     return;
+                     setActiveRole(UserRole.FREELANCER);
+                     showNotification('info', 'Applying as Freelancer', 'Your employer permissions remain unchanged.');
                    }
                    setApplyOpen(true);
                  }}
@@ -385,6 +389,7 @@ const JobDetail = () => {
                <div>
                  <h3 className="text-lg font-bold text-gray-900">Submit Proposal</h3>
                  <p className="text-xs text-gray-500">Apply to {job.title}</p>
+                 <p className="mt-1 text-xs font-semibold text-green-700">Applying as Freelancer</p>
                </div>
                <button
                  onClick={() => setApplyOpen(false)}
