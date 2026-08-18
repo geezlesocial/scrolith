@@ -3,7 +3,7 @@ import React, { createContext, useContext, useEffect, useState, useRef } from 'r
 import type { Socket } from 'socket.io-client'
 import { useUser } from './UserContext'
 import { useNetworkStatus } from './NetworkStatusContext'
-import { socketService } from '../utils/socket'
+import { resolveSocketOrigin, socketService } from '../utils/socket'
 import { tokenStore } from '../services/tokenStore'
 import { getBackendOrigin } from '../utils/apiBase'
 
@@ -291,7 +291,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const connectSocket = async () => {
       // Keep socket origin aligned with the canonical API base resolver so
       // accidental placeholder domains (e.g. api.example.com) are ignored.
-      const socketUrl = getBackendOrigin() || ''
+      const socketUrl = resolveSocketOrigin(import.meta.env.VITE_SOCKET_URL, getBackendOrigin())
       const token = (await tokenStore.get()) || ''
       const nextSignature = buildSocketSignature({
         url: socketUrl,

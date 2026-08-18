@@ -12,6 +12,15 @@ export function resolveSocketTransports(value?: string): SocketTransport[] {
   return configured.length > 0 ? configured : ['polling', 'websocket']
 }
 
+/**
+ * Resolve the realtime origin independently from the REST/API origin.
+ * Dedicated realtime deployments use VITE_SOCKET_URL while local/default
+ * deployments continue to fall back to the canonical backend origin.
+ */
+export function resolveSocketOrigin(explicitUrl?: string, fallbackUrl?: string): string {
+  return String(explicitUrl || fallbackUrl || '').trim().replace(/\/+$/, '')
+}
+
 export type SocketConnectOptions = {
   url: string
   namespace?: string
