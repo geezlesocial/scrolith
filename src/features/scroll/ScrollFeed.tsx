@@ -1339,6 +1339,27 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
     [loadFeed, scrollToIndex]
   );
 
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const onWheel = (event: WheelEvent) => {
+      if (isInteractiveScrollControlTarget(event.target)) return;
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX) || Math.abs(event.deltaY) < 40) return;
+      const now = Date.now();
+      if (now - wheelNavigationLockRef.current < 420) {
+        event.preventDefault();
+        return;
+      }
+      wheelNavigationLockRef.current = now;
+      event.preventDefault();
+      void navigateRelative(event.deltaY > 0 ? 1 : -1);
+    };
+
+    container.addEventListener('wheel', onWheel, { capture: true, passive: false });
+    return () => container.removeEventListener('wheel', onWheel, true);
+  }, [navigateRelative]);
+
   const handleAdvanceToNextScroll = useCallback(
     async (originIndex: number) => {
       const nextIndex = Math.max(0, originIndex + 1);
@@ -1997,18 +2018,6 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         ref={containerRef}
         className="h-screen snap-y snap-mandatory overflow-y-auto"
         style={{ WebkitOverflowScrolling: 'touch', overscrollBehaviorY: 'contain', touchAction: 'pan-y' }}
-        onWheelCapture={(event) => {
-          if (isInteractiveScrollControlTarget(event.target)) return;
-          if (Math.abs(event.deltaY) <= Math.abs(event.deltaX) || Math.abs(event.deltaY) < 40) return;
-          const now = Date.now();
-          if (now - wheelNavigationLockRef.current < 420) {
-            event.preventDefault();
-            return;
-          }
-          wheelNavigationLockRef.current = now;
-          event.preventDefault();
-          void navigateRelative(event.deltaY > 0 ? 1 : -1);
-        }}
         onTouchStartCapture={(event) => {
           if (isInteractiveScrollControlTarget(event.target)) {
             touchSwipeStartRef.current = null;
