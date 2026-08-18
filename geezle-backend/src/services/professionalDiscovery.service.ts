@@ -3,6 +3,7 @@
  * Reuses marketplace listings, community clubs, CMS blogs, resume/career surfaces.
  * No schema changes. Fail-soft when a source is empty.
  */
+import { ChannelVisibility } from '@prisma/client';
 import prisma from '../utils/prismaClient';
 
 const getAppSetting = async (scope: string, fallback: any) => {
@@ -257,7 +258,7 @@ const loadGroups = async (signals: ViewerSignals, limit: number): Promise<Profes
   try {
     const rows = await prisma.communityClub.findMany({
       where: {
-        OR: [{ status: 'active' as any }, { status: 'ACTIVE' as any }, { visibility: 'public' as any }]
+        OR: [{ status: 'active' as any }, { status: 'ACTIVE' as any }, { visibility: ChannelVisibility.PUBLIC }]
       } as any,
       orderBy: [{ updatedAt: 'desc' } as any],
       take: Math.max(limit * 3, 30),

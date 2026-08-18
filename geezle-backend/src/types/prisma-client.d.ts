@@ -18,6 +18,9 @@ declare module '@prisma/client' {
   export type FileVisibility = any;
   export const FileVisibility: any;
 
+  export type ChannelVisibility = any;
+  export const ChannelVisibility: any;
+
   export type JobStatus = any;
   export const JobStatus: any;
 

@@ -1,4 +1,5 @@
 import type { Application } from 'express';
+import { ChannelVisibility } from '@prisma/client';
 import prisma from '../../../utils/prismaClient';
 import gcoinService from '../../../services/gcoinService';
 
@@ -420,7 +421,7 @@ const getFanClubsSummary = async (userId: string) => {
 
   try {
     const clubRows = await prisma.communityClub.findMany({
-      where: { visibility: 'public' },
+      where: { visibility: ChannelVisibility.PUBLIC },
       include: {
         owner: { select: { id: true, name: true, username: true, avatar: true } },
         memberships: {
