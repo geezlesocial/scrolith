@@ -37,3 +37,9 @@ test('Cloud Run FCM refuses ambient application-default credentials', () => {
   assert.match(pushSrc, /Missing FCM_SERVICE_ACCOUNT_JSON/);
   assert.match(pushSrc, /mismatched-credential/);
 });
+
+test('incoming calls use the native Android cold-start delivery path', () => {
+  assert.match(pushSrc, /isIncomingCallPayload/);
+  assert.match(pushSrc, /if\s*\(!isIncomingCallPayload\(payload\)\)\s*\{[\s\S]*fcmMessage\.notification/);
+  assert.match(pushSrc, /data-only message is required/i);
+});

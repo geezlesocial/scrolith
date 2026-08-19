@@ -522,6 +522,9 @@ const matchesPushTargetPlatform = (
 const uniqueTokens = (tokens: Array<{ token: string }>) =>
   Array.from(new Set(tokens.map((token) => token.token).filter(Boolean)));
 
+const isIncomingCallPayload = (payload?: PushNotificationPayload) =>
+  String(payload?.type || payload?.data?.type || '').trim().toLowerCase() === 'call_ringing';
+
 const buildAndroidPushConfig = (payload?: PushNotificationPayload): admin.messaging.AndroidConfig => {
   const channelId = payload
     ? resolveAndroidChannelId({
@@ -554,10 +557,17 @@ const buildAndroidPushConfig = (payload?: PushNotificationPayload): admin.messag
     category === 'message'
       ? String(payload?.data?.conversationId || payload?.data?.conversation_id || tag).slice(0, 64)
       : tag;
-  return {
+  const config: admin.messaging.AndroidConfig = {
     priority,
-    collapseKey,
-    notification: {
+    collapseKey
+  };
+
+  // Incoming calls are handled by the Android app's native FCM service. A
+  // data-only message is required so Android can wake that service while the
+  // WebView is backgrounded or terminated. Other notification categories
+  // retain the existing system-managed notification behavior.
+  if (!isIncomingCallPayload(payload)) {
+    config.notification = {
       channelId,
       sound: SCROLITH_ANDROID_SOUND,
       icon: SCROLITH_ANDROID_SMALL_ICON,
@@ -578,10 +588,12 @@ const buildAndroidPushConfig = (payload?: PushNotificationPayload): admin.messag
         typeof payload?.data?.badgeCount === 'number'
           ? payload.data.badgeCount
           : typeof payload?.data?.unreadCount === 'number'
-            ? payload.data.unreadCount
+          ? payload.data.unreadCount
             : undefined
-    }
-  };
+    };
+  }
+
+  return config;
 };
 
 const loadEligibleDeviceTokens = async (
@@ -623,13 +635,17 @@ const sendToTokens = async (
 
   for (const batch of chunk(tokens, 500)) {
     try {
-      const response = await messaging.sendEachForMulticast({
+      const fcmMessage: admin.messaging.MulticastMessage = {
         tokens: batch,
-        notification: { title: message.title, body: message.body },
         data: message.data,
         android: buildAndroidPushConfig(payload),
         apns: { headers: { 'apns-priority': '10' } }
-      });
+      };
+      if (!isIncomingCallPayload(payload)) {
+        fcmMessage.notification = { title: message.title, body: message.body };
+      }
+
+      const response = await messaging.sendEachForMulticast(fcmMessage);
 
       response.responses.forEach((res, idx) => {
         if (res.success) {
