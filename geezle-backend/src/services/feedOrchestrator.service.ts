@@ -1627,24 +1627,27 @@ async function collectStoriesScroll(take: number, seen: Set<string>): Promise<Ca
   }
 }
 
+const buildCommunityEventQuery = (take: number, now = new Date()) => ({
+  // CommunityEvent has no status column; only return current and upcoming events.
+  where: { endTime: { gte: now } },
+  orderBy: [{ startTime: 'asc' }, { createdAt: 'desc' }],
+  take: Math.min(Math.max(1, Math.trunc(take)), 6),
+  select: {
+    id: true,
+    title: true,
+    description: true,
+    startTime: true,
+    endTime: true,
+    location: true,
+    createdAt: true
+  }
+});
+
 async function collectEvents(take: number, seen: Set<string>): Promise<Candidate[]> {
   try {
     // Prefer community events table when present.
     const events = await (prisma as any).communityEvent
-      ?.findMany?.({
-        where: { status: { in: ['active', 'published', 'ACTIVE', 'PUBLISHED'] } },
-        orderBy: [{ startAt: 'asc' }, { createdAt: 'desc' }],
-        take: Math.min(take, 6),
-        select: {
-          id: true,
-          title: true,
-          description: true,
-          startAt: true,
-          endAt: true,
-          location: true,
-          createdAt: true
-        }
-      })
+      ?.findMany?.(buildCommunityEventQuery(take))
       .catch?.(() => []) ?? [];
 
     return (events as any[])
@@ -1659,7 +1662,7 @@ async function collectEvents(take: number, seen: Set<string>): Promise<Candidate
           id,
           sourceId: id,
           feedKey: key,
-          createdAt: toIso(event.startAt || event.createdAt),
+          createdAt: toIso(event.startTime || event.createdAt),
           score,
           rankingScore: score,
           author: null,
@@ -1815,6 +1818,7 @@ export const __feedOrchestratorTestUtils = {
   looksLikeFeedTemplateSkeleton,
   buildNearDuplicateFingerprint,
   isNearDuplicateText,
+  buildCommunityEventQuery,
   jaccardSimilarity,
   tokenizeForNearDuplicate,
   deriveMemberFeedWatermark,

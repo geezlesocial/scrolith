@@ -150,6 +150,27 @@ describe('feedOrchestrator pure helpers', () => {
     expect(typeof __feedOrchestratorTestUtils.buildNearDuplicateFingerprint).toBe('function');
   });
 
+  test('community event query uses the Prisma schema fields and excludes expired events', () => {
+    const now = new Date('2026-08-19T00:00:00.000Z');
+    const query = __feedOrchestratorTestUtils.buildCommunityEventQuery(20, now);
+
+    expect(query.where).toEqual({ endTime: { gte: now } });
+    expect(query.orderBy).toEqual([{ startTime: 'asc' }, { createdAt: 'desc' }]);
+    expect(query.take).toBe(6);
+    expect(query.select).toEqual({
+      id: true,
+      title: true,
+      description: true,
+      startTime: true,
+      endTime: true,
+      location: true,
+      createdAt: true
+    });
+    expect(query).not.toHaveProperty('where.status');
+    expect(query.select).not.toHaveProperty('startAt');
+    expect(query.select).not.toHaveProperty('endAt');
+  });
+
   test('pagination-style pages do not repeat feedKeys when seen is applied', () => {
     const all = [
       cand({ id: '1', type: 'POST', score: 10, authorId: 'a', payload: { content: 'page one post a' } }),
