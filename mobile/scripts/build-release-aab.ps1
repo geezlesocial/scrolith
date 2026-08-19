@@ -11,9 +11,9 @@ $GeezleRoot = if ($env:SCROLITH_RELEASE_GEEZLE_ROOT) {
   $DefaultGeezleRoot
 }
 $AndroidRoot = Join-Path $MobileRoot 'android'
-$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.75'
-$VersionCode = 85
-$VersionName = '1.1.75'
+$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.76'
+$VersionCode = 86
+$VersionName = '1.1.76'
 $WebCommit = (git -C $GeezleRoot rev-parse --short HEAD 2>$null)
 if (-not $WebCommit) { $WebCommit = 'unknown' }
 
@@ -163,7 +163,7 @@ $meta = @{
   webCommit = $WebCommit
   minifyEnabled = $true
   shrinkResources = $true
-  phase = 'member-home-media-preview-928aa118'
+  phase = 'background-incoming-call-wake'
   targetSdk = 36
   compileSdk = 36
   minSdk = 24
