@@ -11,9 +11,9 @@ $GeezleRoot = if ($env:SCROLITH_RELEASE_GEEZLE_ROOT) {
   $DefaultGeezleRoot
 }
 $AndroidRoot = Join-Path $MobileRoot 'android'
-$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.73'
-$VersionCode = 83
-$VersionName = '1.1.73'
+$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.75'
+$VersionCode = 85
+$VersionName = '1.1.75'
 $WebCommit = (git -C $GeezleRoot rev-parse --short HEAD 2>$null)
 if (-not $WebCommit) { $WebCommit = 'unknown' }
 
@@ -43,12 +43,14 @@ $env:VITE_API_URL = 'https://api.scrolith.com/api'
 $env:VITE_API_BASE_URL = 'https://api.scrolith.com/api'
 $env:VITE_BACKEND_URL = 'https://api.scrolith.com'
 $env:VITE_NATIVE_PROD_API_URL = 'https://api.scrolith.com/api'
+$env:VITE_SOCKET_URL = 'https://ca-scrolith-backend--realtime-dedicated-3454b991.thankfulbeach-8f7ee997.southeastasia.azurecontainerapps.io'
+$env:VITE_SOCKET_TRANSPORTS = 'polling,websocket'
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $LogDir = Join-Path $OutDir 'logs'
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $ReleaseWebDir = Join-Path $OutDir 'web-dist'
-$RelativeReleaseWebDir = 'release-artifacts/android-1.1.73/web-dist'
+$RelativeReleaseWebDir = 'release-artifacts/android-1.1.75/web-dist'
 $env:SCROLITH_CAPACITOR_WEB_DIR = $RelativeReleaseWebDir
 
 # npm/vite write warnings to stderr; do not treat native stderr as terminating errors.
@@ -123,7 +125,7 @@ if ($gradleCode -ne 0) {
 $AabSrc = Join-Path $AndroidRoot 'app\build\outputs\bundle\release\app-release.aab'
 if (-not (Test-Path $AabSrc)) { throw "AAB not found at $AabSrc" }
 
-$AabName = "Scrolith-$VersionName-$VersionCode-release.aab"
+$AabName = "scrolith-$VersionName-release.aab"
 $AabDest = Join-Path $OutDir $AabName
 Copy-Item -Force $AabSrc $AabDest
 
@@ -161,13 +163,14 @@ $meta = @{
   webCommit = $WebCommit
   minifyEnabled = $true
   shrinkResources = $true
-  phase = 'messaging-longtext-socket-7ef95a74'
+  phase = 'member-home-media-preview-928aa118'
   targetSdk = 36
   compileSdk = 36
   minSdk = 24
-  productionBackendRevision = 'ca-scrolith-backend--azure-video-range-5526ccec'
-  productionFrontendRevision = 'ca-scrolith-frontend--callfix-2bf20282'
+  productionBackendRevision = 'ca-scrolith-backend--realtime-dedicated-3454b991'
+  productionFrontendRevision = 'ca-scrolith-frontend--member-home-media-928aa118'
   productionApi = 'https://api.scrolith.com'
+  productionRealtimeUrl = 'https://ca-scrolith-backend--realtime-dedicated-3454b991.thankfulbeach-8f7ee997.southeastasia.azurecontainerapps.io'
   productionAppUrl = 'https://scrolith.com'
   googlePlayUploadPerformed = $false
 } | ConvertTo-Json -Depth 4
@@ -184,6 +187,12 @@ if ($js -notmatch 'https://api\.scrolith\.com') {
 }
 if ($js -notmatch 'https://scrolith\.com') {
   throw "Production app URL https://scrolith.com not found in $($indexJs.Name)"
+}
+if ($js -notmatch 'https://ca-scrolith-backend--realtime-dedicated-3454b991\.thankfulbeach-8f7ee997\.southeastasia\.azurecontainerapps\.io') {
+  throw "Production realtime host not found in $($indexJs.Name)"
+}
+if ($js -match 'realtime-cors-qa|cors-qa|qa7|qa8|qa9|qa10') {
+  throw "QA endpoint marker found in $($indexJs.Name)"
 }
 if ($js -match 'msg-enh-|---scrolith-backend-|---scrolith-frontend-|scrolith-frontend-\d|a\.run\.app/api') {
   throw "Forbidden candidate/run.app API endpoint marker found in $($indexJs.Name)"

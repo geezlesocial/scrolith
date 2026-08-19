@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 1.1.73 - Play release rebuild for messaging expansion and resilient Scroll playback.
-        versionCode 83
-        versionName "1.1.73"
+        // 1.1.75 - production media preview and realtime reliability release.
+        versionCode 85
+        versionName "1.1.75"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]
