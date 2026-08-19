@@ -258,7 +258,7 @@ const loadGroups = async (signals: ViewerSignals, limit: number): Promise<Profes
   try {
     const rows = await prisma.communityClub.findMany({
       where: {
-        OR: [{ status: 'active' as any }, { status: 'ACTIVE' as any }, { visibility: ChannelVisibility.PUBLIC }]
+        OR: [{ status: 'active' }, { status: 'ACTIVE' }, { visibility: ChannelVisibility.PUBLIC }]
       } as any,
       orderBy: [{ updatedAt: 'desc' } as any],
       take: Math.max(limit * 3, 30),

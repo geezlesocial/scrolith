@@ -1,3 +1,4 @@
+import { ChannelVisibility } from '@prisma/client';
 import prisma from '../../../utils/prismaClient';
 import type { SearchDomainAdapter } from './types';
 import { bestLexicalScore, containsFilter } from '../retrieval/normalize';
@@ -18,14 +19,14 @@ export const groupsAdapter: SearchDomainAdapter = {
     const visibilityClause = viewerId
       ? {
           OR: [
-            { visibility: 'PUBLIC' as const },
+            { visibility: ChannelVisibility.PUBLIC },
             {
-              visibility: 'PRIVATE' as const,
+              visibility: ChannelVisibility.PRIVATE,
               memberships: { some: { userId: viewerId, status: 'active' } }
             }
           ]
         }
-      : { visibility: 'PUBLIC' as const };
+      : { visibility: ChannelVisibility.PUBLIC };
 
     const rows = await prisma.communityClub.findMany({
       where: {

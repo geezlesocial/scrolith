@@ -3,6 +3,7 @@
  * Unsupported domains return formal empty generators (no fake data).
  */
 import prisma from '../../utils/prismaClient';
+import { ChannelVisibility } from '@prisma/client';
 import type {
   DiscoveryEntityType,
   DiscoverySource,
@@ -402,7 +403,7 @@ export const generateCommunities = async (ctx: GeneratorContext): Promise<Genera
   runGenerator('communities', 'related_community', async () => {
     if (!wants(ctx, 'community', 'group')) return [];
     const clubs = await prisma.communityClub.findMany({
-      where: { status: 'active', visibility: 'PUBLIC' as any },
+      where: { status: 'active', visibility: ChannelVisibility.PUBLIC },
       orderBy: { updatedAt: 'desc' },
       take: ctx.limitPerGenerator,
       select: {

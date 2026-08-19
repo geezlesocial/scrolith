@@ -4,6 +4,7 @@
  * Opaque cursor pagination — no offset. Additive to existing /community/feed.
  */
 import prisma from '../utils/prismaClient';
+import { ChannelVisibility } from '@prisma/client';
 import {
   getViewerFeedContext,
   normalizeFeedSurfaceMode,
@@ -1163,7 +1164,7 @@ async function collectPeoplePages(
       }),
       prisma.communityClub
         .findMany({
-          where: { status: 'active', visibility: 'public' } as any,
+          where: { status: 'active', visibility: ChannelVisibility.PUBLIC },
           orderBy: [{ memberCount: 'desc' }, { updatedAt: 'desc' }] as any,
           take: Math.max(3, Math.ceil(take / 2)),
           select: {

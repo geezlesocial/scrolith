@@ -1,7 +1,9 @@
 import { Request, Response } from 'express';
+import { ChannelVisibility } from '@prisma/client';
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
 import { notifyUser } from '../utils/notify';
+import { normalizeCommunityClubVisibility } from '../utils/communityClubVisibility';
 
 interface AuthRequest extends Request {
   user?: {
@@ -446,7 +448,7 @@ export const listGroups = async (req: AuthRequest, res: Response) => {
     const where: any = { status: 'active' };
     if (!joinedOnly) {
       where.OR = [
-        { visibility: 'PUBLIC' },
+        { visibility: ChannelVisibility.PUBLIC },
         ...(viewerId
           ? [
               { memberships: { some: { userId: viewerId, status: 'active' } } },
@@ -599,7 +601,7 @@ export const createGroup = async (req: AuthRequest, res: Response) => {
         description,
         coverImage: String(req.body?.coverImage || req.body?.cover_image || '').trim() || null,
         avatarImage: String(req.body?.avatarImage || req.body?.avatar_image || '').trim() || null,
-        visibility: normalizeVisibility(req.body?.visibility) === 'private' ? 'PRIVATE' : 'PUBLIC',
+        visibility: normalizeCommunityClubVisibility(req.body?.visibility),
         category: String(req.body?.category || '').trim().slice(0, 80) || null,
         location: String(req.body?.location || '').trim().slice(0, 180) || null,
         joinMode: normalizeJoinMode(req.body?.joinMode || req.body?.join_mode),
@@ -667,7 +669,7 @@ export const updateGroup = async (req: AuthRequest, res: Response) => {
           ? { avatarImage: String(req.body.avatarImage || req.body.avatar_image || '').trim() || null }
           : {}),
         ...(req.body?.visibility !== undefined
-          ? { visibility: normalizeVisibility(req.body.visibility) === 'private' ? 'PRIVATE' : 'PUBLIC' }
+          ? { visibility: normalizeCommunityClubVisibility(req.body.visibility) }
           : {}),
         ...(req.body?.category !== undefined ? { category: String(req.body.category || '').trim().slice(0, 80) || null } : {}),
         ...(req.body?.location !== undefined ? { location: String(req.body.location || '').trim().slice(0, 180) || null } : {}),
