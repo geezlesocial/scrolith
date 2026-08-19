@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 1.1.76 - background incoming-call wake and cold-start recovery.
-        versionCode 86
-        versionName "1.1.76"
+        // 1.1.77 - background incoming-call wake, cold-start recovery, and compact messaging UI.
+        versionCode 87
+        versionName "1.1.77"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]

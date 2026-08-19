@@ -18,6 +18,7 @@ import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import org.json.JSONObject;
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
@@ -52,6 +53,7 @@ import java.util.Set;
 public class MainActivity extends BridgeActivity {
 
     private static final int WEBRTC_MEDIA_PERMISSION_REQUEST_CODE = 4157;
+    private static volatile boolean appInForeground = false;
 
     private PermissionRequest pendingWebRtcPermissionRequest;
     private String[] pendingAndroidPermissions = new String[0];
@@ -71,6 +73,7 @@ public class MainActivity extends BridgeActivity {
         // the keyboard (messaging composer / Scrolitha / auth forms).
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         super.onCreate(savedInstanceState);
+        dispatchIncomingCallIntent(getIntent());
         configureSystemBars();
         registerPredictiveBack();
         // Release splash once first layout is ready (WebView load continues async).
@@ -266,12 +269,67 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
+        appInForeground = true;
+        dispatchIncomingCallIntent(getIntent());
         try {
             if (bridge != null && bridge.getWebView() != null) {
                 injectNativeOnlineState(bridge.getWebView());
             }
         } catch (Throwable ignored) {
             // ignore
+        }
+    }
+
+    @Override
+    public void onPause() {
+        appInForeground = false;
+        super.onPause();
+    }
+
+    public static boolean isAppInForeground() {
+        return appInForeground;
+    }
+
+    @Override
+    public void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        dispatchIncomingCallIntent(intent);
+    }
+
+    /**
+     * Restore a native incoming-call notification into the existing WebView
+     * event contract after a cold start or task reuse.
+     */
+    private void dispatchIncomingCallIntent(final Intent intent) {
+        if (intent == null || !"call_ringing".equals(intent.getStringExtra("type"))) {
+            return;
+        }
+        final String callId = intent.getStringExtra("callId");
+        final String conversationId = intent.getStringExtra("conversationId");
+        final String initiatorId = intent.getStringExtra("initiatorId");
+        final String initiatorName = intent.getStringExtra("initiatorName");
+        final String mediaMode = intent.getStringExtra("mediaMode");
+        final String callType = intent.getStringExtra("callType");
+        if (callId == null || conversationId == null || bridge == null || bridge.getWebView() == null) {
+            return;
+        }
+
+        try {
+            JSONObject payload = new JSONObject();
+            payload.put("type", "call_ringing");
+            payload.put("callId", callId);
+            payload.put("conversationId", conversationId);
+            payload.put("initiatorId", initiatorId == null ? "" : initiatorId);
+            payload.put("initiatorName", initiatorName == null ? "A Scrolith member" : initiatorName);
+            payload.put("mediaMode", mediaMode == null ? "audio" : mediaMode);
+            payload.put("callType", callType == null ? "direct" : callType);
+            payload.put("status", "ringing");
+            final String script = "(function(){var p=" + payload + ";window.__scrolithPendingIncomingCall=p;window.dispatchEvent(new CustomEvent('mobile:incoming-call',{detail:p}));})();";
+            bridge.getWebView().postDelayed(() -> bridge.getWebView().evaluateJavascript(script, null), 350L);
+            intent.removeExtra("type");
+        } catch (Throwable ignored) {
+            // Best-effort restoration; the conversation deep link still opens.
         }
     }
 
