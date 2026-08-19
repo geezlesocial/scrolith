@@ -30,7 +30,10 @@ const nodeTestFiles = ['src', 'tests']
 
 for (const file of nodeTestFiles) {
   console.log(`[node:test] ${file}`);
-  const result = spawnSync(process.execPath, ['--require', 'ts-node/register', file], {
+  // These files are runtime node:test contracts. Type-checking every isolated
+  // child process makes the aggregate runner appear hung; `build` and
+  // `build:prod` provide the type-safety gate separately.
+  const result = spawnSync(process.execPath, ['--require', 'ts-node/register/transpile-only', file], {
     cwd: process.cwd(),
     env: process.env,
     stdio: 'inherit',
