@@ -73,7 +73,8 @@ import paymentRoutes from './routes/payment.routes';
 import currenciesRoutes from './routes/currencies.routes';
 import briefsRoutes from './routes/briefs.routes';
 import notificationsRoutes from './routes/notifications.routes';
-import { isPushEnabled } from './services/pushNotifications';
+import { isPushEnabled, sendPushToUsers } from './services/pushNotifications';
+import { buildIncomingCallPushPayload } from './services/messaging/incomingCallNotification';
 import { dispatchMessageReceiptNotifications } from './services/messageNotifications';
 import plansRoutes from './routes/plans.routes';
 import formsRoutes from './routes/forms.routes';
@@ -2283,6 +2284,38 @@ communityNs.on('connection', (socket) => {
         emitVoiceEventToUsers([userId], 'call:initiate', eventPayload);
         emitVoiceEventToUsers(participantRows.map((entry) => entry.userId), 'messenger:call_started', eventPayload);
 
+        // Socket delivery remains authoritative for active clients. FCM is the
+        // wake/display path for Android installations whose WebView is closed
+        // or suspended; it does not carry SDP or bypass call authorization.
+        const initiator = participantUsers.find((entry: any) => String(entry?.id || '') === userId);
+        void sendPushToUsers(
+          filteredTargets,
+          buildIncomingCallPushPayload({
+            callId: call.id,
+            conversationId,
+            initiatorId: userId,
+            initiatorName: initiator?.name || initiator?.username,
+            mediaMode,
+            callType: isConferenceRequested ? 'conference' : 'direct',
+            participantIds: participantRows.map((entry) => entry.userId)
+          }),
+          { targetPlatform: 'android' }
+        ).then((result) => {
+          if (result.failed > 0) {
+            console.warn('[voice-calls] incoming call push delivery incomplete', {
+              callId: call.id,
+              attempted: result.attempted,
+              sent: result.sent,
+              failed: result.failed
+            });
+          }
+        }).catch((error) => {
+          console.warn('[voice-calls] incoming call push failed', {
+            callId: call.id,
+            error: String((error as any)?.message || error)
+          });
+        });
+
         if (ack) ack({ success: true, data: eventPayload });
       } catch (error: any) {
         console.error('call:initiate error', error);
@@ -2862,6 +2895,30 @@ communityNs.on('connection', (socket) => {
           callType: shouldConference ? 'conference' : String(call.callType || 'direct').toLowerCase(),
           status: 'ringing',
           invitedBy: callerId
+        });
+
+        const inviter = await prisma.user.findUnique({
+          where: { id: callerId },
+          select: { name: true, username: true }
+        }).catch(() => null);
+        void sendPushToUsers(
+          [targetUserId],
+          buildIncomingCallPushPayload({
+            callId,
+            conversationId: call.conversationId,
+            initiatorId: call.initiatorId,
+            initiatorName: inviter?.name || inviter?.username,
+            mediaMode: resolveCallStoredMediaMode(call.metadata),
+            callType: shouldConference ? 'conference' : String(call.callType || 'direct').toLowerCase(),
+            participantIds: eventPayload.participantIds
+          }),
+          { targetPlatform: 'android' }
+        ).catch((error) => {
+          console.warn('[voice-calls] participant call push failed', {
+            callId,
+            targetUserId,
+            error: String((error as any)?.message || error)
+          });
         });
 
         if (ack) ack({ success: true, data: eventPayload });
