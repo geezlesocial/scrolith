@@ -159,26 +159,26 @@ const VoiceCallControls: React.FC<{
         type="button"
         disabled={disabled}
         onClick={() => void handleStart({ conference: false, video: false })}
-        className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-50 sm:w-10 sm:px-0"
+        className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-50 max-[640px]:w-10 max-[640px]:px-0 sm:w-10 sm:px-0"
         title="Start voice call"
         aria-label="Start voice call"
         data-testid="messages-voice-call-btn"
       >
         <Phone className="h-4 w-4" />
-        <span className="text-xs font-semibold sm:sr-only">Voice</span>
+        <span className="text-xs font-semibold max-[640px]:sr-only sm:sr-only">Voice</span>
       </button>
       {canVideo ? (
         <button
           type="button"
           disabled={disabled}
           onClick={() => void handleStart({ conference: false, video: true })}
-          className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50 sm:w-10 sm:px-0"
+          className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50 max-[640px]:w-10 max-[640px]:px-0 sm:w-10 sm:px-0"
           title="Start video call"
           aria-label="Start video call"
           data-testid="messages-video-call-btn"
         >
           <Video className="h-4 w-4" />
-          <span className="text-xs font-semibold sm:sr-only">Video call</span>
+          <span className="text-xs font-semibold max-[640px]:sr-only sm:sr-only">Video call</span>
         </button>
       ) : null}
       {canConference ? (
@@ -186,13 +186,13 @@ const VoiceCallControls: React.FC<{
           type="button"
           disabled={disabled}
           onClick={() => void handleStart({ conference: true, video: false })}
-          className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:opacity-50 sm:w-10 sm:px-0"
+          className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:opacity-50 max-[640px]:w-10 max-[640px]:px-0 sm:w-10 sm:px-0"
           title="Start conference call"
           aria-label="Start conference call"
           data-testid="messages-conference-call-btn"
         >
           <Users className="h-4 w-4" />
-          <span className="text-xs font-semibold sm:sr-only">Conference</span>
+          <span className="text-xs font-semibold max-[640px]:sr-only sm:sr-only">Conference</span>
         </button>
       ) : null}
     </div>
@@ -4326,8 +4326,8 @@ const Messages = () => {
                             }`}
                             data-testid="messages-conversation-header"
                         >
-                            <div className="flex items-center justify-between gap-2">
-                            <div className="flex min-w-0 items-center">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex min-w-0 flex-1 items-center">
                                 <button onClick={handleBackToInbox} className="mr-2 inline-flex h-9 w-9 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 md:hidden">
                                     <ArrowLeft className="w-5 h-5" />
                                 </button>
@@ -4479,7 +4479,7 @@ const Messages = () => {
                                     )}
                                 </div>
                             </div>
-                            <div className="flex items-center gap-1.5 sm:gap-2">
+                            <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5 sm:gap-2">
                                 <button
                                     type="button"
                                     onClick={() => setChatAppearanceOpen(true)}

@@ -96,26 +96,26 @@ const DockCallControls: React.FC<{
         type="button"
         disabled={disabled}
         onClick={() => handleStart({ conference: false, video: false })}
-        className="inline-flex items-center gap-1 rounded px-2 py-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:opacity-40"
+        className="inline-flex items-center justify-center gap-1 rounded px-2 py-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:opacity-40 max-[640px]:h-9 max-[640px]:w-9 max-[640px]:px-0"
         aria-label="Start voice call"
         title="Start voice call"
         data-testid="dock-voice-call-btn"
       >
         <Phone className="h-4 w-4" />
-        <span className="text-[11px] font-semibold">Voice</span>
+        <span className="text-[11px] font-semibold max-[640px]:sr-only">Voice</span>
       </button>
       {canVideo ? (
         <button
           type="button"
           disabled={disabled}
           onClick={() => handleStart({ conference: false, video: true })}
-          className="inline-flex items-center gap-1 rounded px-2 py-1.5 text-slate-500 hover:bg-slate-200 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 disabled:opacity-40"
+          className="inline-flex items-center justify-center gap-1 rounded px-2 py-1.5 text-slate-500 hover:bg-slate-200 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 disabled:opacity-40 max-[640px]:h-9 max-[640px]:w-9 max-[640px]:px-0"
           aria-label="Start video call"
           title="Start video call"
           data-testid="dock-video-call-btn"
         >
           <Video className="h-4 w-4" />
-          <span className="text-[11px] font-semibold">Video call</span>
+          <span className="text-[11px] font-semibold max-[640px]:sr-only">Video call</span>
         </button>
       ) : null}
       {canConference ? (
@@ -123,13 +123,13 @@ const DockCallControls: React.FC<{
           type="button"
           disabled={disabled}
           onClick={() => handleStart({ conference: true, video: false })}
-          className="inline-flex items-center gap-1 rounded px-2 py-1.5 text-slate-500 hover:bg-slate-200 hover:text-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:opacity-40"
+          className="inline-flex items-center justify-center gap-1 rounded px-2 py-1.5 text-slate-500 hover:bg-slate-200 hover:text-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:opacity-40 max-[640px]:h-9 max-[640px]:w-9 max-[640px]:px-0"
           aria-label="Start conference call"
           title="Start conference call"
           data-testid="dock-conference-call-btn"
         >
           <Users className="h-4 w-4" />
-          <span className="text-[11px] font-semibold">Conference</span>
+          <span className="text-[11px] font-semibold max-[640px]:sr-only">Conference</span>
         </button>
       ) : null}
     </div>
@@ -482,7 +482,7 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
       className={
         isFullscreen
           ? 'pointer-events-auto flex h-full w-full flex-col overflow-hidden bg-white'
-          : 'pointer-events-auto flex h-[520px] w-[380px] max-h-[min(620px,75vh)] flex-col overflow-hidden rounded-t-xl border border-slate-200 bg-white shadow-2xl'
+          : 'pointer-events-auto flex h-[min(520px,calc(100dvh-5rem))] w-[min(380px,calc(100vw-1rem))] max-h-[calc(100dvh-4rem)] min-w-0 flex-col overflow-hidden rounded-t-xl border border-slate-200 bg-white shadow-2xl'
       }
       style={style}
       role="dialog"
@@ -490,7 +490,7 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
       data-messaging-presentation={presentation}
     >
       <div
-        className={`flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 ${
+        className={`flex min-w-0 flex-wrap items-center gap-1.5 border-b border-slate-200 bg-slate-50 px-3 py-2 ${
           isFullscreen ? 'pt-[max(0.5rem,env(safe-area-inset-top))]' : ''
         }`}
       >
