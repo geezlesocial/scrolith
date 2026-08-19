@@ -50,7 +50,7 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $LogDir = Join-Path $OutDir 'logs'
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $ReleaseWebDir = Join-Path $OutDir 'web-dist'
-$RelativeReleaseWebDir = 'release-artifacts/android-1.1.75/web-dist'
+$RelativeReleaseWebDir = 'release-artifacts/android-1.1.76/web-dist'
 $env:SCROLITH_CAPACITOR_WEB_DIR = $RelativeReleaseWebDir
 
 # npm/vite write warnings to stderr; do not treat native stderr as terminating errors.
