@@ -208,12 +208,16 @@ const ModuleThumb = ({
   item,
   compact,
   large = false,
-  hoverPreview = false
+  hoverPreview = false,
+  fullWidth = false,
+  autoPreview = false
 }: {
   item: MemberHomeHighlightItem;
   compact: boolean;
   large?: boolean;
   hoverPreview?: boolean;
+  fullWidth?: boolean;
+  autoPreview?: boolean;
 }) => {
   const fallbackMediaUrl = String(item.fallbackMediaUrl || '').trim();
   const initialSrc = String(item.mediaUrl || '').trim();
@@ -269,7 +273,7 @@ const ModuleThumb = ({
   };
 
   // Keep preview state and hooks above conditional returns so media fallback changes cannot alter hook order.
-  const size = large ? (compact ? 96 : 112) : compact ? 44 : 48;
+  const size = fullWidth ? 640 : large ? (compact ? 96 : 112) : compact ? 44 : 48;
   const shouldRenderVideo = Boolean(
     videoUrl && (isVideoUrl(videoUrl) || videoUrl.includes('/api/files/content/') || Boolean(posterUrl))
   );
@@ -281,19 +285,23 @@ const ModuleThumb = ({
     typeof window !== 'undefined' &&
     typeof window.matchMedia === 'function' &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const mobileAutoPreview = hoverPreview && isCoarsePointer && !prefersReducedMotion;
+  const viewportAutoPreview = (autoPreview || (hoverPreview && isCoarsePointer)) && !prefersReducedMotion;
   const playVideo =
     shouldRenderVideo &&
     !prefersReducedMotion &&
-    (!hoverPreview || isCoarsePointer || (hoverActive && previewAllowed));
+    (!autoPreview && !hoverPreview
+      ? true
+      : autoPreview
+        ? previewAllowed
+        : isCoarsePointer || (hoverActive && previewAllowed));
   const rawPoster = posterUrl || src || fallbackMediaUrl || '';
   const hasRealPoster =
     Boolean(rawPoster) && !/__video_fallback_thumbnail|video_fallback/i.test(String(rawPoster));
   const optimizedPosterUrl =
     shouldRenderVideo && hasRealPoster
       ? resolveResponsiveAssetUrl(rawPoster, {
-          width: size * 2,
-          height: size * 2,
+          width: fullWidth ? 640 : size * 2,
+          height: fullWidth ? 360 : size * 2,
           fit: 'cover',
           quality: 72
         })
@@ -302,7 +310,7 @@ const ModuleThumb = ({
 
   // Mobile series: exclusive autoplay only when this thumb is in viewport.
   useEffect(() => {
-    if (!mobileAutoPreview || !shouldRenderVideo || !rootRef.current) return;
+    if (!viewportAutoPreview || !shouldRenderVideo || !rootRef.current) return;
     const node = rootRef.current;
     const obs = new IntersectionObserver(
       (entries) => {
@@ -321,7 +329,7 @@ const ModuleThumb = ({
       obs.disconnect();
       if (activePreviewToken === tokenRef.current) setActivePreviewToken(null);
     };
-  }, [mobileAutoPreview, shouldRenderVideo, videoUrl]);
+  }, [viewportAutoPreview, shouldRenderVideo, videoUrl]);
 
   // Brand logo must never become a large module hero; icon badge handles identity.
   if (isBrandLogoUrl(src) || isBrandLogoUrl(initialSrc)) {
@@ -334,7 +342,9 @@ const ModuleThumb = ({
     return (
       <span
         className={[
-          large
+          fullWidth
+            ? 'inline-flex aspect-video min-h-[9rem] w-full items-center justify-center rounded-xl sm:min-h-[11rem]'
+            : large
             ? 'inline-flex h-24 w-24 shrink-0 items-center justify-center rounded-2xl sm:h-28 sm:w-28'
             : 'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:h-12 sm:w-12',
           tone.icon
@@ -352,19 +362,26 @@ const ModuleThumb = ({
     <div
       ref={rootRef}
       className={[
-        'relative shrink-0 overflow-hidden border border-slate-200/80 bg-slate-50',
-        large
+        'relative overflow-hidden border border-slate-200/80 bg-slate-50',
+        fullWidth
+          ? 'aspect-video min-h-[9rem] w-full shrink-0 rounded-xl sm:min-h-[11rem]'
+          : 'shrink-0',
+        !fullWidth && large
           ? 'h-24 w-24 rounded-2xl sm:h-28 sm:w-28'
-          : 'h-11 w-11 rounded-xl sm:h-12 sm:w-12',
+          : !fullWidth
+            ? 'h-11 w-11 rounded-xl sm:h-12 sm:w-12'
+            : '',
         shouldRenderVideo ? 'ring-1 ring-slate-900/5' : ''
       ].join(' ')}
-      aria-hidden={!shouldRenderVideo}
+      aria-hidden={!shouldRenderVideo && !fullWidth}
       onMouseEnter={handlePointerEnter}
       onMouseLeave={handlePointerLeave}
       onFocus={handlePointerEnter}
       onBlur={handlePointerLeave}
       data-testid={
-        large
+        fullWidth
+          ? 'member-home-media-preview'
+          : large
           ? 'member-home-module-thumb-large'
           : hoverPreview
             ? 'member-home-series-preview-thumb'
@@ -375,7 +392,7 @@ const ModuleThumb = ({
       {(optimizedPosterUrl || src) && shouldRenderVideo ? (
         <img
           src={optimizedPosterUrl || src}
-          alt=""
+          alt={fullWidth ? item.title : ''}
           className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ease-out motion-reduce:transition-none ${
             playVideo && previewAllowed ? 'opacity-0' : 'opacity-100'
           }`}
@@ -390,14 +407,16 @@ const ModuleThumb = ({
           muted
           defaultMuted
           autoplayEnabled={!prefersReducedMotion}
-          eagerLoad={large || mobileAutoPreview}
-          // Desktop: hover-gated. Mobile: exclusive token from viewport IO.
+          eagerLoad={large || viewportAutoPreview}
+          // Full-width cards use the same exclusive viewport token on desktop and mobile.
           active={
-            hoverPreview
-              ? isCoarsePointer
-                ? previewAllowed
-                : hoverActive && previewAllowed
-              : true
+            autoPreview
+              ? previewAllowed
+              : hoverPreview
+                ? isCoarsePointer
+                  ? previewAllowed
+                  : hoverActive && previewAllowed
+                : true
           }
           threshold={0.35}
           rootMargin="80px 0px 80px 0px"
@@ -419,7 +438,7 @@ const ModuleThumb = ({
         <OptimizedImage
           src={src || optimizedPosterUrl || posterUrl}
           fallbackSrc={fallbackMediaUrl || undefined}
-          alt=""
+          alt={fullWidth ? item.title : ''}
           width={size * 2}
           height={size * 2}
           sizes={`${size}px`}
@@ -582,6 +601,9 @@ const ModuleCard = ({
   const tone = toneClasses[item.tone || 'slate'];
   const seriesLike = isSeriesPlaylistHighlight(item);
   const listingLike = isMarketplaceOrListingHighlight(item);
+  const hasPreviewMedia = Boolean(
+    item.videoUrl || item.posterUrl || (item.mediaUrl && !isBrandLogoUrl(item.mediaUrl))
+  );
   // Large thumbs only for series/video previews — listing cards stay compact so
   // titles/CTAs never collide in multi-column grids (mobile + desktop).
   const largeThumb = seriesLike;
@@ -597,12 +619,19 @@ const ModuleCard = ({
       data-module-kind={seriesLike ? 'series' : listingLike ? 'listing' : 'generic'}
     >
       <ActionSurface item={item} className="h-full min-w-0">
-        <div className="flex h-full min-w-0 items-start gap-3">
+        <div
+          className={[
+            'flex h-full min-w-0',
+            hasPreviewMedia ? 'flex-col gap-3' : 'items-start gap-3'
+          ].join(' ')}
+        >
           <ModuleThumb
             item={item}
             compact={compact}
             large={largeThumb}
-            hoverPreview={seriesLike}
+            hoverPreview={false}
+            fullWidth={hasPreviewMedia}
+            autoPreview={hasPreviewMedia && Boolean(item.videoUrl)}
           />
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">

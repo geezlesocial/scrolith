@@ -74,6 +74,19 @@ test('discovery board supports series hover preview and single active preview', 
   assert.match(src, /previewListeners\.delete/);
 });
 
+test('media-bearing discovery cards use a full-width preview above readable text', () => {
+  const src = highlights();
+  assert.match(src, /const hasPreviewMedia = Boolean\([\s\S]*item\.videoUrl/);
+  assert.match(src, /fullWidth=\{hasPreviewMedia\}/);
+  assert.match(src, /autoPreview=\{hasPreviewMedia && Boolean\(item\.videoUrl\)\}/);
+  assert.match(src, /hasPreviewMedia \? 'flex-col gap-3' : 'items-start gap-3'/);
+  assert.match(src, /aspect-video min-h-\[9rem\] w-full/);
+  assert.match(src, /'member-home-media-preview'/);
+  // Autoplay remains viewport-gated and exclusive rather than starting every card.
+  assert.match(src, /viewportAutoPreview/);
+  assert.match(src, /setActivePreviewToken\(tokenRef\.current\)/);
+});
+
 test('module thumbs for listings use large media sizes', () => {
   const src = highlights();
   assert.match(src, /isMarketplaceOrListingHighlight/);
