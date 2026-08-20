@@ -21,9 +21,11 @@ import { FileVisibility, FileOwnerRole } from '@prisma/client';
 import prisma from '../utils/prismaClient';
 import { resolveFileBaseUrl } from '../utils/mediaUrl';
 import {
+  createBlobReadStreamByRange,
   downloadBlobByName,
   deleteBlobByName,
   extractBlobNameFromUrl,
+  getBlobPropertiesByName,
   isAzureBlobConfigured,
   uploadBufferToBlob
 } from '../services/storage/blobStorage';
@@ -54,6 +56,7 @@ import {
   getGcsMediaMetadata,
   uploadToGcsMedia
 } from '../services/storage/gcsMediaStorage';
+import { serveRangedObject } from '../utils/httpRange';
 
 const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads');
 const TEMP_UPLOAD_DIR = path.join(UPLOAD_DIR, '.tmp');
@@ -1537,6 +1540,32 @@ const applyFileResponseHeaders = (
   }
 };
 
+const serveAzureBlobObject = async (params: {
+  blobName: string;
+  req: Request;
+  res: Response;
+  cacheControl: string;
+  fallbackContentType?: string;
+}) => {
+  const metadata = await getBlobPropertiesByName(params.blobName);
+  const size = Number(metadata?.contentLength || 0) || 0;
+  const contentType =
+    String(metadata?.contentType || '').trim() ||
+    String(params.fallbackContentType || '').trim() ||
+    'application/octet-stream';
+
+  serveRangedObject({
+    req: params.req,
+    res: params.res,
+    size,
+    contentType,
+    cacheControl: params.cacheControl,
+    etag: metadata?.etag || null,
+    lastModified: metadata?.lastModified || null,
+    openStream: (start, end) => createBlobReadStreamByRange(params.blobName, start, end)
+  });
+};
+
 const PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL = 'public, max-age=604800, stale-while-revalidate=86400';
 const BRAND_LOGO_FALLBACK_URL = 'https://scrolith.com/logo.png';
 const BRAND_FAVICON_FALLBACK_URL = 'https://scrolith.com/favicon.png';
@@ -1678,26 +1707,13 @@ const tryServeManagedStorageUploadAsset = async (relativePath: string, req: Requ
 
   if (isAzureBlobConfigured()) {
     try {
-      const blobResponse = await downloadBlobByName(normalizedPath);
-      const contentType =
-        blobResponse.contentType ||
-        getMimeTypeFromFilename(normalizedPath);
-      applyFileResponseHeaders(res, {
-        contentType,
-        contentLength: blobResponse.contentLength,
-        cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL
+      await serveAzureBlobObject({
+        blobName: normalizedPath,
+        req,
+        res,
+        cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL,
+        fallbackContentType: getMimeTypeFromFilename(normalizedPath)
       });
-      const stream = blobResponse.readableStreamBody;
-      if (!stream) return false;
-      stream.on('error', (streamError) => {
-        console.error('Azure blob stream error (direct legacy upload):', streamError);
-        if (!res.headersSent) {
-          res.status(500).end();
-        } else {
-          res.end();
-        }
-      });
-      stream.pipe(res);
       return true;
     } catch (error: any) {
       const statusCode = Number(error?.statusCode || 0);
@@ -2501,29 +2517,13 @@ export const serveFileContent = async (req: Request, res: Response) => {
       }
 
       try {
-        const blobResponse = await downloadBlobByName(file.storageKey);
-        const contentType = blobResponse.contentType || file.mimeType || 'application/octet-stream';
-        applyFileResponseHeaders(res, {
-          contentType,
-          contentLength: blobResponse.contentLength,
-          cacheControl
+        await serveAzureBlobObject({
+          blobName: file.storageKey,
+          req,
+          res,
+          cacheControl,
+          fallbackContentType: file.mimeType || 'application/octet-stream'
         });
-
-        const stream = blobResponse.readableStreamBody;
-        if (!stream) {
-          res.status(404).json({ success: false, error: 'File not found in storage' });
-          return;
-        }
-
-        stream.on('error', (streamError) => {
-          console.error('Azure blob stream error:', streamError);
-          if (!res.headersSent) {
-            res.status(500).end();
-          } else {
-            res.end();
-          }
-        });
-        stream.pipe(res);
         return;
       } catch (error: any) {
         const statusCode = Number(error?.statusCode || 0);
@@ -2956,29 +2956,15 @@ export const serveLegacyUploadAsset = async (req: Request, res: Response) => {
 
       for (const blobName of blobCandidates) {
         try {
-          const blobResponse = await downloadBlobByName(blobName);
-          const contentType =
-            blobResponse.contentType ||
-            legacyMatch.mimeType ||
-            getMimeTypeFromFilename(legacyMatch.filename || baseName);
-
-          applyFileResponseHeaders(res, {
-            contentType,
-            contentLength: blobResponse.contentLength,
-            cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL
+          await serveAzureBlobObject({
+            blobName,
+            req,
+            res,
+            cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL,
+            fallbackContentType:
+              legacyMatch.mimeType ||
+              getMimeTypeFromFilename(legacyMatch.filename || baseName)
           });
-
-          const stream = blobResponse.readableStreamBody;
-          if (!stream) continue;
-          stream.on('error', (streamError) => {
-            console.error('Azure blob stream error (legacy upload):', streamError);
-            if (!res.headersSent) {
-              res.status(500).end();
-            } else {
-              res.end();
-            }
-          });
-          stream.pipe(res);
           return;
         } catch (error: any) {
           const statusCode = Number(error?.statusCode || 0);

@@ -1,10 +1,17 @@
 import { BlobServiceClient, ContainerClient } from '@azure/storage-blob';
+import { PassThrough } from 'stream';
 
 const DEFAULT_CONTAINER = 'uploads';
 
 let cachedContainerClient: ContainerClient | null = null;
 let cachedConnectionString = '';
 let cachedContainerName = '';
+
+export const __resetAzureBlobCachesForTests = () => {
+  cachedContainerClient = null;
+  cachedConnectionString = '';
+  cachedContainerName = '';
+};
 
 const normalizeBlobName = (value: string) => value.replace(/^\/+/, '');
 
@@ -106,6 +113,33 @@ export async function downloadBlobByName(blobName: string) {
   const blobClient = container.getBlobClient(normalized);
   return blobClient.download();
 }
+
+/**
+ * Create a bounded Azure Blob stream for an inclusive byte range.
+ * The PassThrough keeps the controller's range responder synchronous while
+ * Azure establishes the ranged download asynchronously.
+ */
+export const createBlobReadStreamByRange = (blobName: string, start: number, end: number) => {
+  const output = new PassThrough();
+  const normalized = normalizeBlobName(blobName);
+  const count = Math.max(0, end - start + 1);
+
+  void getContainerClient()
+    .getBlobClient(normalized)
+    .download(start, count)
+    .then((response) => {
+      const stream = response.readableStreamBody;
+      if (!stream) {
+        output.end();
+        return;
+      }
+      stream.on('error', (error) => output.destroy(error as Error));
+      stream.pipe(output);
+    })
+    .catch((error) => output.destroy(error as Error));
+
+  return output;
+};
 
 export async function downloadBlobBufferByName(blobName: string) {
   const container = getContainerClient();
