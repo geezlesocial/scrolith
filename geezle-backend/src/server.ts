@@ -166,6 +166,7 @@ import {
   touchRealtimeSocketRooms,
   releasePresenceLease
 } from './services/realtimeOps.service';
+import { getMessagingPrivacySettings } from './services/messaging/messagingPrivacyPolicy';
 // Restart trigger comment (no-op) to force ts-node-dev reload when modified during debugging
 
 
@@ -479,7 +480,6 @@ const emitPresenceUpdate = (userId: string, isOnline: boolean, lastSeenAt?: Date
       let onlineAudience = 'EVERYONE';
       let lastSeenAudience = 'EVERYONE';
       try {
-        const { getMessagingPrivacySettings } = require('./services/messaging/messagingPrivacyPolicy');
         const privacy = await getMessagingPrivacySettings(userId);
         onlineAudience = privacy.onlineStatusVisibility || 'EVERYONE';
         lastSeenAudience = privacy.lastSeenVisibility || 'EVERYONE';
