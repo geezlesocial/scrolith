@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { getGcoinSettingsSafe } from '../utils/gcoinSettings';
 import jwt from 'jsonwebtoken';
 import prisma from '../utils/prismaClient';
+import { recordDbDuplicateMetric } from '../utils/observability/metricsRegistry';
 
 import realtime from '../utils/realtime';
 import { syncFileUsages, removeUsage } from '../utils/fileUsage';
@@ -1532,14 +1533,24 @@ const getAdminRevenueUserId = async () => {
 
 const tryCreateEarningEvent = async (data: { postId:string, actorId?:string, eventType:string, eventKey:string }) => {
   try {
-    const ev = await prisma.gcoinEarningEvent.create({ data: {
+    const result = await prisma.gcoinEarningEvent.createMany({
+      data: {
       postId: data.postId,
       actorId: data.actorId || null,
       eventType: data.eventType,
       eventKey: data.eventKey,
       value: 0,
       credited: false
-    }});
+      },
+      skipDuplicates: true
+    });
+    if (result.count === 0) {
+      recordDbDuplicateMetric({ model: 'gcoin_earning_event', constraint: 'event_key' });
+      return { created: false, duplicate: true };
+    }
+
+    const ev = await prisma.gcoinEarningEvent.findUnique({ where: { eventKey: data.eventKey } });
+    if (!ev) return { created: false, error: new Error('earning_event_not_found_after_insert') };
     // Actor velocity check (per-minute) to catch bots/spammy activity
     try {
       if (data.actorId) {

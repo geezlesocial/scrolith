@@ -30,6 +30,8 @@ export type ProfessionalDiscoveryItem = {
   subtitle?: string;
   description?: string;
   imageUrl?: string | null;
+  avatarUrl?: string | null;
+  coverUrl?: string | null;
   url: string;
   score: number;
   reasons: string[];
@@ -212,7 +214,7 @@ const loadMarketplace = async (signals: ViewerSignals, limit: number): Promise<P
     });
 
     return (Array.isArray(rows) ? rows : [])
-      .map((row: any) => {
+      .map((row) => {
         const reasons: string[] = [];
         const categoryName = coerce(row.category?.name || row.category);
         const text = [row.title, row.description, categoryName, row.location]
@@ -259,30 +261,28 @@ const loadGroups = async (signals: ViewerSignals, limit: number): Promise<Profes
     const rows = await prisma.communityClub.findMany({
       where: {
         OR: [{ status: 'active' }, { status: 'ACTIVE' }, { visibility: ChannelVisibility.PUBLIC }]
-      } as any,
-      orderBy: [{ updatedAt: 'desc' } as any],
+      },
+      orderBy: [{ updatedAt: 'desc' }],
       take: Math.max(limit * 3, 30),
       select: {
         id: true,
         name: true,
-        title: true,
         description: true,
         slug: true,
-        avatarUrl: true,
-        coverUrl: true,
+        avatarImage: true,
+        coverImage: true,
         memberCount: true,
         visibility: true,
         category: true,
-        tags: true,
         status: true
-      } as any
+      }
     });
 
     return (Array.isArray(rows) ? rows : [])
       .map((row: any) => {
         const reasons: string[] = [];
-        const title = coerce(row.name || row.title) || 'Group';
-        const text = [title, row.description, row.category, ...(Array.isArray(row.tags) ? row.tags : [])]
+        const title = coerce(row.name) || 'Group';
+        const text = [title, row.description, row.category]
           .map(coerce)
           .join(' ')
           .toLowerCase();
@@ -298,7 +298,9 @@ const loadGroups = async (signals: ViewerSignals, limit: number): Promise<Profes
           title,
           subtitle: coerce(row.category) || 'Professional group',
           description: coerce(row.description).slice(0, 160),
-          imageUrl: row.avatarUrl || row.coverUrl || null,
+          imageUrl: row.avatarImage || row.coverImage || null,
+          avatarUrl: row.avatarImage || null,
+          coverUrl: row.coverImage || null,
           url: `/community/clubs?group=${encodeURIComponent(slug)}`,
           score,
           reasons: reasons.slice(0, 3),

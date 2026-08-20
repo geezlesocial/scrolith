@@ -135,6 +135,7 @@ export const ensureObservabilityMetrics = () => {
   // Data plane
   histogram('scrolith_db_query_seconds', 'Database query duration samples', ['operation']);
   counter('scrolith_db_errors_total', 'Database errors', ['operation']);
+  counter('scrolith_db_duplicates_total', 'Database duplicate writes handled idempotently', ['model', 'constraint']);
   gauge('scrolith_db_pool_state', 'Prisma connection state (1=ready,0=degraded)', []);
   counter('scrolith_redis_ops_total', 'Redis operations', ['result']);
   histogram('scrolith_redis_latency_seconds', 'Redis op latency', ['op']);
@@ -302,6 +303,13 @@ export const recordDbMetric = (params: {
   }
 };
 
+export const recordDbDuplicateMetric = (params: { model: string; constraint: string }) => {
+  inc('scrolith_db_duplicates_total', {
+    model: params.model,
+    constraint: params.constraint
+  });
+};
+
 export const recordRedisMetric = (params: {
   result: 'hit' | 'miss' | 'error' | 'ok';
   op?: string;
@@ -361,6 +369,7 @@ export const METRICS_CATALOG = [
   { name: 'scrolith_auth_token_total', domain: 'auth', type: 'counter' },
   { name: 'scrolith_db_query_seconds', domain: 'database', type: 'histogram' },
   { name: 'scrolith_db_errors_total', domain: 'database', type: 'counter' },
+  { name: 'scrolith_db_duplicates_total', domain: 'database', type: 'counter' },
   { name: 'scrolith_redis_ops_total', domain: 'redis', type: 'counter' },
   { name: 'scrolith_ai_requests_total', domain: 'ai', type: 'counter' },
   { name: 'scrolith_notifications_total', domain: 'notifications', type: 'counter' },
