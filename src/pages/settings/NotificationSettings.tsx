@@ -19,6 +19,7 @@ import {
 import { NotificationService } from '../../services/notifications';
 import { useNotification } from '../../context/NotificationContext';
 import { useUser } from '../../context/UserContext';
+import CallRingtoneSettingsPanel from '../../components/settings/CallRingtoneSettingsPanel';
 
 const CATEGORIES = [
   { id: 'personal', label: 'Personal', hint: 'Likes, comments, follows, mentions' },
@@ -302,6 +303,7 @@ const NotificationSettings: React.FC = () => {
           <div className="space-y-4" role="tabpanel">
             {tab === 'overview' && (
               <>
+                <CallRingtoneSettingsPanel />
                 <SectionCard title="Global controls" icon={<Shield className="h-4 w-4 text-blue-600" />}>
                   <div className="divide-y divide-slate-100">
                     <Toggle
