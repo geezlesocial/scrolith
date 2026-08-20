@@ -10,6 +10,7 @@ import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.text.TextUtils;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
@@ -33,6 +34,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 /**
  * Phase 25 — Capacitor BridgeActivity production shell.
@@ -51,11 +55,22 @@ import java.util.Set;
  */
 public class MainActivity extends BridgeActivity {
 
+    public static final String ACTION_INCOMING_CALL = "com.scrolith.action.INCOMING_CALL";
+    public static final String EXTRA_CALL_ID = "scrolith_call_id";
+    public static final String EXTRA_CONVERSATION_ID = "scrolith_conversation_id";
+    public static final String EXTRA_INITIATOR_ID = "scrolith_initiator_id";
+    public static final String EXTRA_INITIATOR_NAME = "scrolith_initiator_name";
+    public static final String EXTRA_MEDIA_MODE = "scrolith_media_mode";
+    public static final String EXTRA_CALL_TYPE = "scrolith_call_type";
+    public static final String EXTRA_PARTICIPANT_IDS = "scrolith_participant_ids";
+    public static final String EXTRA_DEEP_LINK = "scrolith_deep_link";
+
     private static final int WEBRTC_MEDIA_PERMISSION_REQUEST_CODE = 4157;
 
     private PermissionRequest pendingWebRtcPermissionRequest;
     private String[] pendingAndroidPermissions = new String[0];
     private boolean splashKeepOnScreen = true;
+    private String pendingIncomingCallJson;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,6 +86,7 @@ public class MainActivity extends BridgeActivity {
         // the keyboard (messaging composer / Scrolitha / auth forms).
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         super.onCreate(savedInstanceState);
+        handleIncomingCallIntent(getIntent());
         configureSystemBars();
         registerPredictiveBack();
         // Release splash once first layout is ready (WebView load continues async).
@@ -99,7 +115,71 @@ public class MainActivity extends BridgeActivity {
 
         configureWebViewForProduction(webView, isDebuggable);
         injectNativeOnlineState(webView);
+        publishPendingIncomingCall(webView);
         bridge.getWebView().setWebChromeClient(new AppWebChromeClient());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleIncomingCallIntent(intent);
+    }
+
+    private void handleIncomingCallIntent(Intent intent) {
+        if (intent == null || !intent.hasExtra(EXTRA_CALL_ID)) return;
+        String callId = intent.getStringExtra(EXTRA_CALL_ID);
+        String conversationId = intent.getStringExtra(EXTRA_CONVERSATION_ID);
+        if (TextUtils.isEmpty(callId) || TextUtils.isEmpty(conversationId)) return;
+
+        try {
+            JSONObject data = new JSONObject();
+            data.put("type", "call_ringing");
+            data.put("callId", callId);
+            data.put("conversationId", conversationId);
+            data.put("initiatorId", valueOrEmpty(intent.getStringExtra(EXTRA_INITIATOR_ID)));
+            data.put("initiatorName", valueOrEmpty(intent.getStringExtra(EXTRA_INITIATOR_NAME)));
+            data.put("mediaMode", "video".equals(intent.getStringExtra(EXTRA_MEDIA_MODE)) ? "video" : "audio");
+            data.put("callType", valueOrEmpty(intent.getStringExtra(EXTRA_CALL_TYPE)));
+            String participantIds = intent.getStringExtra(EXTRA_PARTICIPANT_IDS);
+            if (!TextUtils.isEmpty(participantIds)) {
+                try {
+                    data.put("participantIds", new JSONArray(participantIds));
+                } catch (JSONException ignored) {
+                    data.put("participantIds", participantIds);
+                }
+            }
+
+            JSONObject payload = new JSONObject();
+            payload.put("type", "call_ringing");
+            payload.put("data", data);
+            payload.put("deepLink", valueOrEmpty(intent.getStringExtra(EXTRA_DEEP_LINK)));
+            payload.put("title", "Incoming call");
+            payload.put("body", "Incoming Scrolith call");
+            pendingIncomingCallJson = payload.toString();
+            ScrolithFirebaseMessagingService.dismissCallNotification(this, callId);
+        } catch (JSONException ignored) {
+            pendingIncomingCallJson = null;
+        }
+    }
+
+    private static String valueOrEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
+    private void publishPendingIncomingCall(WebView webView) {
+        if (webView == null || pendingIncomingCallJson == null) return;
+        final String payload = pendingIncomingCallJson;
+        webView.postDelayed(() -> {
+            try {
+                String js = "(function(){try{var p=" + payload
+                    + ";window.__scrolithPendingIncomingCall=p;window.dispatchEvent(new CustomEvent('mobile:incoming-call',{detail:p}));}catch(e){}})();";
+                webView.evaluateJavascript(js, null);
+                if (payload.equals(pendingIncomingCallJson)) pendingIncomingCallJson = null;
+            } catch (Throwable ignored) {
+                // The WebView may still be loading; a later lifecycle callback retries.
+            }
+        }, 750L);
     }
 
     /**
@@ -269,6 +349,7 @@ public class MainActivity extends BridgeActivity {
         try {
             if (bridge != null && bridge.getWebView() != null) {
                 injectNativeOnlineState(bridge.getWebView());
+                publishPendingIncomingCall(bridge.getWebView());
             }
         } catch (Throwable ignored) {
             // ignore

@@ -1,0 +1,9 @@
+- Hardened Android cold-start incoming voice and video call notification delivery.
+- Added a native FirebaseMessagingService path for high-priority call_ringing data pushes, with deduplicated ringtone notifications and full-screen/deep-link handoff.
+- Preserved native full-screen call notification behavior and safe deep-link handoff into the signed-in call surface.
+- Improved duplicate and race handling between push notification actions, realtime signaling, and the WebView call overlay.
+- Improved push-token registration retry and authenticated multi-device synchronization without exposing token values.
+- Preserved realtime messaging, WebSocket reconnect, voice and video calls, Redis-backed signaling, authentication, and existing production API routing.
+- Preserved responsive messaging behavior across the inbox, header messaging surface, and floating chat widget.
+- Added call media lifecycle safeguards for authorization, media acquisition, signaling failure, timeout, rejection, and network loss cleanup.
+- Updated the Android production bundle to version 1.1.78 (versionCode 88).

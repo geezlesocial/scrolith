@@ -11,10 +11,10 @@ $GeezleRoot = if ($env:SCROLITH_RELEASE_GEEZLE_ROOT) {
   $DefaultGeezleRoot
 }
 $AndroidRoot = Join-Path $MobileRoot 'android'
-$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.70'
-$VersionCode = 80
-$VersionName = '1.1.70'
-$WebCommit = (git -C $GeezleRoot rev-parse --short HEAD 2>$null)
+$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.78'
+$VersionCode = 88
+$VersionName = '1.1.78'
+$WebCommit = (git -C $GeezleRoot rev-parse HEAD 2>$null)
 if (-not $WebCommit) { $WebCommit = 'unknown' }
 
 # Production-only: never allow cleartext / CAP_SERVER_URL in release packaging
@@ -48,7 +48,7 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $LogDir = Join-Path $OutDir 'logs'
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $ReleaseWebDir = Join-Path $OutDir 'web-dist'
-$RelativeReleaseWebDir = 'release-artifacts/android-1.1.70/web-dist'
+$RelativeReleaseWebDir = 'release-artifacts/android-1.1.78/web-dist'
 $env:SCROLITH_CAPACITOR_WEB_DIR = $RelativeReleaseWebDir
 
 # npm/vite write warnings to stderr; do not treat native stderr as terminating errors.
@@ -161,12 +161,12 @@ $meta = @{
   webCommit = $WebCommit
   minifyEnabled = $true
   shrinkResources = $true
-  phase = 'device-security-login-approval'
+  phase = 'cold-start-call-push-hardening'
   targetSdk = 36
   compileSdk = 36
   minSdk = 24
-  productionBackendRevision = 'ca-scrolith-backend--device-security-4dc5f3e0'
-  productionFrontendRevision = 'ca-scrolith-frontend--device-security-dce92f8b'
+  productionBackendRevision = 'ca-scrolith-backend--socket-fix-5e6a51e7'
+  productionFrontendRevision = 'ca-scrolith-frontend--messaging-call-183ea55a'
   productionApi = 'https://api.scrolith.com'
   productionAppUrl = 'https://scrolith.com'
   googlePlayUploadPerformed = $false

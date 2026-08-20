@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 1.1.69 - KYC upload visibility + "Saved on form", ClamAV fail-open cutover, AAB rebuild.
-        versionCode 80
-        versionName "1.1.70"
+        // 1.1.78 - cold-start incoming-call push hardening and realtime messaging continuity.
+        versionCode 88
+        versionName "1.1.78"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]
