@@ -549,6 +549,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         ''
       ).trim().toLowerCase();
       if (!type) return;
+      // Incoming calls have their own global call overlay. Do not also render
+      // them as an ordinary notification toast.
+      if (type === 'call_ringing') return;
       showForegroundPushNotification(payload);
     };
 

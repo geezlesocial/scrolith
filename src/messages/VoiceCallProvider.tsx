@@ -1242,6 +1242,33 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       }
     };
 
+    const onBackgroundIncomingCall = (event: Event) => {
+      const payload = (event as CustomEvent<any>)?.detail;
+      const type = String(payload?.type || payload?.data?.type || '').trim().toLowerCase();
+      if (type !== 'call_ringing') return;
+      const data = payload?.data && typeof payload.data === 'object' ? payload.data : payload;
+      onRinging({
+        ...data,
+        callId: data?.callId || payload?.callId,
+        conversationId: data?.conversationId || payload?.conversationId,
+        initiatorId: data?.initiatorId || payload?.initiatorId,
+        mediaMode: data?.mediaMode || payload?.mediaMode,
+        callType: data?.callType || payload?.callType,
+        status: data?.status || 'ringing'
+      });
+      if (typeof window !== 'undefined') {
+        delete (window as any).__scrolithPendingIncomingCall;
+      }
+    };
+
+    if (typeof window !== 'undefined' && (window as any).__scrolithPendingIncomingCall) {
+      onBackgroundIncomingCall(
+        new CustomEvent('mobile:incoming-call', {
+          detail: (window as any).__scrolithPendingIncomingCall
+        })
+      );
+    }
+
     const onMediaState = (payload: any) => {
       if (!matchesCurrentCall(payload)) return;
       const mediaUserId = String(payload?.userId || '').trim();
@@ -1266,6 +1293,9 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     socket.on('call:join-approved', onJoinApproved);
     socket.on('call:join-rejected', onJoinRejected);
     socket.on('call:media', onMediaState);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('mobile:incoming-call', onBackgroundIncomingCall as EventListener);
+    }
 
     return () => {
       socket.off('call:initiate', onInitiated);
@@ -1285,6 +1315,9 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       socket.off('call:join-approved', onJoinApproved);
       socket.off('call:join-rejected', onJoinRejected);
       socket.off('call:media', onMediaState);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('mobile:incoming-call', onBackgroundIncomingCall as EventListener);
+      }
     };
   }, [
     socket,

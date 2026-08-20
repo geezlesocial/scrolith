@@ -507,6 +507,18 @@ const buildForegroundPushPayload = (incoming: any) => {
     notification?.url;
   const actionUrl = normalizePushActionPath(rawAction) || buildFallbackPathFromPushData(data) || undefined;
 
+  const normalizedData = { ...data } as Record<string, any>;
+  for (const key of ['participantIds', 'participants']) {
+    if (typeof normalizedData[key] === 'string') {
+      try {
+        const parsed = JSON.parse(normalizedData[key]);
+        if (Array.isArray(parsed)) normalizedData[key] = parsed;
+      } catch {
+        // Keep the raw value for non-call notifications.
+      }
+    }
+  }
+
   return {
     id: notification?.id || data.notificationId,
     type: data.type || notification?.type || 'system',
@@ -514,11 +526,18 @@ const buildForegroundPushPayload = (incoming: any) => {
     body: notification?.body || notification?.message || '',
     message: notification?.body || notification?.message || '',
     actionUrl,
-    data,
-    metadata: data,
-    conversationId: data.conversationId || data.conversation_id,
-    messageId: data.messageId || data.message_id
+    data: normalizedData,
+    metadata: normalizedData,
+    conversationId: normalizedData.conversationId || normalizedData.conversation_id,
+    messageId: normalizedData.messageId || normalizedData.message_id
   };
+};
+
+const dispatchIncomingCallPush = (payload: any) => {
+  const type = String(payload?.type || payload?.data?.type || '').trim().toLowerCase();
+  if (type !== 'call_ringing' || typeof window === 'undefined') return;
+  (window as any).__scrolithPendingIncomingCall = payload;
+  window.dispatchEvent(new CustomEvent('mobile:incoming-call', { detail: payload }));
 };
 
 const attachPushListeners = (navigate?: (path: string) => void) => {
@@ -605,9 +624,9 @@ const attachPushListeners = (navigate?: (path: string) => void) => {
         void getLocalBadgeCount();
       });
       if (typeof window === 'undefined') return;
-      window.dispatchEvent(new CustomEvent('mobile:push-notification-received', {
-        detail: buildForegroundPushPayload(notification)
-      }));
+      const payload = buildForegroundPushPayload(notification);
+      dispatchIncomingCallPush(payload);
+      window.dispatchEvent(new CustomEvent('mobile:push-notification-received', { detail: payload }));
     } catch (error) {
       console.error('Failed to dispatch foreground push event', error);
     }
@@ -618,6 +637,8 @@ const attachPushListeners = (navigate?: (path: string) => void) => {
     const notificationId =
       event.notification?.id || notificationData?.notificationId || null;
     const actionId = String((event as any)?.actionId || notificationData?.actionId || 'tap').toLowerCase();
+
+    dispatchIncomingCallPush(buildForegroundPushPayload(event.notification));
 
     // Phase 32.3 — rich action ids (mark_read / archive) reuse existing APIs
     if (actionId === 'mark_read' || actionId === 'read') {
