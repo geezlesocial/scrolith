@@ -144,6 +144,8 @@ export const getDeviceMetadata = async () => {
 const unwrap = (response: any) => response?.data?.data ?? response?.data ?? response;
 
 export const DeviceSecurityService = {
+  registerTrustedDevice: async () =>
+    unwrap(await api.post('/security/login-approvals/trusted-device', { device: await getDeviceMetadata() }, { __skipRetry: true } as any)),
   listPendingApprovals: async () => {
     const payload = unwrap(await api.get('/security/login-approvals/pending', { __skipRetry: true } as any));
     return Array.isArray(payload?.pendingApprovals) ? payload.pendingApprovals : [];

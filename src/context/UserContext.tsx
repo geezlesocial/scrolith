@@ -167,6 +167,15 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
+  // Backfill the current browser/mobile identity into the additive trusted
+  // device registry. Failures are advisory and never interrupt a session.
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) return;
+    void import('../services/deviceSecurity')
+      .then(({ DeviceSecurityService }) => DeviceSecurityService.registerTrustedDevice())
+      .catch(() => undefined);
+  }, [isAuthenticated, user?.id]);
+
   // Get admin profile from localStorage
   const getAdminProfile = () => {
     try {
