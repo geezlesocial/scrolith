@@ -1,5 +1,6 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useUser } from '../../context/UserContext';
 import { UserService } from '../../services/user';
 import { NotificationService, type QuietHourRule } from '../../services/notifications';
@@ -246,6 +247,7 @@ const SettingsModule = () => {
     const { showNotification } = useNotification();
     const { currency, setCurrency, availableCurrencies } = useCurrency();
     const { profile, userDataSaver, setUserDataSaver } = usePerformanceProfile();
+    const [searchParams] = useSearchParams();
     const [activeSection, setActiveSection] = useState<'notifications' | 'security' | 'account'>('notifications');
     const [settings, setSettings] = useState<UserSettings | null>(null);
     const [loading, setLoading] = useState(true);
@@ -287,6 +289,13 @@ const SettingsModule = () => {
     const [langPrefs, setLangPrefs] = useState<UserLanguagePreferences | null>(null);
     const [langSaving, setLangSaving] = useState(false);
     const onboardingLanguages = useMemo(() => listOnboardingLanguages(), []);
+
+    useEffect(() => {
+        const requestedSection = searchParams.get('section');
+        if (requestedSection === 'notifications' || requestedSection === 'security' || requestedSection === 'account') {
+            setActiveSection(requestedSection);
+        }
+    }, [searchParams]);
 
     const loadPendingApprovals = useCallback(async () => {
         if (!user?.id) return;
