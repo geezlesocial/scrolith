@@ -43,4 +43,27 @@ CREATE TABLE IF NOT EXISTS "LoginApprovalAttempt" (
     CONSTRAINT "LoginApprovalAttempt_approvedByUserId_fkey" FOREIGN KEY ("approvedByUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 CREATE INDEX IF NOT EXISTS "LoginApprovalAttempt_userId_status_expiresAt_idx" ON "LoginApprovalAttempt"("userId", "status", "expiresAt");
-CREATE INDEX IF NOT EXISTS "LoginApprovalAttempt_requestedDeviceId_idx" ON "LoginApprovalAttempt"("requestedDeviceId");
+-- An earlier login-approval migration used the legacy column name newDeviceId.
+-- Keep existing approval records and support fresh databases with the current name.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'LoginApprovalAttempt'
+          AND column_name = 'requestedDeviceId'
+    ) THEN
+        EXECUTE 'CREATE INDEX IF NOT EXISTS "LoginApprovalAttempt_requestedDeviceId_idx" ON "LoginApprovalAttempt"("requestedDeviceId")';
+    ELSIF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'LoginApprovalAttempt'
+          AND column_name = 'newDeviceId'
+    ) THEN
+        EXECUTE 'CREATE INDEX IF NOT EXISTS "LoginApprovalAttempt_requestedDeviceId_idx" ON "LoginApprovalAttempt"("newDeviceId")';
+    ELSE
+        RAISE EXCEPTION 'LoginApprovalAttempt is missing requested device column';
+    END IF;
+END $$;

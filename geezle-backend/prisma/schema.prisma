@@ -7158,14 +7158,14 @@ model LoginTrustedDevice {
 model LoginApprovalAttempt {
   id                String   @id @default(cuid())
   userId            String
-  requestedDeviceId String
+  requestedDeviceId String   @map("newDeviceId")
   approvalTokenHash  String   @unique
   status            String   @default("PENDING")
   expiresAt         DateTime
-  requestedIp       String?
-  requestedUserAgent String?
-  deviceMetadata    Json?
-  approvedByUserId  String?
+  requestedIp       String?  @map("requestIp")
+  requestedUserAgent String? @map("userAgent")
+  deviceMetadata    Json?    @map("metadata")
+  approvedByUserId  String?  @map("approvedById")
   approvedAt        DateTime?
   rejectedAt        DateTime?
   consumedAt        DateTime?
