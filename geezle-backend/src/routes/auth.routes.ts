@@ -9,6 +9,7 @@ import {
   forgotPassword,
   resetPassword
 } from '../controllers/auth.controller';
+import { exchangeApprovedLogin } from '../controllers/auth.controller';
 import { startOAuth, handleOAuthCallback, exchangeOAuthCode } from '../controllers/oauth.controller';
 import {
   getLanguageCatalogController,
@@ -42,6 +43,7 @@ router.get('/health', (_req, res) => {
 // Public routes — dedicated auth rate limits (no client header bypass)
 router.post('/register', registerRateLimiter, register);
 router.post('/login', loginRateLimiter, login);
+router.post('/login/approval/exchange', loginRateLimiter, exchangeApprovedLogin);
 router.post('/2fa/verify', admin2faVerifyRateLimiter, verify2FALogin);
 router.post('/forgot-password', forgotPasswordRateLimiter, forgotPassword);
 router.post('/reset-password', resetPasswordRateLimiter, resetPassword);

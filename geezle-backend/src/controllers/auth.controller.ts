@@ -14,6 +14,13 @@ import {
 import { sendSystemMessage } from '../services/systemMessaging';
 import { toAbsoluteFrontendUrl } from '../services/notificationActionUrl.service';
 import prisma from '../utils/prismaClient';
+import {
+  consumeApprovedLogin,
+  evaluateLoginDevice,
+  getLoginApprovalMetadata,
+  normalizeLoginDeviceMetadata,
+  registerTrustedDevice
+} from '../services/loginApproval.service';
 
 const minimalLoginSelect = {
   id: true,
@@ -529,6 +536,26 @@ export const login = async (req: Request, res: Response) => {
       });
     }
 
+    // Step-up approval for a new browser/mobile identity. Legacy clients that
+    // do not send device metadata keep the existing login behavior.
+    const deviceMetadata = normalizeLoginDeviceMetadata(req.body?.device);
+    const deviceApproval = await evaluateLoginDevice(user.id, deviceMetadata, getClientMeta(req));
+    if (deviceApproval.required) {
+      return res.status(200).json({
+        success: true,
+        requiresLoginApproval: true,
+        code: 'LOGIN_APPROVAL_REQUIRED',
+        message: 'Approve this login from an existing trusted session.',
+        loginApproval: {
+          id: deviceApproval.attemptId,
+          approvalToken: deviceApproval.approvalToken,
+          expiresAt: deviceApproval.expiresAt.toISOString()
+        },
+        user: { id: user.id, email: user.email, role: user.role }
+      });
+    }
+    await registerTrustedDevice(user.id, deviceMetadata);
+
     // Generate JWT token
     console.log('[auth.login] signing token with JWT_SECRET present?', !!JWT_SECRET);
     let token = '';
@@ -575,6 +602,46 @@ export const login = async (req: Request, res: Response) => {
       error: 'Internal server error during login',
       code: 'LOGIN_INTERNAL'
     });
+  }
+};
+
+export const exchangeApprovedLogin = async (req: Request, res: Response) => {
+  try {
+    const attemptId = String(req.body?.attemptId || '').trim();
+    const approvalToken = String(req.body?.approvalToken || '').trim();
+    if (!attemptId || !approvalToken) {
+      return res.status(400).json({ success: false, error: 'attemptId and approvalToken are required', code: 'MISSING_APPROVAL_CREDENTIALS' });
+    }
+
+    const row = await consumeApprovedLogin(attemptId, approvalToken);
+    const user = await safeFindUserById(row.userId);
+    if (!user || user.isActive === false) {
+      return res.status(403).json({ success: false, error: 'Account unavailable', code: 'ACCOUNT_UNAVAILABLE' });
+    }
+
+    await registerTrustedDevice(user.id, getLoginApprovalMetadata(row));
+    await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+    const token = (jwt as any).sign(
+      { id: user.id, email: user.email, role: user.role },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN as string }
+    );
+    res.cookie('Scrolith_token', token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/'
+    });
+    return res.json({
+      success: true,
+      user: mapUserPayload(user),
+      token,
+      accessToken: token
+    });
+  } catch (error: any) {
+    const message = String(error?.message || 'Login approval exchange failed');
+    const status = message.includes('invalid') ? 401 : 409;
+    return res.status(status).json({ success: false, error: message, code: 'LOGIN_APPROVAL_EXCHANGE_FAILED' });
   }
 };
 

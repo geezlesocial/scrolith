@@ -174,6 +174,9 @@ model User {
   notifications       Notification[]       @relation("NotificationUser")
   notificationsActed  Notification[]       @relation("NotificationActor")
   deviceTokens        DeviceToken[]
+  loginTrustedDevices LoginTrustedDevice[]
+  loginApprovalAttempts LoginApprovalAttempt[] @relation("LoginApprovalUser")
+  loginApprovalsDecided LoginApprovalAttempt[] @relation("LoginApprovalDecider")
   passwordResetTokens PasswordResetToken[]
   authAuditLogs       AuthAuditLog[]
 
@@ -7125,6 +7128,55 @@ model AuthAuditLog {
   @@index([userId])
   @@index([event])
   @@index([createdAt])
+}
+
+// Trusted browser/mobile identities used for step-up login approval.
+model LoginTrustedDevice {
+  id          String   @id @default(cuid())
+  userId      String
+  deviceId    String
+  publicKey   String?
+  platform    String?
+  deviceType  String?
+  browserName String?
+  deviceModel String?
+  osVersion   String?
+  appVersion  String?
+  isTrusted   Boolean  @default(true)
+  lastSeenAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([userId, isTrusted])
+  @@index([deviceId])
+}
+
+// Password-verified login requests awaiting a decision from a trusted session.
+model LoginApprovalAttempt {
+  id                String   @id @default(cuid())
+  userId            String
+  requestedDeviceId String
+  approvalTokenHash  String   @unique
+  status            String   @default("PENDING")
+  expiresAt         DateTime
+  requestedIp       String?
+  requestedUserAgent String?
+  deviceMetadata    Json?
+  approvedByUserId  String?
+  approvedAt        DateTime?
+  rejectedAt        DateTime?
+  consumedAt        DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user         User  @relation("LoginApprovalUser", fields: [userId], references: [id], onDelete: Cascade)
+  approvedBy   User? @relation("LoginApprovalDecider", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status, expiresAt])
+  @@index([requestedDeviceId])
 }
 
 // Device tokens for mobile push notifications
