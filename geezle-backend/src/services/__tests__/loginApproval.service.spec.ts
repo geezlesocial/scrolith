@@ -66,6 +66,7 @@ describe('loginApproval.service', () => {
       data: expect.objectContaining({
         userId: 'user-1',
         requestedDeviceId: 'device-2',
+        challenge: expect.any(String),
         status: 'PENDING',
         requestedIp: '203.0.113.10'
       })

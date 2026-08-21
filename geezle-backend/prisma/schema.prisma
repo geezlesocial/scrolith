@@ -7159,6 +7159,7 @@ model LoginApprovalAttempt {
   id                String   @id @default(cuid())
   userId            String
   requestedDeviceId String   @map("newDeviceId")
+  challenge         String   @map("challenge")
   approvalTokenHash  String   @unique
   status            String   @default("PENDING")
   expiresAt         DateTime

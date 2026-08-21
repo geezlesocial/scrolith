@@ -54,6 +54,7 @@ export const normalizeLoginDeviceMetadata = (input: unknown): LoginDeviceMetadat
 
 const hashApprovalToken = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
 const createApprovalToken = () => crypto.randomBytes(32).toString('base64url');
+const createApprovalChallenge = () => crypto.randomBytes(24).toString('base64url');
 
 const hasValidPossessionProof = (metadata: LoginDeviceMetadata) => {
   const deviceId = clean(metadata.deviceId, 180);
@@ -179,11 +180,13 @@ export const evaluateLoginDevice = async (
   });
 
   const approvalToken = createApprovalToken();
+  const challenge = createApprovalChallenge();
   const expiresAt = new Date(Date.now() + APPROVAL_TTL_MS);
   const row = await prisma.loginApprovalAttempt.create({
     data: {
       userId,
       requestedDeviceId: deviceId,
+      challenge,
       approvalTokenHash: hashApprovalToken(approvalToken),
       status: LOGIN_APPROVAL_STATUS.pending,
       expiresAt,
