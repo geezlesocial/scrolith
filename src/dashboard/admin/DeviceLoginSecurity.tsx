@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, Clock3, Loader2, MonitorSmartphone, RefreshCw, ShieldCheck, XCircle } from 'lucide-react';
+import { CheckCircle2, Clock3, Loader2, MonitorSmartphone, RefreshCw, ShieldCheck, Smartphone, XCircle } from 'lucide-react';
 import { useNotification } from '../../context/NotificationContext';
 import { DeviceSecurityService } from '../../services/deviceSecurity';
 
@@ -13,6 +13,19 @@ type PendingLoginApproval = {
   browserName?: string | null;
   deviceModel?: string | null;
   appVersion?: string | null;
+};
+
+type TrustedDevice = {
+  id: string;
+  label?: string | null;
+  platform?: string | null;
+  deviceType?: string | null;
+  browserName?: string | null;
+  deviceModel?: string | null;
+  trustStatus?: string | null;
+  firstSeenAt?: string | null;
+  lastSeenAt?: string | null;
+  trustedAt?: string | null;
 };
 
 const REQUEST_EVENTS = ['security.login_approval.requested', 'security:login_approval_required'];
@@ -37,16 +50,24 @@ const DeviceLoginSecurity: React.FC = () => {
   const [loading, setLoading] = React.useState(true);
   const [refreshing, setRefreshing] = React.useState(false);
   const [savingId, setSavingId] = React.useState<string | null>(null);
+  const [trustedDevices, setTrustedDevices] = React.useState<TrustedDevice[]>([]);
+  const [trustedDevicesLoading, setTrustedDevicesLoading] = React.useState(true);
+  const [trustedDeviceBusy, setTrustedDeviceBusy] = React.useState<string | null>(null);
 
   const load = React.useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
     try {
-      const rows = await DeviceSecurityService.listPendingApprovals();
+      const [rows, devices] = await Promise.all([
+        DeviceSecurityService.listPendingApprovals(),
+        DeviceSecurityService.listTrustedDevices()
+      ]);
       setApprovals(Array.isArray(rows) ? rows : []);
+      setTrustedDevices(Array.isArray(devices) ? devices : []);
     } catch (error: any) {
       if (manual) showNotification('alert', 'Unable to load approvals', error?.message || 'Please try again.');
     } finally {
       setLoading(false);
+      setTrustedDevicesLoading(false);
       if (manual) setRefreshing(false);
     }
   }, [showNotification]);
@@ -76,6 +97,21 @@ const DeviceLoginSecurity: React.FC = () => {
       await load(true);
     } finally {
       setSavingId(null);
+    }
+  };
+
+  const revoke = async (device: TrustedDevice) => {
+    if (!device.id || trustedDeviceBusy) return;
+    if (typeof window !== 'undefined' && !window.confirm('Revoke this trusted device? It will no longer approve new sign-ins.')) return;
+    setTrustedDeviceBusy(device.id);
+    try {
+      await DeviceSecurityService.revokeTrustedDevice(device.id);
+      setTrustedDevices((current) => current.filter((item) => item.id !== device.id));
+      showNotification('success', 'Trusted device revoked', 'The device can no longer approve new sign-ins.');
+    } catch (error: any) {
+      showNotification('alert', 'Device revocation failed', error?.response?.data?.error || error?.message || 'Please try again.');
+    } finally {
+      setTrustedDeviceBusy(null);
     }
   };
 
@@ -157,6 +193,46 @@ const DeviceLoginSecurity: React.FC = () => {
             ))}
           </div>
         )}
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex items-start gap-3">
+          <Smartphone className="mt-0.5 h-5 w-5 text-indigo-700" aria-hidden="true" />
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Trusted devices / Approved browsers</h2>
+            <p className="mt-1 text-sm text-slate-600">Review and revoke devices that can approve new sign-ins. Device identifiers and security keys are never shown.</p>
+          </div>
+        </div>
+        <div className="mt-4 space-y-3">
+          {trustedDevicesLoading ? (
+            <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading trusted devices...</div>
+          ) : trustedDevices.length === 0 ? (
+            <div className="rounded-lg border border-slate-100 bg-slate-50 p-4 text-sm text-slate-600">No active trusted devices.</div>
+          ) : trustedDevices.map((device) => {
+            const label = [device.label, device.browserName, device.platform, device.deviceModel]
+              .map((value) => String(value || '').trim())
+              .filter(Boolean);
+            return (
+              <article key={device.id} className="rounded-lg border border-slate-100 bg-slate-50 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h3 className="font-semibold text-slate-900">{Array.from(new Set(label)).join(' - ') || 'Trusted Scrolith device'}</h3>
+                    <p className="mt-1 text-xs text-slate-500">Trusted {formatDate(device.trustedAt || device.firstSeenAt)} · Last used {formatDate(device.lastSeenAt)}</p>
+                    <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-emerald-700">{String(device.trustStatus || 'TRUSTED')}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void revoke(device)}
+                    disabled={trustedDeviceBusy === device.id}
+                    className="rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    {trustedDeviceBusy === device.id ? 'Revoking...' : 'Revoke'}
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
       </section>
     </div>
   );

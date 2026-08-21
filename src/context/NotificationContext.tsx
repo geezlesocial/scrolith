@@ -5,6 +5,7 @@ import { useNetworkStatus } from './NetworkStatusContext';
 import { useUser } from './UserContext';
 import { useSocket } from './SocketContext';
 import { NotificationService, notificationsApi } from '../services/notifications';
+import { isLoginApprovalNotification, openLoginApprovalNotification } from '../utils/notificationRouting';
 import {
   formatNotificationTitleWithCategory,
   getNotificationCategoryMeta
@@ -310,7 +311,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       persist: true,
       localOnly: true
     });
-  }, [addNotification, showMessageReceiptNotification]);
+    const normalized = normalizeNotification({ ...payload, metadata: data });
+    if (isLoginApprovalNotification(normalized)) {
+      openLoginApprovalNotification(normalized);
+    }
+  }, [addNotification, normalizeNotification, showMessageReceiptNotification]);
 
   useEffect(() => {
     if (!isAuthenticated || !user?.id) {
@@ -424,6 +429,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         toast: normalizedType !== 'message' && normalizedType !== 'new_message',
         persist: true
       });
+      if (isLoginApprovalNotification(normalized)) {
+        openLoginApprovalNotification(normalized);
+      }
     };
 
     const onMessagesNew = (payload: any) => {

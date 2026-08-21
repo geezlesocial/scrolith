@@ -93,6 +93,23 @@ export const getOrCreateDeviceId = async () => {
   return deviceId;
 };
 
+export const clearLocalDeviceSecurityMaterial = async () => {
+  await Promise.all([
+    removeStorage(DEVICE_ID_KEY),
+    removeStorage(`${DEVICE_ID_KEY}.publicKey`)
+  ]);
+  if (typeof indexedDB !== 'undefined') {
+    try {
+      await new Promise<void>((resolve) => {
+        const request = indexedDB.deleteDatabase(DEVICE_KEY_DB);
+        request.onsuccess = request.onerror = request.onblocked = () => resolve();
+      });
+    } catch {
+      // Local cleanup is best effort; server-side revocation remains authoritative.
+    }
+  }
+};
+
 const getOrCreateKeyPair = async () => {
   if (!crypto?.subtle) return { privateKey: null as CryptoKey | null, publicKey: null as CryptoKey | null };
   const privateKey = await readPrivateKey();
@@ -146,6 +163,12 @@ const unwrap = (response: any) => response?.data?.data ?? response?.data ?? resp
 export const DeviceSecurityService = {
   registerTrustedDevice: async () =>
     unwrap(await api.post('/security/login-approvals/trusted-device', { device: await getDeviceMetadata() }, { __skipRetry: true } as any)),
+  listTrustedDevices: async () => {
+    const payload = unwrap(await api.get('/security/overview', { __skipRetry: true } as any));
+    return Array.isArray(payload?.devices) ? payload.devices : [];
+  },
+  revokeTrustedDevice: async (deviceRecordId: string) =>
+    unwrap(await api.delete(`/security/devices/${encodeURIComponent(deviceRecordId)}`, { __skipRetry: true } as any)),
   listPendingApprovals: async () => {
     const payload = unwrap(await api.get('/security/login-approvals/pending', { __skipRetry: true } as any));
     return Array.isArray(payload?.pendingApprovals) ? payload.pendingApprovals : [];

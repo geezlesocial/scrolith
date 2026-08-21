@@ -38,7 +38,13 @@ import { CMSService } from "../services/cms";
 import { HeaderConfig, ActivityConfig, UserRole, HeroSearchConfig } from "../types";
 import SearchInput from "./SearchInput";
 import EnterpriseAvatar from "./common/EnterpriseAvatar";
-import { getNotificationActionUrl, getNotificationBucket, isExternalNotificationUrl } from "../utils/notificationRouting";
+import {
+  getNotificationActionUrl,
+  getNotificationBucket,
+  isExternalNotificationUrl,
+  isLoginApprovalNotification,
+  openLoginApprovalNotification
+} from "../utils/notificationRouting";
 import { resolveOptimizedStaticImageUrl, resolveResponsiveAssetUrl } from "../utils/assetUrl";
 import { HeaderMessagesPopover } from "./messaging";
 import { formatMessagingBadgeCount } from "../services/messagingSurfaces";
@@ -488,9 +494,13 @@ const Navbar = () => {
     return undefined;
   };
 
-  const handleNotificationClick = (id: string, actionUrl?: string) => {
+  const handleNotificationClick = (id: string, actionUrl?: string, notification?: any) => {
     markAsRead(id);
     setShowNotifications(false);
+    if (notification && isLoginApprovalNotification(notification)) {
+      openLoginApprovalNotification(notification);
+      return;
+    }
     if (actionUrl) {
       if (isExternalNotificationUrl(actionUrl)) {
         window.location.href = actionUrl;
@@ -1251,7 +1261,7 @@ const Navbar = () => {
                 return (
                   <div
                     key={notif.id}
-                    onClick={() => handleNotificationClick(notif.id, getNotificationActionUrl(notif))}
+                    onClick={() => handleNotificationClick(notif.id, getNotificationActionUrl(notif), notif)}
                     className={`p-4 border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors relative ${
                       !notif.isRead ? "bg-blue-50/30" : ""
                     }`}
