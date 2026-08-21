@@ -10,16 +10,26 @@ RUN npm ci --include=dev --no-audit --no-fund --fetch-retries=5 --fetch-retry-mi
 COPY . .
 
 ARG VITE_API_URL=https://api.scrolith.com/api
+ARG VITE_API_BASE_URL=https://api.scrolith.com/api
 ARG VITE_BACKEND_URL=https://api.scrolith.com
 ARG VITE_PUBLIC_APP_DOMAIN=scrolith.com
 ARG VITE_PUBLIC_APP_URL=https://scrolith.com
 ARG VITE_MESSAGES_TRACE_DEBUG=false
 
 ENV VITE_API_URL=${VITE_API_URL}
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 ENV VITE_BACKEND_URL=${VITE_BACKEND_URL}
 ENV VITE_PUBLIC_APP_DOMAIN=${VITE_PUBLIC_APP_DOMAIN}
 ENV VITE_PUBLIC_APP_URL=${VITE_PUBLIC_APP_URL}
 ENV VITE_MESSAGES_TRACE_DEBUG=${VITE_MESSAGES_TRACE_DEBUG}
+
+# .env.production is copied with the source tree and otherwise overrides the
+# Docker build arguments when Vite loads mode-specific environment files.
+RUN if [ -f .env.production ]; then \
+      sed -i "s|^VITE_API_URL=.*|VITE_API_URL=${VITE_API_URL}|" .env.production && \
+      sed -i "s|^VITE_API_BASE_URL=.*|VITE_API_BASE_URL=${VITE_API_BASE_URL}|" .env.production && \
+      sed -i "s|^VITE_BACKEND_URL=.*|VITE_BACKEND_URL=${VITE_BACKEND_URL}|" .env.production; \
+    fi
 
 RUN npm run build
 RUN node scripts/compress-static-assets.mjs
