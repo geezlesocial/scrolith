@@ -3,7 +3,7 @@
  * Classification uses authoritative conversation metadata only — no name/text guessing.
  */
 import type { Conversation, Message } from '../types';
-import { getConversationMergeKey } from './messagingMerge';
+import { getConversationMergeKey, mergeDirectConversations } from './messagingMerge';
 import {
   formatConversationPreview,
   getConversationPreviewText,
@@ -483,6 +483,26 @@ export const filterConversationsForTab = (
   const max = Math.max(1, Math.min(50, Math.trunc(limit || MESSAGING_PREVIEW_LIMIT)));
   return filtered.slice(0, max);
 };
+
+/**
+ * Shared conversation source for the header popover and floating dock.
+ * Keep this aligned with the full /messages workspace so legacy direct rows
+ * cannot render the same participant pair twice in compact surfaces.
+ */
+export const getMessagingSurfaceConversations = (
+  conversations: Conversation[],
+  currentUserId: string | null | undefined,
+  tab: MessagingInboxTab,
+  limit = MESSAGING_PREVIEW_LIMIT
+): Conversation[] =>
+  filterConversationsForTab(
+    mergeDirectConversations(
+      Array.isArray(conversations) ? conversations : [],
+      currentUserId || undefined
+    ),
+    tab,
+    limit
+  );
 
 export const localSearchConversations = (
   conversations: Conversation[],

@@ -3,6 +3,7 @@ import {
   getConversationMergeKey,
   mergeDirectConversations
 } from '../../src/services/messagingMerge';
+import { getMessagingSurfaceConversations } from '../../src/services/messagingSurfaces';
 
 describe('DIRECT inbox merge (self user id)', () => {
   const self = 'user-self';
@@ -68,6 +69,33 @@ describe('DIRECT inbox merge (self user id)', () => {
     expect(merged).toHaveLength(1);
     expect(merged[0].id).toBe('c-new');
     expect(Number(merged[0].unreadCount)).toBe(10);
+  });
+
+  it('dedupes the compact header and dock preview source like /messages', () => {
+    const preview = getMessagingSurfaceConversations(
+      [
+        {
+          id: 'call-thread-new',
+          type: 'direct',
+          participants: [{ id: self }, { id: peerA, name: "Mu'axxam" }],
+          lastMessage: 'Call ended · 14s · 2 participants',
+          lastMessageAt: '2026-07-25T18:59:00.000Z'
+        },
+        {
+          id: 'call-thread-old',
+          type: 'direct',
+          participants: [{ id: self }, { id: peerA, name: "Mu'axxam" }],
+          lastMessage: 'Missed call',
+          lastMessageAt: '2026-07-25T15:48:00.000Z'
+        }
+      ] as any,
+      self,
+      'all',
+      10
+    );
+
+    expect(preview).toHaveLength(1);
+    expect(preview[0].id).toBe('call-thread-new');
   });
 
   it('keeps different peers separate', () => {

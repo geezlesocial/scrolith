@@ -19,10 +19,10 @@ import {
   applyIncomingPreviewUpdate,
   clearConversationDraft,
   dedupeMessagesById,
-  filterConversationsForTab,
   getConversationDraft,
   getConversationUnreadCount,
   getMessagePreviewText,
+  getMessagingSurfaceConversations,
   localSearchConversations,
   MESSAGING_PREVIEW_LIMIT,
   MESSAGING_SEARCH_DEBOUNCE_MS,
@@ -466,7 +466,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           : debouncedSearch.trim().length >= 1
             ? localSearchConversations(conversations, debouncedSearch, user?.id)
             : conversations;
-      return filterConversationsForTab(source, tab, limit);
+      return getMessagingSurfaceConversations(source, user?.id, tab, limit);
     },
     [conversations, debouncedSearch, searchResults, user?.id]
   );
