@@ -178,6 +178,7 @@ describe('Community boost prefill', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.data.sourceType).toBe('COMMUNITY_POST');
     expect(res.body.data.destinationUrl).toContain(`/post/${postId}`);
+    expect(res.body.data.targetCountries).toEqual([]);
     expect(res.body.data.mediaFileIds).toEqual([postFileId]);
     expect(res.body.data.media).toHaveLength(1);
     expect(res.body.data.media[0]).toMatchObject({
@@ -195,6 +196,7 @@ describe('Community boost prefill', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.data.sourceType).toBe('BUSINESS_PAGE');
     expect(res.body.data.destinationUrl).toContain('/company/boostable-page');
+    expect(res.body.data.targetCountries).toEqual([]);
     expect(res.body.data.mediaFileIds).toEqual([pageCoverFileId, pageLogoFileId]);
     expect(res.body.data.media).toHaveLength(2);
   });
@@ -208,6 +210,7 @@ describe('Community boost prefill', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.data.sourceType).toBe('COMMUNITY_GROUP');
     expect(res.body.data.destinationUrl).toContain('/community/clubs?group=boostable-group');
+    expect(res.body.data.targetCountries).toEqual([]);
     expect(res.body.data.mediaFileIds).toHaveLength(2);
     expect(res.body.data.media).toHaveLength(2);
     expect(String(res.body.data.media[0].url || '')).toContain('boost-community-group');

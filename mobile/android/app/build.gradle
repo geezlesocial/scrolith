@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 1.1.79 - production backend hardening compatibility release; preserves call and messaging continuity.
-        versionCode 89
-        versionName "1.1.79"
+        // 1.1.80 - country-scoped promotion targeting; preserves call and messaging continuity.
+        versionCode 90
+        versionName "1.1.80"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]

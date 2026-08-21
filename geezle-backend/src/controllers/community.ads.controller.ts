@@ -5,7 +5,6 @@ import { recordClick, recordImpression } from '../services/adService';
 import { syncFileUsages } from '../utils/fileUsage';
 import { sendSystemEmail } from '../services/email.service';
 import { getStripeClient } from '../services/stripeConfig.service';
-import { DEFAULT_AD_TARGET_COUNTRIES } from '../constants/defaultAudienceOptions';
 import { buildCommunityAdActivationReadiness } from '../services/communityAdActivation.service';
 import { buildMarketplaceListingBoostPrefill } from '../services/marketplace.service';
 import { resolveDirectMediaUrl, resolveFileBaseUrl } from '../utils/mediaUrl';
@@ -174,7 +173,7 @@ const defaultAdsConfig = {
   autoApproveAds: false,
   notifyAdminOnAdCreate: true,
   allowedPlacements: DEFAULT_ALLOWED_PLACEMENTS,
-  targetCountries: DEFAULT_AD_TARGET_COUNTRIES,
+  targetCountries: [],
   allowedMediaTypes: ['text', 'image', 'video'],
   requireLoginToInteract: false,
   scrollAds: {
@@ -218,7 +217,7 @@ const normalizeCountryList = (raw: any, fallback: string[] = []): string[] => {
 const sanitizeTargetCountries = (raw: any, allowedRaw: any): string[] => {
   const requested = normalizeCountryList(raw, []);
   const allowed = normalizeCountryList(allowedRaw, []);
-  if (!allowed.length) return requested;
+  if (!allowed.length) return [];
   if (!requested.length) return [];
   const allowedSet = new Set(allowed.map((entry) => entry.toLowerCase()));
   return requested.filter((entry) => allowedSet.has(entry.toLowerCase()));
@@ -392,7 +391,7 @@ const mergeAdsConfig = (raw: any) => {
   const cpmByPlacement = { ...defaultAdsConfig.cpmByPlacement, ...(input.cpmByPlacement || {}) } as Record<string, any>;
   const cpcByPlacement = { ...defaultAdsConfig.cpcByPlacement, ...(input.cpcByPlacement || {}) } as Record<string, any>;
   const normalizedAllowedPlacements = resolveAllowedPlacements(input.allowedPlacements);
-  const normalizedTargetCountries = normalizeCountryList(input.targetCountries, DEFAULT_AD_TARGET_COUNTRIES);
+  const normalizedTargetCountries = normalizeCountryList(input.targetCountries, []);
   const normalized = {
     ...defaultAdsConfig,
     ...input,
@@ -878,7 +877,7 @@ const buildPostBoostPrefill = async (userId: string, postId: string) => {
       mediaFileIds,
       body: String(post.content || '').trim() || sourceTitle,
       targetAudience: 'users',
-      targetCountries: DEFAULT_AD_TARGET_COUNTRIES,
+      targetCountries: [],
       tags: Array.isArray(post.tags) ? post.tags : [],
       location: post.location || '',
       currency: 'USD'
@@ -921,7 +920,7 @@ const buildPageBoostPrefill = async (userId: string, pageId: string) => {
       mediaFileIds,
       body: String(page.description || page.tagline || '').trim() || sourceTitle,
       targetAudience: 'users',
-      targetCountries: DEFAULT_AD_TARGET_COUNTRIES,
+      targetCountries: [],
       category: page.category || null,
       currency: 'USD'
     }),
@@ -965,7 +964,7 @@ const buildGroupBoostPrefill = async (userId: string, clubId: string) => {
       mediaFileIds,
       body: String(club.description || club.summary || '').trim() || sourceTitle,
       targetAudience: 'users',
-      targetCountries: DEFAULT_AD_TARGET_COUNTRIES,
+      targetCountries: [],
       category: club.category || null,
       location: club.location || null,
       currency: 'USD'
