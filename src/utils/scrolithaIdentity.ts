@@ -1,3 +1,5 @@
+import { resolveAssetUrl } from './assetUrl';
+
 /**
  * Phase 20.7.9 — Canonical Scrolitha identity assets for all client surfaces.
  * Prefer server public-profile when available; these defaults match production assets.
@@ -14,9 +16,10 @@ export const SCROLITHA_OFFICIAL_COVER_PHOTO_URL =
 
 export const withScrolithaAssetVersion = (url: string | null | undefined): string => {
   const base = String(url || SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL).trim();
-  if (!base) return `${SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL}?v=${SCROLITHA_ASSET_VERSION}`;
-  if (/[?&]v=/.test(base)) return base;
-  return `${base}${base.includes('?') ? '&' : '?'}v=${encodeURIComponent(SCROLITHA_ASSET_VERSION)}`;
+  const resolved = resolveAssetUrl(base) || base;
+  if (!resolved) return `${SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL}?v=${SCROLITHA_ASSET_VERSION}`;
+  if (/[?&]v=/.test(resolved)) return resolved;
+  return `${resolved}${resolved.includes('?') ? '&' : '?'}v=${encodeURIComponent(SCROLITHA_ASSET_VERSION)}`;
 };
 
 export const getScrolithaProfilePhotoUrl = (override?: string | null) =>
