@@ -35,7 +35,6 @@ import AdVideoPlayer from '../components/ads/AdVideoPlayer';
 import { PaymentService } from '../services/payment';
 import { PaymentGateway } from '../types';
 import { getUserFacingPaymentMethodName } from '../utils/paymentGatewayDisplay';
-import { DEFAULT_AD_TARGET_COUNTRIES } from '../constants/defaultAudienceOptions';
 import { resolveAssetUrl } from '../utils/assetUrl';
 import {
   resolvePostAttachmentMediaUrl,
@@ -789,7 +788,7 @@ const MyAds = () => {
       ? adsConfig.targetCountries
           .map((entry: any) => String(entry || '').trim())
           .filter(Boolean)
-      : DEFAULT_AD_TARGET_COUNTRIES;
+      : [];
     const selected = Array.isArray(form.targetCountries)
       ? form.targetCountries.map((entry) => String(entry || '').trim()).filter(Boolean)
       : [];

@@ -43,7 +43,6 @@ import {
 } from '../../utils/postAiControls';
 import FilePickerModal from './FilePickerModal';
 import MonetizationPanel from './MonetizationPanel';
-import { DEFAULT_AD_TARGET_COUNTRIES } from '../../constants/defaultAudienceOptions';
 
 const tabs = [
   { id: 'overview', label: 'Overview', icon: LayoutGrid },
@@ -811,7 +810,7 @@ const CommunityDashboard: React.FC = () => {
       ? adsConfig.targetCountries
           .map((entry: any) => String(entry || '').trim())
           .filter(Boolean)
-      : DEFAULT_AD_TARGET_COUNTRIES;
+      : [];
     const selected = Array.isArray(adDraft.targetCountries)
       ? adDraft.targetCountries.map((entry) => String(entry || '').trim()).filter(Boolean)
       : [];

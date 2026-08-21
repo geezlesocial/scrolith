@@ -2019,7 +2019,7 @@ const AdManager = () => {
                 setReviewQueue(queue);
                 const normalizedCountries = Array.from(
                     new Set(
-                        (Array.isArray(cfg?.targetCountries) ? cfg.targetCountries : DEFAULT_AD_TARGET_COUNTRIES)
+                        (Array.isArray(cfg?.targetCountries) ? cfg.targetCountries : [])
                             .map((entry: any) => String(entry || '').trim())
                             .filter(Boolean)
                     )
