@@ -1,11 +1,14 @@
 import express from 'express';
 import { authMiddleware } from '../middleware/auth.middleware';
+import prisma from '../utils/prismaClient';
 import {
   decideLoginApproval,
   getLoginApprovalStatus,
   listPendingLoginApprovals,
+  listTrustedDevices,
   normalizeLoginDeviceMetadata,
-  registerTrustedDevice
+  registerTrustedDevice,
+  revokeTrustedDevice
 } from '../services/loginApproval.service';
 
 const router = express.Router();
@@ -32,6 +35,47 @@ router.get('/login-approvals/pending', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('[login-approvals] pending failed', error);
     return res.status(500).json({ success: false, error: 'Unable to load login approvals' });
+  }
+});
+
+router.get('/overview', authMiddleware, async (req, res) => {
+  try {
+    const userId = String(req.user?.id || '').trim();
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const [devices, pendingApprovals, settings] = await Promise.all([
+      listTrustedDevices(userId),
+      listPendingLoginApprovals(userId),
+      prisma.userSettings.findUnique({ where: { userId }, select: { loginAlerts: true, twoFactorEnabled: true } })
+    ]);
+    return res.json({
+      success: true,
+      data: {
+        devices,
+        pendingApprovals,
+        preferences: {
+          loginAlerts: settings?.loginAlerts ?? true,
+          twoFactorEnabled: settings?.twoFactorEnabled ?? false
+        }
+      }
+    });
+  } catch (error) {
+    console.error('[login-approvals] overview failed', error);
+    return res.status(500).json({ success: false, error: 'Unable to load device security' });
+  }
+});
+
+router.delete('/devices/:deviceId', authMiddleware, async (req, res) => {
+  try {
+    const userId = String(req.user?.id || '').trim();
+    const deviceRecordId = String(req.params.deviceId || '').trim();
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    if (!deviceRecordId) return res.status(400).json({ success: false, error: 'Device id is required' });
+    const result = await revokeTrustedDevice(userId, deviceRecordId);
+    if (!result.count) return res.status(404).json({ success: false, error: 'Trusted device not found' });
+    return res.json({ success: true, data: { revoked: true } });
+  } catch (error) {
+    console.error('[login-approvals] device revoke failed', error);
+    return res.status(500).json({ success: false, error: 'Unable to revoke trusted device' });
   }
 });
 

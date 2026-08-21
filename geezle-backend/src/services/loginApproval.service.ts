@@ -145,6 +145,52 @@ export const registerTrustedDevice = async (userId: string, metadata: LoginDevic
   });
 };
 
+export const listTrustedDevices = async (userId: string) => {
+  const devices = await prisma.loginTrustedDevice.findMany({
+    where: { userId, isTrusted: true },
+    orderBy: { lastSeenAt: 'desc' },
+    select: {
+      id: true,
+      deviceId: true,
+      platform: true,
+      deviceType: true,
+      browserName: true,
+      deviceModel: true,
+      osVersion: true,
+      appVersion: true,
+      isTrusted: true,
+      lastSeenAt: true,
+      createdAt: true
+    }
+  });
+
+  return devices.map((device) => ({
+    id: device.id,
+    deviceId: device.deviceId,
+    label: [device.browserName, device.deviceModel, device.platform]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+      .filter((value, index, values) => values.indexOf(value) === index)
+      .join(' - ') || 'Scrolith device',
+    platform: device.platform,
+    deviceType: device.deviceType,
+    browserName: device.browserName,
+    deviceModel: device.deviceModel,
+    osVersion: device.osVersion,
+    appVersion: device.appVersion,
+    trustStatus: device.isTrusted ? 'TRUSTED' : 'REVOKED',
+    firstSeenAt: device.createdAt,
+    trustedAt: device.createdAt,
+    lastSeenAt: device.lastSeenAt
+  }));
+};
+
+export const revokeTrustedDevice = async (userId: string, deviceRecordId: string) =>
+  prisma.loginTrustedDevice.updateMany({
+    where: { id: deviceRecordId, userId, isTrusted: true },
+    data: { isTrusted: false }
+  });
+
 /**
  * A device is approved automatically when it is already trusted or when the
  * account has no trusted device yet. New devices require an existing trusted
