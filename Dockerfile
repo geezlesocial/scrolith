@@ -22,6 +22,7 @@ ENV VITE_PUBLIC_APP_URL=${VITE_PUBLIC_APP_URL}
 ENV VITE_MESSAGES_TRACE_DEBUG=${VITE_MESSAGES_TRACE_DEBUG}
 
 RUN npm run build
+RUN node scripts/compress-static-assets.mjs
 
 FROM nginx:1.27-alpine AS runtime
 
