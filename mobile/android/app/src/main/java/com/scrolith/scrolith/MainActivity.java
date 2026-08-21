@@ -32,7 +32,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -124,6 +123,9 @@ public class MainActivity extends BridgeActivity {
         super.onNewIntent(intent);
         setIntent(intent);
         handleIncomingCallIntent(intent);
+        if (bridge != null && bridge.getWebView() != null) {
+            publishPendingIncomingCall(bridge.getWebView());
+        }
     }
 
     private void handleIncomingCallIntent(Intent intent) {
@@ -323,27 +325,6 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
-    public void onTrimMemory(int level) {
-        super.onTrimMemory(level);
-        // Low-memory recovery: drop WebView render priority when the system is under pressure.
-        try {
-            if (bridge != null && bridge.getWebView() != null) {
-                if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
-                    bridge.getWebView().pauseTimers();
-                    bridge.getWebView().resumeTimers();
-                }
-                if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
-                    // Free GPU resources while backgrounded.
-                    bridge.getWebView().onPause();
-                    bridge.getWebView().onResume();
-                }
-            }
-        } catch (Throwable ignored) {
-            // Best-effort only.
-        }
-    }
-
-    @Override
     public void onResume() {
         super.onResume();
         try {
@@ -481,31 +462,11 @@ public class MainActivity extends BridgeActivity {
         if (origin == null) {
             return false;
         }
-        String scheme = String.valueOf(origin.getScheme() == null ? "" : origin.getScheme()).toLowerCase(Locale.US);
-        String host = String.valueOf(origin.getHost() == null ? "" : origin.getHost()).toLowerCase(Locale.US);
-
-        // Capacitor local shell
-        if ("https".equals(scheme) && ("localhost".equals(host) || "127.0.0.1".equals(host))) {
-            return true;
-        }
-        if ("http".equals(scheme) && ("localhost".equals(host) || "127.0.0.1".equals(host))) {
-            return true;
-        }
-        // Capacitor app scheme / custom
-        if ("capacitor".equals(scheme) || "ionic".equals(scheme) || "https".equals(scheme) && host.contains("capacitor")) {
-            return true;
-        }
-        // Production + staging Scrolith hosts
-        if ("https".equals(scheme)) {
-            if (host.equals("scrolith.com")
-                || host.equals("www.scrolith.com")
-                || host.endsWith(".scrolith.com")
-                || host.contains("scrolith-frontend")
-                || host.endsWith(".a.run.app")) {
-                return true;
-            }
-        }
-        return false;
+        return WebViewOriginPolicy.isTrusted(
+            origin.getScheme(),
+            origin.getHost(),
+            (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        );
     }
 
     private void grantCaptureResources(
@@ -553,6 +514,17 @@ public class MainActivity extends BridgeActivity {
 
         PermissionRequest request = pendingWebRtcPermissionRequest;
         pendingWebRtcPermissionRequest = null;
+
+        // The page may have navigated while Android was showing the permission
+        // dialog. Never grant capture to the origin that is currently stale.
+        if (!isTrustedWebViewOrigin(request.getOrigin())) {
+            try {
+                request.deny();
+            } catch (Throwable ignored) {
+                // ignore
+            }
+            return;
+        }
 
         List<String> resources = Arrays.asList(request.getResources());
         boolean wantsAudio = resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE);

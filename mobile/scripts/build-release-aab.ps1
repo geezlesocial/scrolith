@@ -11,9 +11,9 @@ $GeezleRoot = if ($env:SCROLITH_RELEASE_GEEZLE_ROOT) {
   $DefaultGeezleRoot
 }
 $AndroidRoot = Join-Path $MobileRoot 'android'
-$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.78'
-$VersionCode = 88
-$VersionName = '1.1.78'
+$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.79'
+$VersionCode = 89
+$VersionName = '1.1.79'
 $WebCommit = (git -C $GeezleRoot rev-parse HEAD 2>$null)
 if (-not $WebCommit) { $WebCommit = 'unknown' }
 
@@ -48,7 +48,7 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $LogDir = Join-Path $OutDir 'logs'
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $ReleaseWebDir = Join-Path $OutDir 'web-dist'
-$RelativeReleaseWebDir = 'release-artifacts/android-1.1.78/web-dist'
+$RelativeReleaseWebDir = 'release-artifacts/android-1.1.79/web-dist'
 $env:SCROLITH_CAPACITOR_WEB_DIR = $RelativeReleaseWebDir
 
 # npm/vite write warnings to stderr; do not treat native stderr as terminating errors.
@@ -161,11 +161,11 @@ $meta = @{
   webCommit = $WebCommit
   minifyEnabled = $true
   shrinkResources = $true
-  phase = 'cold-start-call-push-hardening'
+  phase = 'production-backend-hardening-compatibility'
   targetSdk = 36
   compileSdk = 36
   minSdk = 24
-  productionBackendRevision = 'ca-scrolith-backend--socket-fix-5e6a51e7'
+  productionBackendRevision = 'ca-scrolith-backend--prisma-hardening-8278aca3'
   productionFrontendRevision = 'ca-scrolith-frontend--messaging-call-183ea55a'
   productionApi = 'https://api.scrolith.com'
   productionAppUrl = 'https://scrolith.com'
