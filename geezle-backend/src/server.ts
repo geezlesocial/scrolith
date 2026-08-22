@@ -14,6 +14,7 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import validateEnv from './utils/validateEnv';
 import { resolveDirectMediaUrl, resolveFileBaseUrl } from './utils/mediaUrl';
 import { runtimePolicy } from './config/runtimePolicy';
+import { classifyApiRateLimitRoute } from './middleware/apiRateLimitPolicy';
 
 // Import routes
 import cmsRoutes from './routes/cms';
@@ -191,6 +192,22 @@ const apiRateLimitMaxAnonymous = Math.max(
 const apiRateLimitMaxAuthenticated = Math.max(
   apiRateLimitMaxAnonymous,
   Number(process.env.API_RATE_LIMIT_MAX_AUTH || (isDevelopment ? 10_000 : 4_000))
+);
+const apiRateLimitMaxMediaAnonymous = Math.max(
+  apiRateLimitMaxAnonymous,
+  Number(process.env.API_RATE_LIMIT_MAX_MEDIA_ANON || (isDevelopment ? 10_000 : 3_000))
+);
+const apiRateLimitMaxMediaAuthenticated = Math.max(
+  apiRateLimitMaxAuthenticated,
+  Number(process.env.API_RATE_LIMIT_MAX_MEDIA_AUTH || (isDevelopment ? 10_000 : 8_000))
+);
+const apiRateLimitMaxTelemetryAnonymous = Math.max(
+  apiRateLimitMaxAnonymous,
+  Number(process.env.API_RATE_LIMIT_MAX_TELEMETRY_ANON || (isDevelopment ? 10_000 : 600))
+);
+const apiRateLimitMaxTelemetryAuthenticated = Math.max(
+  apiRateLimitMaxAuthenticated,
+  Number(process.env.API_RATE_LIMIT_MAX_TELEMETRY_AUTH || (isDevelopment ? 10_000 : 1_200))
 );
 const corsMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
 const corsMaxAgeSeconds = Math.max(
@@ -3776,6 +3793,15 @@ try {
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
+const assetCorsPolicyOverride: express.RequestHandler = (_req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+};
+
+// Apply before the API limiter so 4xx responses retain the media policy too.
+app.use('/api/files/content', assetCorsPolicyOverride);
+app.use('/uploads', assetCorsPolicyOverride);
+
   // Rate limiting
 const isAuthCriticalPath = (req: { path?: string; originalUrl?: string; baseUrl?: string; method?: string }) => {
   const path = String(req.path || '').toLowerCase();
@@ -3801,6 +3827,13 @@ const limiter = rateLimit({
   max: (req) => {
     const auth = String(req.headers.authorization || '').trim();
     const baseLimit = auth ? apiRateLimitMaxAuthenticated : apiRateLimitMaxAnonymous;
+    const routeClass = classifyApiRateLimitRoute(req);
+    if (routeClass === 'media') {
+      return auth ? apiRateLimitMaxMediaAuthenticated : apiRateLimitMaxMediaAnonymous;
+    }
+    if (routeClass === 'telemetry') {
+      return auth ? apiRateLimitMaxTelemetryAuthenticated : apiRateLimitMaxTelemetryAnonymous;
+    }
     const path = String(req.path || '').toLowerCase();
     const originalUrl = String(req.originalUrl || '').toLowerCase();
     const mountedPath = String(`${req.baseUrl || ''}${req.path || ''}`).toLowerCase();
@@ -3826,13 +3859,17 @@ const limiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => {
     const auth = String(req.headers.authorization || '').trim();
+    const routeClass = classifyApiRateLimitRoute(req);
     if (auth) {
       const hash = createHash('sha256').update(auth).digest('hex').slice(0, 24);
-      return `auth:${hash}`;
+      return routeClass === 'default' ? `auth:${hash}` : `${routeClass}:auth:${hash}`;
     }
     const conn = req.connection as unknown as { remoteAddress?: string } | undefined;
     const rawIp = (req.ip || (conn && conn.remoteAddress) || '').toString();
     if (!rawIp) return 'unknown';
+    if (routeClass !== 'default') {
+      return `${routeClass}:${ipKeyGenerator(rawIp)}`;
+    }
     // Isolate auth-critical budget so feed/media thrash cannot block login/HV.
     if (isAuthCriticalPath(req)) {
       return `authcrit:${ipKeyGenerator(rawIp)}`;
@@ -3904,14 +3941,6 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), hand
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 runtimeOptimizationBundle.middlewares.forEach((middleware) => app.use(middleware));
-
-const assetCorsPolicyOverride: express.RequestHandler = (_req, res, next) => {
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  next();
-};
-
-app.use('/api/files/content', assetCorsPolicyOverride);
-app.use('/uploads', assetCorsPolicyOverride);
 
 // Static uploads - allow cross-origin usage from frontend
 app.use(
