@@ -56,6 +56,7 @@ type LucideIconComponent = React.ComponentType<{ size?: number; className?: stri
 const HEADER_SEARCH_PLACEHOLDER =
   "Search people, jobs, gigs, posts, pages, communities, or marketplace";
 const BRAND_LOGO_FALLBACK = "/logo-64.png";
+const NAVBAR_CONFIG_POLL_INTERVAL_MS = 60_000;
 
 const formatBadgeCount = (count: number) => formatMessagingBadgeCount(count);
 
@@ -376,7 +377,7 @@ const Navbar = () => {
     if (socket) return;
     const id = window.setInterval(() => {
       refreshConfigs();
-    }, 5000);
+    }, NAVBAR_CONFIG_POLL_INTERVAL_MS);
     return () => window.clearInterval(id);
   }, [socket, refreshConfigs]);
 
