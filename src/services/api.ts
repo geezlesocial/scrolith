@@ -61,7 +61,10 @@ const parseRetryAfterMs = (error: any) => {
 };
 const getRetryLimit = (error: any) => {
   const status = Number(error?.response?.status || 0);
-  if (status === 429) return 1;
+  // A rate-limit response is already a server-side backpressure signal.
+  // Retrying anonymous boot/config GETs immediately multiplies the burst and
+  // can keep an otherwise healthy client locked out behind a shared IP.
+  if (status === 429) return 0;
   return isConstrainedNetwork() ? 1 : 2;
 };
 const computeRetryDelayMs = (error: any, attempt: number) => {
