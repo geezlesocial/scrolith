@@ -1423,6 +1423,29 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   }, [activeIndex, items, profile.dataSaver]);
 
   useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return undefined;
+
+    // React's delegated wheel listener may be passive; use a native listener because
+    // snap navigation intentionally consumes qualifying wheel gestures.
+    const onWheel = (event: WheelEvent) => {
+      if (isInteractiveScrollControlTarget(event.target)) return;
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX) || Math.abs(event.deltaY) < 40) return;
+      const now = Date.now();
+      if (now - wheelNavigationLockRef.current < 420) {
+        event.preventDefault();
+        return;
+      }
+      wheelNavigationLockRef.current = now;
+      event.preventDefault();
+      void navigateRelative(event.deltaY > 0 ? 1 : -1);
+    };
+
+    container.addEventListener('wheel', onWheel, { capture: true, passive: false });
+    return () => container.removeEventListener('wheel', onWheel, { capture: true });
+  }, [navigateRelative]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
       if (isInteractiveScrollControlTarget(event.target)) return;
@@ -1994,18 +2017,6 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         ref={containerRef}
         className="h-screen snap-y snap-mandatory overflow-y-auto"
         style={{ WebkitOverflowScrolling: 'touch', overscrollBehaviorY: 'contain', touchAction: 'pan-y' }}
-        onWheelCapture={(event) => {
-          if (isInteractiveScrollControlTarget(event.target)) return;
-          if (Math.abs(event.deltaY) <= Math.abs(event.deltaX) || Math.abs(event.deltaY) < 40) return;
-          const now = Date.now();
-          if (now - wheelNavigationLockRef.current < 420) {
-            event.preventDefault();
-            return;
-          }
-          wheelNavigationLockRef.current = now;
-          event.preventDefault();
-          void navigateRelative(event.deltaY > 0 ? 1 : -1);
-        }}
         onTouchStartCapture={(event) => {
           if (isInteractiveScrollControlTarget(event.target)) {
             touchSwipeStartRef.current = null;
