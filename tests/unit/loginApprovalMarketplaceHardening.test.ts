@@ -38,6 +38,16 @@ test('trusted sessions receive approval controls through authenticated realtime 
   assert.match(overlay, /authenticateBiometrics/);
 });
 
+test('admin Google Settings exposes a separately scoped emergency login-approval waiver control', () => {
+  const settings = read('src/dashboard/admin/GoogleSettings.tsx');
+  const panel = read('src/dashboard/admin/LoginApprovalEmergencyControlPanel.tsx');
+  assert.match(settings, /LoginApprovalEmergencyControlPanel/);
+  assert.match(panel, /security\/login-approvals\/accounts/);
+  assert.match(panel, /security\/login-approvals\/users/);
+  assert.match(panel, /expires automatically/);
+  assert.match(panel, /does not disable Google Authenticator 2FA/);
+});
+
 test('guest marketplace preview bypasses automatic 429 retries and reports a cooldown without blocking the page', () => {
   const service = read('src/services/marketplace.ts');
   const sections = read('src/components/sections/GuestSections.tsx');

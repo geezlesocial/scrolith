@@ -8,6 +8,7 @@ import { commerceService } from '../../services/commerce';
 import { jobsApi } from '../../services/jobs';
 import type { PlatformIntegrationsSettings } from '../../types';
 import HumanVerificationPanel from './HumanVerificationPanel';
+import LoginApprovalEmergencyControlPanel from './LoginApprovalEmergencyControlPanel';
 
 const defaultIntegrations: PlatformIntegrationsSettings = {
   recaptcha: {
@@ -428,6 +429,8 @@ const GoogleSettings: React.FC = () => {
       </div>
 
       <HumanVerificationPanel />
+
+      <LoginApprovalEmergencyControlPanel />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
