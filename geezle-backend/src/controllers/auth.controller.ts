@@ -554,7 +554,17 @@ export const login = async (req: Request, res: Response) => {
         user: { id: user.id, email: user.email, role: user.role }
       });
     }
-    await registerTrustedDevice(user.id, deviceMetadata);
+    if (!('bypassed' in deviceApproval)) {
+      await registerTrustedDevice(user.id, deviceMetadata);
+    }
+    if ('bypassed' in deviceApproval && deviceApproval.bypassed) {
+      void logAuthEvent({
+        userId: user.id,
+        email: user.email,
+        event: 'LOGIN_APPROVAL_WAIVER_USED',
+        meta: { expiresAt: deviceApproval.waiverExpiresAt?.toISOString?.() || null }
+      }, req);
+    }
 
     // Generate JWT token
     console.log('[auth.login] signing token with JWT_SECRET present?', !!JWT_SECRET);

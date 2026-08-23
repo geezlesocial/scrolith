@@ -153,6 +153,7 @@ export const DEFAULT_PERMISSION_SEEDS: PermissionSeed[] = [
   { key: 'audit.read', label: 'Read enterprise audit logs', groupName: 'Enterprise Governance' },
   { key: 'security.alerts.read', label: 'Read security alerts', groupName: 'Enterprise Governance' },
   { key: 'security.alerts.manage', label: 'Manage security alerts', groupName: 'Enterprise Governance' },
+  { key: 'security.login_approval.manage', label: 'Manage emergency login-approval waivers', groupName: 'Enterprise Governance' },
   { key: 'compliance.read', label: 'Read compliance cases', groupName: 'Enterprise Operations' },
   { key: 'compliance.manage', label: 'Manage compliance cases', groupName: 'Enterprise Operations' },
   { key: 'risk.read', label: 'Read risk rules and scores', groupName: 'Enterprise Operations' },

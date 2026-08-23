@@ -74,6 +74,10 @@ model User {
   twoFactorWaivedUntil              DateTime?
   twoFactorWaivedById               String?
   twoFactorWaivedReason             String?
+  /// Emergency, time-limited bypass for new-device login approval only.
+  loginApprovalWaivedUntil          DateTime?
+  loginApprovalWaivedById           String?
+  loginApprovalWaivedReason         String?
   createdAt                         DateTime  @default(now())
   updatedAt                         DateTime  @updatedAt
 

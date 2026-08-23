@@ -191,6 +191,22 @@ export const revokeTrustedDevice = async (userId: string, deviceRecordId: string
     data: { isTrusted: false }
   });
 
+export const getLoginApprovalWaiver = async (userId: string) => {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      loginApprovalWaivedUntil: true,
+      loginApprovalWaivedReason: true
+    }
+  });
+  const expiresAt = user?.loginApprovalWaivedUntil || null;
+  return {
+    active: Boolean(expiresAt && expiresAt > new Date()),
+    expiresAt,
+    reason: user?.loginApprovalWaivedReason || null
+  };
+};
+
 /**
  * A device is approved automatically when it is already trusted or when the
  * account has no trusted device yet. New devices require an existing trusted
@@ -204,6 +220,15 @@ export const evaluateLoginDevice = async (
 ) => {
   const deviceId = clean(metadata.deviceId, 180);
   if (!deviceId) return { required: false as const };
+
+  const waiver = await getLoginApprovalWaiver(userId);
+  if (waiver.active) {
+    return {
+      required: false as const,
+      bypassed: true as const,
+      waiverExpiresAt: waiver.expiresAt
+    };
+  }
 
   const current = await prisma.loginTrustedDevice.findUnique({
     where: { userId_deviceId: { userId, deviceId } },

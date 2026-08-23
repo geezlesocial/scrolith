@@ -15,6 +15,9 @@ const mockPrisma: any = {
     findMany: jest.fn(),
     findFirst: jest.fn(),
     update: jest.fn()
+  },
+  user: {
+    findUnique: jest.fn()
   }
 };
 
@@ -36,6 +39,7 @@ describe('loginApproval.service', () => {
     mockPrisma.loginTrustedDevice.findMany.mockResolvedValue([]);
     mockPrisma.loginTrustedDevice.updateMany.mockResolvedValue({ count: 0 });
     mockPrisma.loginApprovalAttempt.updateMany.mockResolvedValue({ count: 0 });
+    mockPrisma.user.findUnique.mockResolvedValue({ loginApprovalWaivedUntil: null, loginApprovalWaivedReason: null });
   });
 
   test('normalizes only safe device metadata fields', async () => {
@@ -75,6 +79,20 @@ describe('loginApproval.service', () => {
         requestedIp: '203.0.113.10'
       })
     }));
+  });
+
+  test('active emergency waiver bypasses approval without trusting the new device', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({
+      loginApprovalWaivedUntil: new Date(Date.now() + 60_000),
+      loginApprovalWaivedReason: 'Incident response'
+    });
+    const service = await import('../loginApproval.service');
+    await expect(service.evaluateLoginDevice(
+      'user-1',
+      { deviceId: 'device-new', platform: 'web' },
+      {}
+    )).resolves.toEqual(expect.objectContaining({ required: false, bypassed: true }));
+    expect(mockPrisma.loginTrustedDevice.findUnique).not.toHaveBeenCalled();
   });
 
   test('bootstraps the first device without blocking the account', async () => {

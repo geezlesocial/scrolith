@@ -1147,6 +1147,28 @@ router.post(
   resetUser2FA
 );
 
+// Separate, time-limited login-approval emergency control. This never changes 2FA state.
+import {
+  clearUserLoginApprovalWaiver,
+  listLoginApprovalWaiverAccounts,
+  waiveUserLoginApproval
+} from '../../controllers/loginApprovalAdmin.controller';
+router.get(
+  '/security/login-approvals/accounts',
+  requirePermission('security.login_approval.manage'),
+  listLoginApprovalWaiverAccounts
+);
+router.post(
+  '/security/login-approvals/users/:userId/waive',
+  requirePermission('security.login_approval.manage'),
+  waiveUserLoginApproval
+);
+router.post(
+  '/security/login-approvals/users/:userId/clear-waiver',
+  requirePermission('security.login_approval.manage'),
+  clearUserLoginApprovalWaiver
+);
+
 
 // Phase 30 � Scrolith Human Verification admin
 import {
@@ -1348,4 +1370,3 @@ router.put('/profile', async (req, res) => {
 });
 
 export default router;
-
