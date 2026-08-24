@@ -24,6 +24,7 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const fetchSettings = useCallback(async () => {
     try {
+      await new Promise(resolve => setTimeout(resolve, 100));
       // Load platform (site) settings and system settings, then merge so
       // components (like SystemSettings) always see both.
       const hasToken = Boolean(await AuthService.getToken());
@@ -46,30 +47,39 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         merged = { ...merged, system: systemData };
       }
 
-      // Fetch the header once when any critical branding/content field is
-      // missing. Avoid a second CMS settings request during app bootstrap.
+      // If assets missing, try header config as fallback
       const faviconValue = merged?.favicon_url || merged?.faviconUrl;
       const logoValue = merged?.logo_url || merged?.logoUrl;
-      const taglineValue = merged?.tagline || merged?.siteTagline || merged?.site_tagline;
-      if (!faviconValue || !logoValue || !taglineValue) {
+      if (!faviconValue || !logoValue) {
         try {
           const header = await CMSService.getHeaderConfig();
           if (header) {
             const headerFavicon = (header as any)?.favicon_url || (header as any)?.faviconUrl;
             const headerLogo = (header as any)?.logo_url || (header as any)?.logoUrl;
-            const headerTagline =
-              (header as any)?.tagline ||
-              (header as any)?.siteTagline ||
-              (header as any)?.taglineText;
             merged = {
               ...merged,
               ...(headerFavicon ? { favicon_url: headerFavicon, faviconUrl: headerFavicon } : {}),
-              ...(headerLogo ? { logo_url: headerLogo, logoUrl: headerLogo } : {}),
-              ...(headerTagline ? { tagline: headerTagline } : {})
+              ...(headerLogo ? { logo_url: headerLogo, logoUrl: headerLogo } : {})
             };
           }
         } catch (e) {
           console.warn('Failed to load header config for assets', e);
+        }
+      }
+
+      // If tagline is missing from platform payload, try CMSService.getSettings()
+      // which normalizes sources (settings, header, hero, etc.) and provides a
+      // consolidated `tagline` value used by the UI. This ensures updates made
+      // in header/hero sources still surface when the platform write path only
+      // persisted one of the sources.
+      if (!merged?.tagline) {
+        try {
+          const cmsSettings = await CMSService.getSettings();
+          if (cmsSettings && cmsSettings.tagline) {
+            merged = { ...merged, tagline: cmsSettings.tagline };
+          }
+        } catch (e) {
+          // Non-fatal
         }
       }
 
@@ -160,7 +170,7 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const headerTagline = (headerConfig as any)?.tagline || (headerConfig as any)?.siteTagline || (headerConfig as any)?.taglineText;
 
       setSettings(prev => {
-        const merged: any = { ...(prev as any) };
+        const merged: any = { ...(prev as any) } || {};
         if (headerFavicon) {
           merged.favicon_url = headerFavicon;
           merged.faviconUrl = headerFavicon;
