@@ -15,6 +15,7 @@ ARG VITE_BACKEND_URL=https://api.scrolith.com
 ARG VITE_PUBLIC_APP_DOMAIN=scrolith.com
 ARG VITE_PUBLIC_APP_URL=https://scrolith.com
 ARG VITE_MESSAGES_TRACE_DEBUG=false
+ARG COMPAT_ASSET_ORIGIN=
 
 ENV VITE_API_URL=${VITE_API_URL}
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
@@ -22,6 +23,7 @@ ENV VITE_BACKEND_URL=${VITE_BACKEND_URL}
 ENV VITE_PUBLIC_APP_DOMAIN=${VITE_PUBLIC_APP_DOMAIN}
 ENV VITE_PUBLIC_APP_URL=${VITE_PUBLIC_APP_URL}
 ENV VITE_MESSAGES_TRACE_DEBUG=${VITE_MESSAGES_TRACE_DEBUG}
+ENV COMPAT_ASSET_ORIGIN=${COMPAT_ASSET_ORIGIN}
 
 # .env.production is copied with the source tree and otherwise overrides the
 # Docker build arguments when Vite loads mode-specific environment files.
@@ -32,6 +34,7 @@ RUN if [ -f .env.production ]; then \
     fi
 
 RUN npm run build
+RUN node scripts/prepare-compat-assets.mjs
 RUN node scripts/compress-static-assets.mjs
 
 FROM nginx:1.27-alpine AS runtime
