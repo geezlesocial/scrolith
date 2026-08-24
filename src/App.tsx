@@ -473,6 +473,8 @@ const preloadAuthenticatedRouteModules = ({ mobileShell }: { mobileShell: boolea
   return Promise.allSettled([...commonModules, ...mobileModules]);
 };
 
+const AUTHENTICATED_ROUTE_WARMUP_DELAY_MS = 8_000;
+
 const shouldAvoidAggressiveRouteWarmup = () => {
   if (typeof window === 'undefined') return false;
   const connection = (navigator as Navigator & {
@@ -917,9 +919,14 @@ const AppContent = () => {
     };
 
     if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-      idleId = (window as any).requestIdleCallback(warmRoutes, { timeout: 2400 });
+      idleId = (window as any).requestIdleCallback(warmRoutes, {
+        timeout: AUTHENTICATED_ROUTE_WARMUP_DELAY_MS
+      });
     } else {
-      timeoutId = window.setTimeout(warmRoutes, 1200);
+      timeoutId = globalThis.setTimeout(
+        warmRoutes,
+        AUTHENTICATED_ROUTE_WARMUP_DELAY_MS
+      ) as unknown as number;
     }
 
     return () => {
