@@ -28,6 +28,19 @@ describe('kyc.uploadErrors', () => {
     expect(mapped?.status).toBe(400);
   });
 
+  test('maps unavailable private storage to a retryable 503', () => {
+    const err = Object.assign(new Error('Azure Blob Storage is not configured for KYC'), {
+      code: 'KYC_STORAGE_UNAVAILABLE',
+      status: 503
+    });
+    const mapped = mapKycUploadError(err);
+    expect(mapped).toEqual({
+      status: 503,
+      code: 'KYC_STORAGE_UNAVAILABLE',
+      message: 'KYC document storage is temporarily unavailable. Please try again later.'
+    });
+  });
+
   test('maps MIME_MAGIC_MISMATCH', () => {
     const err = new KycValidationError(
       'Declared content type does not match file content',

@@ -8,11 +8,13 @@ import jwt from 'jsonwebtoken';
 import prisma from '../utils/prismaClient';
 import { getSystemControls, isAdminRole, isKycSatisfied } from '../services/systemControls.service';
 
-const SENSITIVE_PREFIXES = [
-  '/api/gigs',
-  '/api/jobs',
+// KYC is required for financial actions, not for publishing work.
+// Keep this list explicit so adding a new write route cannot silently change
+// the product policy for job/gig creation.
+export const SENSITIVE_WRITE_PREFIXES = [
   '/api/wallet/withdraw',
   '/api/wallet/withdrawals',
+  '/api/withdrawal',
   '/api/gcoin/withdraw',
   '/api/gcoin/conversions',
   '/api/marketplace/listings',
@@ -20,12 +22,12 @@ const SENSITIVE_PREFIXES = [
   '/api/proposals'
 ];
 
-const isSensitiveWrite = (req: Request): boolean => {
+export const isSensitiveWrite = (req: Request): boolean => {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(String(req.method || '').toUpperCase())) {
     return false;
   }
   const fullPath = `${req.baseUrl || ''}${req.path || ''}`;
-  return SENSITIVE_PREFIXES.some((p) => fullPath.startsWith(p));
+  return SENSITIVE_WRITE_PREFIXES.some((p) => fullPath.startsWith(p));
 };
 
 const softUserFromJwt = (req: Request): { id?: string; role?: string } | null => {

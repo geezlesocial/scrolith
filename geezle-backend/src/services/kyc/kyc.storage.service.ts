@@ -1,54 +1,63 @@
 /**
- * Private KYC object storage.
- * Preferred: dedicated KYC_GCS_BUCKET.
- * Temporary bounded fallback: private prefix on media bucket / local disk.
- * No public ACLs, no permanent public URLs, no identity in object keys.
+ * Private KYC object storage — Azure Blob Storage.
+ *
+ * Production Scrolith runs on Azure. KYC objects are stored privately under:
+ *   kyc/quarantine/*
+ *   kyc/clean/*
+ *   kyc/rejected/*
+ *
+ * No public ACLs or permanent public URLs are generated here.
  */
+
 import { randomUUID, createHash } from 'crypto';
-import fs from 'fs';
-import path from 'path';
 import { Readable } from 'stream';
+
 import {
-  deleteGcsMedia,
-  downloadGcsMediaBuffer,
-  generateGcsSignedUrl,
-  isGcsMediaConfigured,
-  uploadToGcsMedia,
-  createGcsMediaReadStream
-} from '../storage/gcsMediaStorage';
-import { KYC_OBJECT_PREFIX, KYC_SIGNED_URL_TTL_SECONDS } from './kyc.constants';
+  deleteBlobByName,
+  downloadBlobBufferByName,
+  isAzureBlobConfigured,
+  uploadBufferToBlob
+} from '../storage/blobStorage';
+
+import {
+  KYC_OBJECT_PREFIX,
+  KYC_SIGNED_URL_TTL_SECONDS
+} from './kyc.constants';
 
 export type KycStorageNamespace = 'quarantine' | 'clean' | 'rejected';
 
 const trim = (value: unknown) => String(value || '').trim();
 
-const resolveKycBucketMode = () => {
-  // dedicated | prefix | local
-  const dedicated = trim(process.env.KYC_GCS_BUCKET || process.env.KYC_STORAGE_BUCKET);
-  if (dedicated) return { mode: 'dedicated' as const, bucket: dedicated };
-  if (isGcsMediaConfigured()) return { mode: 'prefix' as const, bucket: null as string | null };
-  return { mode: 'local' as const, bucket: null as string | null };
+const assertAzureKycStorageConfigured = () => {
+  if (!isAzureBlobConfigured()) {
+    throw Object.assign(
+      new Error('Azure Blob Storage is not configured for KYC'),
+      {
+        code: 'KYC_STORAGE_UNAVAILABLE',
+        status: 503
+      }
+    );
+  }
 };
 
-const getLocalRoot = () => {
-  const root = trim(process.env.KYC_LOCAL_STORAGE_DIR) || path.join(process.cwd(), 'uploads', 'kyc-private');
-  return root;
-};
+/**
+ * Random non-enumerable object id.
+ * Never include identity, email, document type or original filename.
+ */
+export const createKycObjectId = () =>
+  randomUUID().replace(/-/g, '');
 
-const ensureLocalDir = (dir: string) => {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-};
-
-/** Random non-enumerable object id — no email/name/document type/original filename. */
-export const createKycObjectId = () => randomUUID().replace(/-/g, '');
-
-export const buildKycObjectKey = (namespace: KycStorageNamespace, objectId?: string) => {
+export const buildKycObjectKey = (
+  namespace: KycStorageNamespace,
+  objectId?: string
+) => {
   const id = objectId || createKycObjectId();
   const prefix = KYC_OBJECT_PREFIX[namespace];
   return `${prefix}/${id}`;
 };
 
-export const sha256Hex = (buffer: Buffer) => createHash('sha256').update(buffer).digest('hex');
+export const sha256Hex = (buffer: Buffer) =>
+  createHash('sha256').update(buffer).digest('hex');
 
 export const uploadKycObject = async (params: {
   namespace: KycStorageNamespace;
@@ -56,108 +65,90 @@ export const uploadKycObject = async (params: {
   contentType: string;
   objectId?: string;
 }) => {
-  const objectKey = buildKycObjectKey(params.namespace, params.objectId);
-  const mode = resolveKycBucketMode();
+  assertAzureKycStorageConfigured();
+
+  const objectKey = buildKycObjectKey(
+    params.namespace,
+    params.objectId
+  );
+
   const checksum = sha256Hex(params.buffer);
 
-  if (mode.mode === 'local') {
-    const fullPath = path.join(getLocalRoot(), objectKey);
-    ensureLocalDir(path.dirname(fullPath));
-    fs.writeFileSync(fullPath, params.buffer);
-    return {
-      objectKey,
-      sizeBytes: params.buffer.length,
-      contentType: params.contentType,
-      sha256: checksum,
-      storageProvider: 'local_kyc_private',
-      bucket: null as string | null
-    };
-  }
-
-  // GCS: dedicated bucket uses STORAGE_BUCKET override via env for this call path.
-  // For dedicated KYC bucket we set process-local env only around upload if needed —
-  // uploadToGcsMedia uses shared media bucket. When KYC_GCS_BUCKET is set, write via
-  // explicit prefix still on that bucket by temporarily using STORAGE_BUCKET.
-  const previousBucket = process.env.STORAGE_BUCKET;
-  try {
-    if (mode.mode === 'dedicated' && mode.bucket) {
-      process.env.STORAGE_BUCKET = mode.bucket;
-    }
-    await uploadToGcsMedia({
-      buffer: params.buffer,
-      contentType: params.contentType,
-      objectKey,
-      cacheControl: 'private, no-store, max-age=0'
-    });
-  } finally {
-    if (mode.mode === 'dedicated') {
-      if (previousBucket === undefined) delete process.env.STORAGE_BUCKET;
-      else process.env.STORAGE_BUCKET = previousBucket;
-    }
-  }
+  await uploadBufferToBlob({
+    buffer: params.buffer,
+    contentType:
+      params.contentType || 'application/octet-stream',
+    fileName: objectKey
+  });
 
   return {
     objectKey,
     sizeBytes: params.buffer.length,
     contentType: params.contentType,
     sha256: checksum,
-    storageProvider: mode.mode === 'dedicated' ? 'gcs_kyc_dedicated' : 'gcs_kyc_prefix',
-    bucket: mode.bucket
+    storageProvider: 'azure_blob',
+    bucket: null as string | null
   };
 };
 
-export const downloadKycObject = async (objectKey: string): Promise<Buffer> => {
+export const downloadKycObject = async (
+  objectKey: string
+): Promise<Buffer> => {
   const key = trim(objectKey);
+
   if (!key || !key.startsWith('kyc/')) {
-    throw Object.assign(new Error('Invalid KYC object key'), { code: 'INVALID_KEY', status: 400 });
-  }
-  const mode = resolveKycBucketMode();
-  if (mode.mode === 'local') {
-    const fullPath = path.join(getLocalRoot(), key);
-    if (!fs.existsSync(fullPath)) {
-      throw Object.assign(new Error('KYC object not found'), { code: 'NOT_FOUND', status: 404 });
-    }
-    return fs.readFileSync(fullPath);
+    throw Object.assign(
+      new Error('Invalid KYC object key'),
+      {
+        code: 'INVALID_KEY',
+        status: 400
+      }
+    );
   }
 
-  const previousBucket = process.env.STORAGE_BUCKET;
+  assertAzureKycStorageConfigured();
+
   try {
-    if (mode.mode === 'dedicated' && mode.bucket) {
-      process.env.STORAGE_BUCKET = mode.bucket;
+    return await downloadBlobBufferByName(key);
+  } catch (error: any) {
+    if (
+      error?.statusCode === 404 ||
+      error?.code === 'BlobNotFound'
+    ) {
+      throw Object.assign(
+        new Error('KYC object not found'),
+        {
+          code: 'NOT_FOUND',
+          status: 404
+        }
+      );
     }
-    return await downloadGcsMediaBuffer(key);
-  } finally {
-    if (mode.mode === 'dedicated') {
-      if (previousBucket === undefined) delete process.env.STORAGE_BUCKET;
-      else process.env.STORAGE_BUCKET = previousBucket;
-    }
+
+    throw error;
   }
 };
 
-export const deleteKycObject = async (objectKey?: string | null) => {
+export const deleteKycObject = async (
+  objectKey?: string | null
+) => {
   const key = trim(objectKey);
+
   if (!key || !key.startsWith('kyc/')) return;
-  const mode = resolveKycBucketMode();
-  if (mode.mode === 'local') {
-    const fullPath = path.join(getLocalRoot(), key);
-    try {
-      if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
-    } catch {
-      /* ignore */
-    }
-    return;
-  }
-  const previousBucket = process.env.STORAGE_BUCKET;
+
+  assertAzureKycStorageConfigured();
+
   try {
-    if (mode.mode === 'dedicated' && mode.bucket) {
-      process.env.STORAGE_BUCKET = mode.bucket;
+    await deleteBlobByName(key);
+  } catch (error: any) {
+    // Deleting an already-removed object is idempotent.
+    if (
+      error?.statusCode === 404 ||
+      error?.code === 'BlobNotFound'
+    ) {
+      return;
     }
-    await deleteGcsMedia(key);
-  } finally {
-    if (mode.mode === 'dedicated') {
-      if (previousBucket === undefined) delete process.env.STORAGE_BUCKET;
-      else process.env.STORAGE_BUCKET = previousBucket;
-    }
+
+    throw error;
   }
 };
 
@@ -171,8 +162,16 @@ export const promoteKycObject = async (params: {
     buffer: params.buffer,
     contentType: params.contentType
   });
-  // Best-effort remove quarantine original after clean promotion.
-  await deleteKycObject(params.quarantineKey);
+
+  // Quarantine cleanup is best-effort after the clean object
+  // has already been successfully persisted.
+  try {
+    await deleteKycObject(params.quarantineKey);
+  } catch {
+    // Do not turn a successful clean promotion into an upload
+    // failure solely because quarantine cleanup failed.
+  }
+
   return clean;
 };
 
@@ -187,93 +186,93 @@ export const moveToRejectedNamespace = async (params: {
       buffer: params.buffer,
       contentType: params.contentType
     });
-    if (params.sourceKey) await deleteKycObject(params.sourceKey);
+
+    if (params.sourceKey) {
+      try {
+        await deleteKycObject(params.sourceKey);
+      } catch {
+        // Rejected copy has already been safely persisted.
+      }
+    }
+
     return rejected;
   }
-  // If we only have source key, download then re-upload (bounded files only).
+
   if (params.sourceKey) {
-    const buffer = await downloadKycObject(params.sourceKey);
+    const buffer = await downloadKycObject(
+      params.sourceKey
+    );
+
     const rejected = await uploadKycObject({
       namespace: 'rejected',
       buffer,
       contentType: params.contentType
     });
-    await deleteKycObject(params.sourceKey);
+
+    try {
+      await deleteKycObject(params.sourceKey);
+    } catch {
+      // Rejected copy has already been safely persisted.
+    }
+
     return rejected;
   }
+
   return null;
 };
 
 /**
- * Short-lived signed read URL for clean private objects only.
- * Max ~5 minutes. Never log the URL.
+ * Azure SAS URLs are intentionally not generated in this
+ * hotfix. The controller already falls back to the authenticated
+ * streaming endpoint when this function returns null.
  */
 export const createKycSignedReadUrl = async (
   objectKey: string,
   ttlSeconds = KYC_SIGNED_URL_TTL_SECONDS
-) => {
+): Promise<string | null> => {
   const key = trim(objectKey);
+
   if (!key.startsWith('kyc/clean/')) {
-    throw Object.assign(new Error('Signed URLs only allowed for clean KYC objects'), {
-      code: 'SIGNED_URL_NAMESPACE',
-      status: 400
-    });
+    throw Object.assign(
+      new Error(
+        'Signed URLs only allowed for clean KYC objects'
+      ),
+      {
+        code: 'SIGNED_URL_NAMESPACE',
+        status: 400
+      }
+    );
   }
-  const mode = resolveKycBucketMode();
-  if (mode.mode === 'local') {
-    // Local mode: no GCS signed URL — caller must stream via authenticated endpoint.
-    return null;
-  }
-  const ttl = Math.max(60, Math.min(KYC_SIGNED_URL_TTL_SECONDS, Number(ttlSeconds || KYC_SIGNED_URL_TTL_SECONDS)));
-  const previousBucket = process.env.STORAGE_BUCKET;
-  try {
-    if (mode.mode === 'dedicated' && mode.bucket) {
-      process.env.STORAGE_BUCKET = mode.bucket;
-    }
-    return await generateGcsSignedUrl(key, { expiresInSeconds: ttl, action: 'read' });
-  } finally {
-    if (mode.mode === 'dedicated') {
-      if (previousBucket === undefined) delete process.env.STORAGE_BUCKET;
-      else process.env.STORAGE_BUCKET = previousBucket;
-    }
-  }
+
+  void ttlSeconds;
+
+  assertAzureKycStorageConfigured();
+
+  return null;
 };
 
-export const createKycReadStream = async (objectKey: string): Promise<Readable> => {
+export const createKycReadStream = async (
+  objectKey: string
+): Promise<Readable> => {
   const key = trim(objectKey);
+
   if (!key.startsWith('kyc/')) {
-    throw Object.assign(new Error('Invalid KYC object key'), { code: 'INVALID_KEY', status: 400 });
+    throw Object.assign(
+      new Error('Invalid KYC object key'),
+      {
+        code: 'INVALID_KEY',
+        status: 400
+      }
+    );
   }
-  const mode = resolveKycBucketMode();
-  if (mode.mode === 'local') {
-    const fullPath = path.join(getLocalRoot(), key);
-    if (!fs.existsSync(fullPath)) {
-      throw Object.assign(new Error('KYC object not found'), { code: 'NOT_FOUND', status: 404 });
-    }
-    return fs.createReadStream(fullPath);
-  }
-  const previousBucket = process.env.STORAGE_BUCKET;
-  try {
-    if (mode.mode === 'dedicated' && mode.bucket) {
-      process.env.STORAGE_BUCKET = mode.bucket;
-    }
-    return createGcsMediaReadStream(key) as unknown as Readable;
-  } finally {
-    // Note: stream may still need bucket env during read; for dedicated mode keep until stream ends is complex.
-    // Prefer prefix mode in shared bucket for streaming simplicity; dedicated bucket keeps STORAGE_BUCKET set only for create.
-    if (mode.mode === 'dedicated') {
-      if (previousBucket === undefined) delete process.env.STORAGE_BUCKET;
-      else process.env.STORAGE_BUCKET = previousBucket;
-    }
-  }
+
+  const buffer = await downloadKycObject(key);
+
+  return Readable.from([buffer]);
 };
 
-export const getKycStorageConfigSnapshot = () => {
-  const mode = resolveKycBucketMode();
-  return {
-    mode: mode.mode,
-    hasDedicatedBucket: mode.mode === 'dedicated',
-    // Do not expose bucket name in user-facing responses; ops-only.
-    prefixes: KYC_OBJECT_PREFIX
-  };
-};
+export const getKycStorageConfigSnapshot = () => ({
+  mode: 'azure_blob' as const,
+  hasDedicatedBucket: false,
+  prefixes: KYC_OBJECT_PREFIX
+});

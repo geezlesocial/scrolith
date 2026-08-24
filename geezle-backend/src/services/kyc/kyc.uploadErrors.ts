@@ -28,6 +28,15 @@ export const mapKycUploadError = (error: unknown): MappedKycClientError | null =
   // MulterError (runtime instanceof can fail across package copies — check name/code)
   const anyErr = error as { name?: string; code?: string; message?: string; field?: string };
   const multerCode = String(anyErr?.code || '');
+
+  if (multerCode === 'KYC_STORAGE_UNAVAILABLE') {
+    return {
+      status: 503,
+      code: 'KYC_STORAGE_UNAVAILABLE',
+      message: 'KYC document storage is temporarily unavailable. Please try again later.'
+    };
+  }
+
   const isMulter =
     error instanceof multer.MulterError ||
     anyErr?.name === 'MulterError' ||
