@@ -30,6 +30,26 @@ test('infers PDF and image previews from legacy attachment URLs', () => {
   assert.equal(parseJobAttachment('https://cdn.scrolith.com/reference.JPG?token=redacted').kind, 'image');
 });
 
+test('parses URI-encoded serialized attachments for image previews and open links', () => {
+  const payload = {
+    fileId: 'd6a2b183-fc0e-4a99-8c26-1a551070fdfa',
+    url: 'https://api.scrolith.com/api/files/content/d6a2b183-fc0e-4a99-8c26-1a551070fdfa',
+    name: 'reference.png',
+    type: 'image',
+    mimeType: 'image/png'
+  };
+  const encoded = `scrolith-job-attachment:${encodeURIComponent(JSON.stringify(payload))}`;
+  const fullyEncoded = encodeURIComponent(encoded);
+
+  for (const value of [encoded, fullyEncoded]) {
+    const parsed = parseJobAttachment(value);
+    assert.equal(parsed.fileId, payload.fileId);
+    assert.equal(parsed.url, payload.url);
+    assert.equal(parsed.kind, 'image');
+    assert.equal(parsed.name, payload.name);
+  }
+});
+
 test('deduplicates by file identity when metadata is present', () => {
   const first = encodeJobAttachment(baseFile);
   const second = encodeJobAttachment({ ...baseFile, name: 'renamed.mp4' });

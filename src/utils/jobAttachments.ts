@@ -25,6 +25,40 @@ const safeJsonParse = (value: string) => {
   }
 };
 
+const safeDecodeURIComponent = (value: string) => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+};
+
+/**
+ * Job attachments were historically persisted in both raw and URI-encoded
+ * forms. Decode only values that still identify the serialized attachment so
+ * ordinary URLs are never altered while being parsed.
+ */
+const parseSerializedAttachment = (value: string) => {
+  let candidate = String(value || '').trim();
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (candidate.startsWith(ENCODED_PREFIX)) {
+      const payload = safeJsonParse(safeDecodeURIComponent(candidate.slice(ENCODED_PREFIX.length)));
+      if (payload && typeof payload === 'object') return payload;
+    }
+
+    const decoded = safeDecodeURIComponent(candidate);
+    if (decoded === candidate) break;
+    if (decoded.startsWith(ENCODED_PREFIX) || decoded.startsWith('{')) {
+      candidate = decoded;
+      continue;
+    }
+    break;
+  }
+
+  return null;
+};
+
 const fileNameFromUrl = (url: string) => {
   const clean = String(url || '').split('?')[0].split('#')[0];
   const last = clean.split('/').filter(Boolean).pop() || '';
@@ -64,7 +98,7 @@ export const encodeJobAttachment = (file: UploadedFile): string => {
 export const parseJobAttachment = (value: unknown): JobAttachmentPreview => {
   const raw = typeof value === 'string' ? value : JSON.stringify(value || '');
   const trimmed = String(raw || '').trim();
-  const encoded = trimmed.startsWith(ENCODED_PREFIX) ? safeJsonParse(trimmed.slice(ENCODED_PREFIX.length)) : null;
+  const encoded = parseSerializedAttachment(trimmed);
   const objectValue = !encoded && trimmed.startsWith('{') ? safeJsonParse(trimmed) : null;
   const source = encoded || objectValue || {};
   const fileId = String(source.fileId || source.file_id || '').trim();
