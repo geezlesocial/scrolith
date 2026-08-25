@@ -1,0 +1,21 @@
+# Keep the currently validated production application as the primary image.
+# Add only assets that exist in the candidate image but not in production so
+# weighted SPA canaries cannot cross-revision into a hashed-asset 404.
+ARG PROD_IMAGE
+ARG CANDIDATE_IMAGE
+
+FROM ${PROD_IMAGE} AS production
+FROM ${CANDIDATE_IMAGE} AS candidate
+FROM production AS runtime
+
+COPY --from=candidate /usr/share/nginx/html/assets /tmp/candidate-assets
+
+RUN find /tmp/candidate-assets -type f | while read -r source; do \
+      relative="${source#/tmp/candidate-assets/}"; \
+      target="/usr/share/nginx/html/assets/${relative}"; \
+      if [ ! -f "$target" ]; then \
+        mkdir -p "$(dirname "$target")"; \
+        cp "$source" "$target"; \
+      fi; \
+    done \
+    && rm -rf /tmp/candidate-assets
