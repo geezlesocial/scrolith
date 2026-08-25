@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Tag, Clock, FileText, FileImage, FileVideo, ExternalLink, Upload, Heart, ShoppingCart } from 'lucide-react';
+import { Tag, Clock, FileText, ExternalLink, Upload, Heart, ShoppingCart, ChevronLeft, ChevronRight } from 'lucide-react';
 import { JobsService } from '../services/jobs';
 import { Job, UploadedFile, UserRole } from '../types';
 import { useNotification } from '../context/NotificationContext';
@@ -35,6 +35,7 @@ const JobDetail = () => {
   const [submitting, setSubmitting] = useState(false);
   const [hasApplied, setHasApplied] = useState(false);
   const [jobActionLoading, setJobActionLoading] = useState<'favorite' | 'cart' | null>(null);
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
 
   useEffect(() => {
     if (!id) return;
@@ -197,6 +198,21 @@ const JobDetail = () => {
     }
   };
 
+  const jobAttachments = useMemo(
+    () => (Array.isArray(job?.attachments) ? job.attachments : [])
+      .map(parseJobAttachment)
+      .filter((attachment) => attachment.url && attachment.name !== 'Attachment'),
+    [job?.attachments]
+  );
+  const imageAttachments = jobAttachments.filter((attachment) => attachment.kind === 'image').slice(0, 10);
+  const videoAttachment = jobAttachments.find((attachment) => attachment.kind === 'video');
+  const documentAttachments = jobAttachments.filter((attachment) => attachment.kind !== 'image' && attachment.kind !== 'video');
+  const activeImage = imageAttachments[activeImageIndex] || imageAttachments[0];
+
+  useEffect(() => {
+    setActiveImageIndex((current) => Math.min(current, Math.max(imageAttachments.length - 1, 0)));
+  }, [imageAttachments.length]);
+
   if (loading) {
     return <div className="max-w-4xl mx-auto px-4 py-12 text-gray-500">Loading job...</div>;
   }
@@ -211,8 +227,6 @@ const JobDetail = () => {
     );
   }
 
-  const jobAttachments = (job.attachments || []).map(parseJobAttachment).filter((attachment) => attachment.url || attachment.name);
-
   return (
     <div className="max-w-4xl mx-auto px-4 py-12">
        <div className="bg-white border border-gray-200 rounded-lg p-8">
@@ -222,6 +236,72 @@ const JobDetail = () => {
                   {job.status}
                </span>
            </div>
+
+           {(activeImage || videoAttachment) && (
+             <div className="mb-8 space-y-4" aria-label="Job media attachments">
+               {activeImage && (
+                 <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-gray-950">
+                   <img
+                     src={activeImage.url}
+                     alt={activeImage.name}
+                     className="block aspect-[16/9] max-h-[min(70vh,640px)] w-full object-contain bg-black"
+                     loading="eager"
+                     decoding="async"
+                   />
+                   {imageAttachments.length > 1 && (
+                     <>
+                       <button
+                         type="button"
+                         onClick={() => setActiveImageIndex((current) => (current - 1 + imageAttachments.length) % imageAttachments.length)}
+                         className="absolute left-3 top-1/2 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+                         aria-label="Previous job image"
+                         title="Previous image"
+                       >
+                         <ChevronLeft className="h-5 w-5" />
+                       </button>
+                       <button
+                         type="button"
+                         onClick={() => setActiveImageIndex((current) => (current + 1) % imageAttachments.length)}
+                         className="absolute right-3 top-1/2 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+                         aria-label="Next job image"
+                         title="Next image"
+                       >
+                         <ChevronRight className="h-5 w-5" />
+                       </button>
+                       <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5 rounded-full bg-black/55 px-2 py-1">
+                         {imageAttachments.map((attachment, index) => (
+                           <button
+                             key={`${attachment.fileId || attachment.raw}-${index}`}
+                             type="button"
+                             onClick={() => setActiveImageIndex(index)}
+                             className={`h-2 w-2 rounded-full ${index === activeImageIndex ? 'bg-white' : 'bg-white/45'}`}
+                             aria-label={`Show job image ${index + 1}`}
+                             title={`Show image ${index + 1}`}
+                           />
+                         ))}
+                       </div>
+                     </>
+                   )}
+                 </div>
+               )}
+
+               {videoAttachment && (
+                 <div className="overflow-hidden rounded-2xl border border-gray-200 bg-gray-950">
+                   <video
+                     src={videoAttachment.url}
+                     poster={videoAttachment.thumbnailUrl || undefined}
+                     className="block aspect-video max-h-[min(70vh,640px)] w-full object-contain bg-black"
+                     muted
+                     playsInline
+                     autoPlay
+                     loop
+                     controls
+                     preload="metadata"
+                   />
+                 </div>
+               )}
+             </div>
+           )}
            
            <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-8 border-b border-gray-100 pb-6">
                {(job.category || job.subcategory) && (
@@ -249,32 +329,13 @@ const JobDetail = () => {
                />
            </div>
 
-           {jobAttachments.length > 0 && (
+           {documentAttachments.length > 0 && (
              <div className="mb-8">
                <h3 className="text-lg font-bold mb-3">Attachments</h3>
                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                 {jobAttachments.map((attachment, index) => (
+                 {documentAttachments.map((attachment, index) => (
                    <div key={`${attachment.raw}-${index}`} className="rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
-                     {attachment.kind === 'image' && attachment.url ? (
-                       <img
-                         src={attachment.url}
-                         alt={attachment.name}
-                         className="h-56 w-full object-cover bg-white"
-                         loading="lazy"
-                       />
-                     ) : attachment.kind === 'video' && attachment.url ? (
-                       <video
-                         src={attachment.url}
-                         poster={attachment.thumbnailUrl}
-                         className="h-56 w-full object-cover bg-gray-950"
-                         muted
-                         playsInline
-                         autoPlay
-                         loop
-                         controls
-                         preload="metadata"
-                       />
-                     ) : attachment.kind === 'pdf' && attachment.url ? (
+                     {attachment.kind === 'pdf' && attachment.url ? (
                        <iframe
                          src={attachment.url}
                          title={attachment.name}
@@ -283,13 +344,7 @@ const JobDetail = () => {
                        />
                      ) : (
                        <div className="h-56 w-full flex items-center justify-center bg-white">
-                         {attachment.kind === 'image' ? (
-                           <FileImage className="w-10 h-10 text-gray-400" />
-                         ) : attachment.kind === 'video' ? (
-                           <FileVideo className="w-10 h-10 text-gray-400" />
-                         ) : (
-                           <FileText className="w-10 h-10 text-gray-400" />
-                         )}
+                         <FileText className="w-10 h-10 text-gray-400" />
                        </div>
                      )}
                      <div className="p-4 flex items-center justify-between gap-3">

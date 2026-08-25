@@ -42,14 +42,16 @@ const parseSerializedAttachment = (value: string) => {
   let candidate = String(value || '').trim();
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (candidate.startsWith(ENCODED_PREFIX)) {
-      const payload = safeJsonParse(safeDecodeURIComponent(candidate.slice(ENCODED_PREFIX.length)));
+    const markerIndex = candidate.indexOf(ENCODED_PREFIX);
+    if (markerIndex >= 0) {
+      const payloadText = candidate.slice(markerIndex + ENCODED_PREFIX.length);
+      const payload = safeJsonParse(payloadText) || safeJsonParse(safeDecodeURIComponent(payloadText));
       if (payload && typeof payload === 'object') return payload;
     }
 
     const decoded = safeDecodeURIComponent(candidate);
     if (decoded === candidate) break;
-    if (decoded.startsWith(ENCODED_PREFIX) || decoded.startsWith('{')) {
+    if (decoded.includes(ENCODED_PREFIX) || decoded.startsWith('{')) {
       candidate = decoded;
       continue;
     }
@@ -101,6 +103,7 @@ export const parseJobAttachment = (value: unknown): JobAttachmentPreview => {
   const encoded = parseSerializedAttachment(trimmed);
   const objectValue = !encoded && trimmed.startsWith('{') ? safeJsonParse(trimmed) : null;
   const source = encoded || objectValue || {};
+  const looksLikeSerializedMetadata = trimmed.includes(ENCODED_PREFIX) || /"(?:fileId|file_id|thumbnailUrl|thumbnail_url)"\s*:/i.test(trimmed);
   const fileId = String(source.fileId || source.file_id || '').trim();
   const directUrl = String(source.url || source.downloadUrl || source.download_url || '').trim();
   const resolvedUrl =
@@ -108,7 +111,7 @@ export const parseJobAttachment = (value: unknown): JobAttachmentPreview => {
     (fileId ? resolvePostAttachmentMediaUrl({ fileId }) : '') ||
     resolveAssetUrl(directUrl) ||
     directUrl ||
-    (trimmed && !trimmed.startsWith(ENCODED_PREFIX) ? resolveAssetUrl(trimmed) || trimmed : '');
+    (!looksLikeSerializedMetadata && trimmed ? resolveAssetUrl(trimmed) || trimmed : '');
   const thumbnailUrl = resolveAssetUrl(String(source.thumbnailUrl || source.thumbnail_url || '')) || '';
   const name = String(source.name || fileNameFromUrl(directUrl || resolvedUrl) || fileId || 'Attachment').trim();
   const mimeType = String(source.mimeType || source.mime_type || '').trim();

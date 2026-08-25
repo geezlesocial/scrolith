@@ -869,6 +869,20 @@ const CreateJob: React.FC<CreateJobProps> = ({ jobId, mode = 'create', redirectO
 
     const handleFileSelect = (file: UploadedFile) => {
         const encoded = encodeJobAttachment(file);
+        const incoming = parseJobAttachment(encoded);
+        const currentAttachments = (job.attachments || []).map(parseJobAttachment);
+        const duplicate = currentAttachments.some((existing) => isSameJobAttachment(existing.raw, encoded));
+
+        if (!duplicate && incoming.kind === 'image' && currentAttachments.filter((item) => item.kind === 'image').length >= 10) {
+            showNotification('alert', 'Image limit reached', 'A job can include up to 10 images.');
+            return;
+        }
+
+        if (!duplicate && incoming.kind === 'video' && currentAttachments.some((item) => item.kind === 'video')) {
+            showNotification('alert', 'Video limit reached', 'A job can include only one video.');
+            return;
+        }
+
         setJob(prev => ({
             ...prev,
             attachments: (prev.attachments || []).some((existing) => isSameJobAttachment(existing, encoded))
@@ -1135,6 +1149,9 @@ const CreateJob: React.FC<CreateJobProps> = ({ jobId, mode = 'create', redirectO
                                             <div>
                                                 <h3 className="text-lg font-bold text-gray-900">{labels.attachmentsTitle || 'Attachments'}</h3>
                                                 <p className="text-sm text-gray-500">Attach specs, briefs, or reference files.</p>
+                                                <p className="mt-1 text-xs text-gray-400">
+                                                    Images {((job.attachments || []).map(parseJobAttachment).filter((item) => item.kind === 'image').length)}/10 · Video {((job.attachments || []).map(parseJobAttachment).filter((item) => item.kind === 'video').length)}/1
+                                                </p>
                                             </div>
                                             <button
                                                 type="button"
