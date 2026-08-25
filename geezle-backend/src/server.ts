@@ -14,6 +14,7 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import validateEnv from './utils/validateEnv';
 import { resolveDirectMediaUrl, resolveFileBaseUrl } from './utils/mediaUrl';
 import { runtimePolicy } from './config/runtimePolicy';
+import { isScrolithFrontendRevisionOrigin } from './config/cors';
 import { classifyApiRateLimitRoute } from './middleware/apiRateLimitPolicy';
 
 // Import routes
@@ -249,7 +250,10 @@ const allowedOrigins = new Set<string>(
 const isAllowedOrigin = (origin: string | undefined): boolean => {
   if (!origin) return true;
   if (isDevelopment) return true;
-  return allowedOrigins.has(normalizeOrigin(origin));
+  return (
+    allowedOrigins.has(normalizeOrigin(origin)) ||
+    isScrolithFrontendRevisionOrigin(origin, process.env)
+  );
 };
 const corsOrigin = (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
   try {

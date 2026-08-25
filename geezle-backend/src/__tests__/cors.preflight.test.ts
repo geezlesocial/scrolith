@@ -1,7 +1,7 @@
 import request from 'supertest';
 import cors from 'cors';
 import express from 'express';
-import { createCorsOptions } from '../config/cors';
+import { createCorsOptions, isScrolithFrontendRevisionOrigin } from '../config/cors';
 
 describe('production CORS preflight', () => {
   const app = express();
@@ -67,6 +67,34 @@ describe('production CORS preflight', () => {
     expect(response.headers['access-control-allow-credentials']).toBe('true');
     expect(response.headers['access-control-allow-methods']).toContain('POST');
     expect(response.headers['access-control-allow-headers']).toContain('content-type');
+  });
+
+  test('allows only Scrolith frontend Container Apps revision origins', () => {
+    expect(
+      isScrolithFrontendRevisionOrigin(
+        'https://ca-scrolith-frontend--dual3-3c1dda3f.thankfulbeach-8f7ee997.southeastasia.azurecontainerapps.io'
+      )
+    ).toBe(true);
+    expect(
+      isScrolithFrontendRevisionOrigin(
+        'https://ca-other-app--dual3-3c1dda3f.thankfulbeach-8f7ee997.southeastasia.azurecontainerapps.io'
+      )
+    ).toBe(false);
+    expect(
+      isScrolithFrontendRevisionOrigin(
+        'http://ca-scrolith-frontend--dual3-3c1dda3f.thankfulbeach-8f7ee997.southeastasia.azurecontainerapps.io'
+      )
+    ).toBe(false);
+  });
+
+  test('returns credentialed CORS headers for a frontend revision origin', async () => {
+    const origin =
+      'https://ca-scrolith-frontend--dual3-3c1dda3f.thankfulbeach-8f7ee997.southeastasia.azurecontainerapps.io';
+    const response = await preflight(origin);
+
+    expect(response.status).toBe(204);
+    expect(response.headers['access-control-allow-origin']).toBe(origin);
+    expect(response.headers['access-control-allow-credentials']).toBe('true');
   });
 
   test('unknown origins do not crash preflight handling', async () => {

@@ -18,6 +18,42 @@ const BASE_ALLOWED_ORIGINS = [
 ];
 
 const corsMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
+const DEFAULT_FRONTEND_REVISION_HOST_SUFFIX =
+  'thankfulbeach-8f7ee997.southeastasia.azurecontainerapps.io';
+
+const normalizeHostSuffix = (value: string | undefined | null): string =>
+  String(value || '')
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/^\.+/, '')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+
+export const isScrolithFrontendRevisionOrigin = (
+  origin: string | undefined,
+  env: NodeJS.ProcessEnv = process.env
+): boolean => {
+  if (!origin) return false;
+
+  try {
+    const parsed = new URL(normalizeCorsOrigin(origin));
+    const suffix = normalizeHostSuffix(
+      env.CORS_ALLOWED_FRONTEND_REVISION_HOST_SUFFIX || DEFAULT_FRONTEND_REVISION_HOST_SUFFIX
+    );
+    const hostname = parsed.hostname.toLowerCase();
+    const baseHost = `ca-scrolith-frontend.${suffix}`;
+    const revisionHostPrefix = 'ca-scrolith-frontend--';
+
+    return (
+      parsed.protocol === 'https:' &&
+      !parsed.port &&
+      (hostname === baseHost ||
+        (hostname.startsWith(revisionHostPrefix) && hostname.endsWith(`.${suffix}`)))
+    );
+  } catch {
+    return false;
+  }
+};
 
 export const normalizeCorsOrigin = (value: string | undefined | null): string => {
   const raw = String(value || '').trim();
@@ -49,7 +85,10 @@ export const isAllowedCorsOrigin = (
 ): boolean => {
   if (!origin) return true;
   if (env.NODE_ENV !== 'production') return true;
-  return buildAllowedCorsOrigins(env).has(normalizeCorsOrigin(origin));
+  return (
+    buildAllowedCorsOrigins(env).has(normalizeCorsOrigin(origin)) ||
+    isScrolithFrontendRevisionOrigin(origin, env)
+  );
 };
 
 export const createCorsOptions = (env: NodeJS.ProcessEnv = process.env): CorsOptions => ({
