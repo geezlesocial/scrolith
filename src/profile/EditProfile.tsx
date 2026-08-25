@@ -19,6 +19,8 @@ import { getPublicAppOrigin } from '../utils/siteUrl';
 import { resolveAssetUrl } from '../utils/assetUrl';
 import { resolvePostAttachmentMediaUrl } from '../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../utils/userAvatar';
+import EnterpriseAvatar from '../components/common/EnterpriseAvatar';
+import EnterpriseImage from '../components/common/EnterpriseImage';
 
 const LocationPicker = React.lazy(() => import('../components/common/LocationPicker'));
 
@@ -820,30 +822,20 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                                         </div>
                                         <div className="mt-3 overflow-hidden rounded-2xl border border-gray-200 bg-slate-900">
                                             <div className="relative aspect-[5/2] w-full">
-                                                {profile.coverPhotoUrl ? (
-                                                    <img
-                                                        src={
-                                                            resolvePostAttachmentMediaUrl({
-                                                                url: profile.coverPhotoUrl,
-                                                                fileId: (profile as any).coverPhotoFileId || (profile as any).cover_photo_file_id
-                                                            }) ||
-                                                            resolveAssetUrl(String(profile.coverPhotoUrl || '')) ||
-                                                            profile.coverPhotoUrl
-                                                        }
+                                                {profile.coverPhotoUrl || (profile as any).coverPhotoFileId || (profile as any).cover_photo_file_id ? (
+                                                    <EnterpriseImage
+                                                        src={profile.coverPhotoUrl}
+                                                        candidates={[
+                                                            (profile as any).coverPhotoFileId,
+                                                            (profile as any).cover_photo_file_id,
+                                                            (profile as any).cover
+                                                        ]}
                                                         alt="Cover"
-                                                        className="h-full w-full object-cover"
-                                                        onError={(event) => {
-                                                            const img = event.currentTarget;
-                                                            const id = String(
-                                                                (profile as any).coverPhotoFileId ||
-                                                                  (profile as any).cover_photo_file_id ||
-                                                                  ''
-                                                            ).trim();
-                                                            if (id && img.dataset.fallbackTried !== '1') {
-                                                                img.dataset.fallbackTried = '1';
-                                                                img.src = `https://api.scrolith.com/api/files/content/${encodeURIComponent(id)}`;
-                                                            }
-                                                        }}
+                                                        width={1920}
+                                                        height={768}
+                                                        loading="eager"
+                                                        rounded="rounded-none"
+                                                        className="h-full w-full bg-transparent"
                                                     />
                                                 ) : (
                                                     <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700">
@@ -860,30 +852,18 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
 
                                     <div className="flex items-center space-x-6">
                                         <div className="relative group w-24 h-24 rounded-full bg-gray-100 overflow-hidden border-2 border-gray-200 cursor-pointer" onClick={() => openPicker('avatar')}>
-                                            <img
+                                            <EnterpriseAvatar
+                                                user={profile || user}
                                                 src={
                                                     resolveUserAvatarUrl(user) ||
                                                     resolveUserAvatarUrl(profile) ||
                                                     resolveAssetUrl(String(user?.avatar || profile?.avatarUrl || '')) ||
-                                                    '/placeholders/avatar.svg'
+                                                    undefined
                                                 }
+                                                name={user?.name || profile?.name || 'Profile'}
+                                                size="xl"
+                                                className="!h-full !w-full"
                                                 alt="Profile"
-                                                className="w-full h-full object-cover"
-                                                onError={(event) => {
-                                                    const img = event.currentTarget;
-                                                    const id = String(
-                                                        user?.profilePhotoFileId ||
-                                                          (profile as any)?.profilePhotoFileId ||
-                                                          (profile as any)?.profile_photo_file_id ||
-                                                          ''
-                                                    ).trim();
-                                                    if (id && img.dataset.fallbackTried !== '1') {
-                                                        img.dataset.fallbackTried = '1';
-                                                        img.src = `https://api.scrolith.com/api/files/content/${encodeURIComponent(id)}`;
-                                                        return;
-                                                    }
-                                                    img.src = '/placeholders/avatar.svg';
-                                                }}
                                             />
                                             <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                                                 <Camera className="w-6 h-6 text-white" />

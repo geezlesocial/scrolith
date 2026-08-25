@@ -41,6 +41,7 @@ import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '.
 import { resolveUserAvatarUrl } from '../utils/userAvatar';
 import { StructuredLocationFields } from '../types';
 import { normalizeContentOfferTags, type OfferTagSelection } from '../utils/contentOffers';
+import EnterpriseImage from '../components/common/EnterpriseImage';
 
 const LocationPicker = React.lazy(() => import('../components/common/LocationPicker'));
 const BRAND_LOGO_URL = '/logo.png';
@@ -1262,14 +1263,35 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
     <div className={pageShellClassName}>
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
         <div className="h-44 w-full bg-slate-100">
-          {coverUrl ? <img src={coverUrl} alt={page.name} className="h-full w-full object-cover" /> : null}
+          {coverUrl ? (
+            <EnterpriseImage
+              src={coverUrl}
+              candidates={[page.cover, page.coverFileId, (page as any).cover_file_id]}
+              alt={page.name}
+              width={1920}
+              height={480}
+              loading="eager"
+              rounded="rounded-none"
+              className="h-full w-full bg-transparent"
+            />
+          ) : null}
         </div>
         <div className="p-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex min-w-0 items-start gap-4">
               <div className="h-20 w-20 overflow-hidden rounded-2xl border border-slate-200 bg-white">
                 {logoUrl ? (
-                  <img src={logoUrl} alt={page.name} className="h-full w-full object-cover" />
+                  <EnterpriseImage
+                    src={logoUrl}
+                    candidates={[page.logo, page.logoFileId, (page as any).logo_file_id]}
+                    alt={page.name}
+                    width={256}
+                    height={256}
+                    loading="eager"
+                    rounded="rounded-none"
+                    className="h-full w-full bg-transparent"
+                    placeholder="avatar"
+                  />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center text-slate-400">
                     <Building2 className="h-8 w-8" />

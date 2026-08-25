@@ -408,6 +408,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   useEffect(() => {
     if (!socket || !isAuthenticated || !user?.id) return;
 
+    // These values are used by realtime handlers as well as the toast helper.
+    // Keep them scoped to the effect so role changes cannot leave stale routes.
+    const basePath = getRoleBasePath(user?.role);
+    const isAdmin = String(user?.role || '').toLowerCase().includes('admin');
+
     const onNotificationsNew = (payload: any) => {
       const normalized = normalizeNotification(payload);
       const id = String(normalized.id || '').trim();
@@ -543,7 +548,16 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       socket.off('kyc.updated', onKycUpdated);
       socket.off('kyc.submitted', onKycSubmitted);
     };
-  }, [socket, isAuthenticated, user?.id, addNotification, normalizeNotification, showMessageReceiptNotification]);
+  }, [
+    socket,
+    isAuthenticated,
+    user?.id,
+    user?.role,
+    addNotification,
+    normalizeNotification,
+    showMessageReceiptNotification,
+    getRoleBasePath
+  ]);
 
   useEffect(() => {
     if (!isAuthenticated || !user?.id) return;

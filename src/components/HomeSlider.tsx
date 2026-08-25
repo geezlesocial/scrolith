@@ -6,6 +6,7 @@ import { useUser } from "../context/UserContext";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import SearchInput from "./SearchInput";
 import { resolveAssetUrl } from "../utils/assetUrl";
+import { resolvePostAttachmentMediaUrl } from "../utils/postAttachmentMedia";
 
 interface HomeSliderProps {
   slides: HomeSlide[];
@@ -157,7 +158,12 @@ const HomeSlider: React.FC<HomeSliderProps> = ({ slides, heroConfig, searchMode 
       .map((s: any) => ({
         ...s,
         mediaType: s.mediaType || s.media_type || "image",
-        mediaUrl: resolveAssetUrl(s.mediaUrl || s.media_url || s.image_url || s.video_url || ""),
+        mediaUrl:
+          resolvePostAttachmentMediaUrl({
+            url: s.mediaUrl || s.media_url || s.image_url || s.video_url || "",
+            fileId: s.fileId || s.file_id || s.mediaFileId || s.media_file_id
+          }) ||
+          resolveAssetUrl(s.mediaUrl || s.media_url || s.image_url || s.video_url || ""),
         redirectUrl: s.redirectUrl || s.redirect_url || s.link || s.url || "",
         sortOrder: s.sortOrder ?? s.sort_order ?? 0,
         backgroundColor: s.backgroundColor || s.background_color || s.bgColor || "#000000",
@@ -293,6 +299,10 @@ const HomeSlider: React.FC<HomeSliderProps> = ({ slides, heroConfig, searchMode 
                 decoding="async"
                 fetchPriority={index === currentIndex ? "high" : "low"}
                 className="w-full h-full object-cover object-center brightness-75"
+                onError={(event) => {
+                  // Keep a broken CMS image from rendering a browser error icon over the hero.
+                  event.currentTarget.style.display = "none";
+                }}
               />
             ) : (
               <div className="h-full w-full bg-[radial-gradient(circle_at_18%_22%,#1e40af_0%,#0f172a_48%,#020617_100%)]" />

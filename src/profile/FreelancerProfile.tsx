@@ -25,6 +25,7 @@ import GrowthPulseCard from '../components/growth/GrowthPulseCard';
 import PeopleYouMayKnowRail from '../components/discovery/PeopleYouMayKnowRail';
 import EmptyState from '../components/ui/EmptyState';
 import EnterpriseAvatar from '../components/common/EnterpriseAvatar';
+import EnterpriseImage from '../components/common/EnterpriseImage';
 
 const EditProfile = lazy(() => import('./EditProfile'));
 
@@ -745,7 +746,25 @@ const FreelancerProfile = () => {
           className="h-64 md:h-72 w-full relative overflow-hidden bg-gradient-to-br from-blue-900 via-indigo-800 to-slate-800"
         >
             {coverUrl && (
-              <img src={coverUrl} alt="Cover" className="absolute inset-0 h-full w-full object-cover" />
+              <EnterpriseImage
+                src={coverUrl}
+                candidates={[
+                  (profile as any)?.coverPhotoUrl,
+                  (profile as any)?.cover_photo_url,
+                  (profile as any)?.coverFileId,
+                  (profile as any)?.cover_file_id,
+                  (profile as any)?.coverPhotoFileId,
+                  (profile as any)?.cover_photo_file_id,
+                  (profile as any)?.cover
+                ]}
+                alt="Cover"
+                width={1920}
+                height={480}
+                loading="eager"
+                rounded="rounded-none"
+                className="absolute inset-0 h-full w-full bg-transparent"
+                placeholder="generic"
+              />
             )}
             <div className="absolute inset-0 bg-black/30"></div>
         </div>
