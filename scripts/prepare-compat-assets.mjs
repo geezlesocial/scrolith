@@ -4,6 +4,10 @@ import path from 'node:path';
 const origin = (process.env.COMPAT_ASSET_ORIGIN || '').trim().replace(/\/$/, '');
 const distRoot = path.resolve(process.env.COMPAT_ASSET_OUTPUT || 'dist');
 const assetRoot = path.join(distRoot, 'assets');
+const explicitAssetPaths = (process.env.COMPAT_ASSET_PATHS || '')
+  .split(',')
+  .map((assetPath) => assetPath.trim())
+  .filter((assetPath) => assetPath.startsWith('/assets/'));
 const maxAssets = 500;
 const maxBytes = 80 * 1024 * 1024;
 const textExtensions = new Set(['.css', '.html', '.js', '.json', '.mjs', '.svg', '.txt']);
@@ -44,7 +48,10 @@ const fetchSameOrigin = async (assetPath) => {
 };
 
 const rootResponse = await fetchSameOrigin('/');
-const queue = [...assetPathsFrom(rootResponse.toString('utf8'))];
+const queue = [...new Set([
+  ...assetPathsFrom(rootResponse.toString('utf8')),
+  ...explicitAssetPaths,
+])];
 const queued = new Set(queue);
 const downloaded = [];
 const failures = [];
