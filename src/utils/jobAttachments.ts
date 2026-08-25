@@ -18,11 +18,27 @@ export type JobAttachmentPreview = {
 };
 
 const safeJsonParse = (value: string) => {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
+  let candidate = String(value || '').trim();
+
+  // Older job records persisted the attachment payload as URI-encoded JSON
+  // after the custom scheme prefix. Decode at most twice so malformed input
+  // cannot cause an unbounded decode loop while preserving normal JSON.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const parsed = JSON.parse(candidate);
+      return parsed;
+    } catch {
+      try {
+        const decoded = decodeURIComponent(candidate);
+        if (decoded === candidate) break;
+        candidate = decoded;
+      } catch {
+        break;
+      }
+    }
   }
+
+  return null;
 };
 
 const fileNameFromUrl = (url: string) => {
