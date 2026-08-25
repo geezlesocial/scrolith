@@ -41,6 +41,12 @@ const safeJsonParse = (value: string) => {
   return null;
 };
 
+const extractEncodedPayload = (value: string) => {
+  const markerIndex = value.indexOf(ENCODED_PREFIX);
+  if (markerIndex < 0) return null;
+  return safeJsonParse(value.slice(markerIndex + ENCODED_PREFIX.length));
+};
+
 const fileNameFromUrl = (url: string) => {
   const clean = String(url || '').split('?')[0].split('#')[0];
   const last = clean.split('/').filter(Boolean).pop() || '';
@@ -80,7 +86,7 @@ export const encodeJobAttachment = (file: UploadedFile): string => {
 export const parseJobAttachment = (value: unknown): JobAttachmentPreview => {
   const raw = typeof value === 'string' ? value : JSON.stringify(value || '');
   const trimmed = String(raw || '').trim();
-  const encoded = trimmed.startsWith(ENCODED_PREFIX) ? safeJsonParse(trimmed.slice(ENCODED_PREFIX.length)) : null;
+  const encoded = extractEncodedPayload(trimmed);
   const objectValue = !encoded && trimmed.startsWith('{') ? safeJsonParse(trimmed) : null;
   const source = encoded || objectValue || {};
   const fileId = String(source.fileId || source.file_id || '').trim();

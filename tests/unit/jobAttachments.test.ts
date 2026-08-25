@@ -49,6 +49,23 @@ test('decodes URI-encoded job attachment payloads into the file content URL', ()
   assert.equal(parsed.url, payload.url);
 });
 
+test('decodes attachment payloads wrapped by the API origin', () => {
+  const payload = {
+    fileId: 'd6a2b183-fc0e-4a99-8c26-1a551070fdfa',
+    url: 'https://api.scrolith.com/api/files/content/d6a2b183-fc0e-4a99-8c26-1a551070fdfa',
+    name: 'reference.png',
+    type: 'image',
+    mimeType: 'image/png'
+  };
+  const wrapped = `https://api.scrolith.com/${'scrolith-job-attachment:'}${encodeURIComponent(JSON.stringify(payload))}`;
+  const parsed = parseJobAttachment(wrapped);
+
+  assert.equal(parsed.fileId, payload.fileId);
+  assert.equal(parsed.name, payload.name);
+  assert.equal(parsed.kind, 'image');
+  assert.equal(parsed.url, payload.url);
+});
+
 test('deduplicates by file identity when metadata is present', () => {
   const first = encodeJobAttachment(baseFile);
   const second = encodeJobAttachment({ ...baseFile, name: 'renamed.mp4' });
