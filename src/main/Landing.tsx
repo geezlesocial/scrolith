@@ -719,10 +719,13 @@ const Landing = () => {
         <div className="absolute top-24 right-[-12%] h-[520px] w-[520px] rounded-full bg-[radial-gradient(circle_at_center,#d8f1e5,transparent_65%)] opacity-80" />
       </div>
 
-      {renderSections.filter(s => s.isActive).map((section) => (
-        <Suspense key={section.id} fallback={<SectionFallback section={section} />}>
-          <SectionRenderer section={section} userId={user?.id} />
-        </Suspense>
+      {renderSections.filter(s => s.isActive).map((section, index) => (
+        <DeferredLandingSection
+          key={section.id}
+          section={section}
+          userId={user?.id}
+          eager={index === 0}
+        />
       ))}
         {renderSections.length === 0 && (
           <div className="py-20 text-center text-gray-400">
@@ -751,6 +754,53 @@ const SectionFallback: React.FC<{ section: RenderSection }> = ({ section }) => {
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
       <div className="h-48 rounded-3xl border border-slate-200 bg-white/70 shadow-sm" aria-hidden="true" />
+    </div>
+  );
+};
+
+const DEFERRED_SECTION_ROOT_MARGIN = '800px 0px';
+
+const DeferredLandingSection: React.FC<{
+  section: RenderSection;
+  userId?: string;
+  eager?: boolean;
+}> = ({ section, userId, eager = false }) => {
+  const [host, setHost] = useState<HTMLDivElement | null>(null);
+  const [isReady, setIsReady] = useState(eager);
+
+  useEffect(() => {
+    if (isReady || !host) return;
+
+    if (typeof window === 'undefined' || !('IntersectionObserver' in window)) {
+      setIsReady(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setIsReady(true);
+        observer.disconnect();
+      },
+      { rootMargin: DEFERRED_SECTION_ROOT_MARGIN }
+    );
+
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, [host, isReady]);
+
+  return (
+    <div
+      ref={setHost}
+      className={isReady ? undefined : 'min-h-[360px]'}
+      style={isReady ? undefined : { contain: 'layout paint', containIntrinsicSize: '360px' }}
+      aria-busy={!isReady}
+    >
+      {isReady ? (
+        <Suspense key={section.id} fallback={<SectionFallback section={section} />}>
+          <SectionRenderer section={section} userId={userId} />
+        </Suspense>
+      ) : null}
     </div>
   );
 };
