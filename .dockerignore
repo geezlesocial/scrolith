@@ -9,3 +9,16 @@ test-results
 cypress/videos
 cypress/screenshots
 tmp
+desktop-dist
+playwright-results
+tests
+cypress
+docs
+*.log
+*.submit.yaml
+.tmp*
+.env
+.env.local
+.env.*.local
+*.tar
+*.tar.gz
