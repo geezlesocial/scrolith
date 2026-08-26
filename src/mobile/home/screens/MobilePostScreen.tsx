@@ -4,13 +4,12 @@ import { useLocation, useNavigate, useOutletContext, useSearchParams } from 'rea
 import { CommunityService } from '../../../services/community';
 import { useNotification } from '../../../context/NotificationContext';
 import { useUser } from '../../../context/UserContext';
-import type { UploadedFile } from '../../../types';
+import type { StructuredLocationFields, UploadedFile } from '../../../types';
 import MentionHashtagTextarea from '../../../community/components/MentionHashtagTextarea';
 import RichCaptionText from '../../../community/components/RichCaptionText';
 import { AIService, type PostEnhanceMode } from '../../../services/ai/ai.service';
 import { FileService } from '../../../services/files';
-import { Camera, Download, Loader2, Paperclip } from 'lucide-react';
-import { downloadToDevice } from '../../../utils/deviceDownload';
+import { Camera, Loader2, MapPin, Paperclip } from 'lucide-react';
 import { getRecoverableActionMessage } from '../../../mobile/runtime/requestRecovery';
 import {
   postAiInsightPreferenceToBoolean,
@@ -42,6 +41,53 @@ import {
   POST_TEXT_BG_NONE_ID
 } from '../../../utils/postTextBackgrounds';
 import { buildAttachmentCaptionMap, resolveFirstAttachmentCaption } from '../../../utils/videoCaption';
+import { resolvePostAttachmentMediaPair } from '../../../utils/postAttachmentMedia';
+import type { PreviewMedia } from '../../../components/media/MediaPreviewModal';
+
+const LocationPicker = React.lazy(() => import('../../../components/common/LocationPicker'));
+const MediaPreviewModal = React.lazy(() => import('../../../components/media/MediaPreviewModal'));
+
+type PostAuthorOption = {
+  id: string;
+  type: 'user' | 'page';
+  label: string;
+  subtitle: string;
+  pageId?: string;
+};
+
+const readAuthorText = (value: unknown) => String(value || '').trim();
+
+const normalizePostAuthorPage = (page: any): PostAuthorOption | null => {
+  const pageId = readAuthorText(page?.id || page?._id);
+  const label = readAuthorText(page?.name || page?.title || page?.pageName);
+  if (!pageId || !label) return null;
+  return {
+    id: `page:${pageId}`,
+    type: 'page',
+    label,
+    subtitle:
+      readAuthorText(page?.tagline || page?.headline || page?.industry || page?.category) || 'Post as page',
+    pageId
+  };
+};
+
+const getLocationLabel = (value?: Partial<StructuredLocationFields> | null) =>
+  readAuthorText(value?.formattedAddress || value?.formatted_address || value?.location);
+
+const toPreviewMedia = (item: ComposerAttachmentPreview): PreviewMedia | null => {
+  const pair = resolvePostAttachmentMediaPair(item);
+  const url = String(pair.url || item.url || item.localPreviewUrl || '').trim();
+  if (!url) return null;
+  return {
+    id: item.id,
+    url,
+    name: item.name,
+    mimeType: item.mimeType,
+    type: item.type,
+    thumbnailUrl: pair.posterUrl || item.thumbnailUrl || item.localPosterUrl || null,
+    duration: item.duration
+  };
+};
 
 const postAiActions: Array<{ mode: PostEnhanceMode; label: string }> = [
   { mode: 'grammar', label: 'Improve Grammar' },
@@ -112,6 +158,12 @@ export default function MobilePostScreen({
   const [aiInsightPreference, setAiInsightPreference] = useState<PostAiInsightPreference>('auto');
   const [topic, setTopic] = useState('');
   const [place, setPlace] = useState('');
+  const [locationDetails, setLocationDetails] = useState<Partial<StructuredLocationFields> | null>(null);
+  const [locationPickerOpen, setLocationPickerOpen] = useState(false);
+  const [ownedBusinessPages, setOwnedBusinessPages] = useState<PostAuthorOption[]>([]);
+  const [ownedBusinessPagesLoading, setOwnedBusinessPagesLoading] = useState(false);
+  const [postAuthorScopeId, setPostAuthorScopeId] = useState('user');
+  const [previewMedia, setPreviewMedia] = useState<PreviewMedia | null>(null);
 
   const closeComposer = useCallback(() => {
     if (onClose) {
@@ -146,6 +198,46 @@ export default function MobilePostScreen({
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allowedVisibilities.join('|'), defaultVisibility]);
+
+  useEffect(() => {
+    if (!user?.id || isEditing) return;
+    let active = true;
+    setOwnedBusinessPagesLoading(true);
+    CommunityService.getMyBusinessPages()
+      .then((pages) => {
+        if (!active) return;
+        setOwnedBusinessPages(
+          (Array.isArray(pages) ? pages : [])
+            .map(normalizePostAuthorPage)
+            .filter(Boolean) as PostAuthorOption[]
+        );
+      })
+      .catch(() => {
+        if (active) setOwnedBusinessPages([]);
+      })
+      .finally(() => {
+        if (active) setOwnedBusinessPagesLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isEditing, user?.id]);
+
+  const postAuthorOptions = useMemo<PostAuthorOption[]>(
+    () => [
+      {
+        id: 'user',
+        type: 'user',
+        label: readAuthorText(user?.name || user?.username) || 'Your profile',
+        subtitle: 'Personal profile'
+      },
+      ...ownedBusinessPages
+    ],
+    [ownedBusinessPages, user?.name, user?.username]
+  );
+  const activePostAuthor =
+    postAuthorOptions.find((option) => option.id === postAuthorScopeId) || postAuthorOptions[0];
+  const activeBusinessPageId = activePostAuthor?.type === 'page' ? activePostAuthor.pageId : undefined;
 
   useEffect(() => {
     mediaCountRef.current = media.length;
@@ -221,31 +313,6 @@ export default function MobilePostScreen({
     setStatusMessage('Attachment removed.');
   }, []);
 
-  const handleAttachmentDownload = useCallback(
-    async (item: ComposerAttachmentPreview) => {
-      const url = String(item?.url || item?.localPreviewUrl || '').trim();
-      if (!url || url.startsWith('blob:')) {
-        showNotification('warning', 'Download', 'Attachment is still uploading or URL is unavailable.');
-        return;
-      }
-      try {
-        const result = await downloadToDevice({
-          url,
-          fileName: item?.name,
-          mimeType: String(item?.mimeType || '')
-        });
-        showNotification(
-          'success',
-          'Download',
-          result.native ? `Saved to ${result.path || 'your device'}.` : 'Download started.'
-        );
-      } catch (error: any) {
-        showNotification('error', 'Download', error?.message || 'Unable to download attachment.');
-      }
-    },
-    [showNotification]
-  );
-
   const uploadOneFile = useCallback(
     async (file: File, opts?: { existingLocalId?: string; retryCount?: number }) => {
       if (!user) {
@@ -296,10 +363,13 @@ export default function MobilePostScreen({
             setStatusMessage(`Retrying ${file.name} after network issue (${attempt})…`);
           }
         });
-        const remoteUrl = String(uploaded.url || '').trim();
+        const uploadedMedia = resolvePostAttachmentMediaPair(uploaded);
+        const remoteUrl = String(uploadedMedia.url || uploaded.url || '').trim();
+        const uploadedId = String(uploaded.id || uploaded.fileId || '').trim();
         updateMedia(localId, {
-          id: String(uploaded.id || ''),
+          id: uploadedId,
           ...(remoteUrl ? { url: remoteUrl } : {}),
+          fallbackUrl: uploadedMedia.fallbackUrl || undefined,
           type:
             uploaded.type === 'video'
               ? 'video'
@@ -367,13 +437,16 @@ export default function MobilePostScreen({
     );
     setTopic(String(post?.topic || '').trim());
     setPlace(String(post?.location || '').trim());
+    setLocationDetails(null);
+    setLocationPickerOpen(false);
 
     const postAttachments = Array.isArray(post?.attachments) ? post.attachments : [];
     const normalized: ComposerAttachmentPreview[] = postAttachments
       .map((att: any) => {
-        const id = String(att?.id || '').trim();
+        const id = String(att?.id || att?.fileId || att?.file_id || '').trim();
         if (!id) return null;
-        const url = String(att?.url || att?.downloadUrl || att?.download_url || '').trim();
+        const mediaPair = resolvePostAttachmentMediaPair(att);
+        const url = String(mediaPair.url || att?.url || att?.downloadUrl || att?.download_url || '').trim();
         const name = String(att?.name || att?.originalName || att?.original_name || url || 'Attachment').trim();
         const mimeType = String(att?.mimeType || att?.mime_type || '').trim();
         const typeRaw = String(att?.type || '').trim().toLowerCase();
@@ -387,6 +460,7 @@ export default function MobilePostScreen({
           localId: `existing-${id}`,
           id,
           url,
+          fallbackUrl: mediaPair.fallbackUrl || undefined,
           name,
           type,
           mimeType,
@@ -553,6 +627,7 @@ export default function MobilePostScreen({
         aiInsightEnabled: postAiInsightPreferenceToBoolean(aiInsightPreference),
         topic: topic.trim() || undefined,
         location: place.trim() || undefined,
+        businessPageId: activeBusinessPageId,
         textBackgroundId: presentation ? presentation.themeId : null,
         presentation
       } as any);
@@ -571,6 +646,9 @@ export default function MobilePostScreen({
       setAiInsightPreference('auto');
       setTopic('');
       setPlace('');
+      setLocationDetails(null);
+      setLocationPickerOpen(false);
+      setPostAuthorScopeId('user');
       setStatusMessage('');
       showNotification('success', 'Posted', 'Your update is live.');
       const createdId = String((created as any)?.id || '').trim();
@@ -592,6 +670,15 @@ export default function MobilePostScreen({
       setBusy(false);
     }
   };
+
+  const handleLocationDetailsChange = useCallback((nextValue: Partial<StructuredLocationFields>) => {
+    setLocationDetails((previous) => {
+      const merged = { ...(previous || {}), ...(nextValue || {}) };
+      const nextLabel = getLocationLabel(merged);
+      if (nextLabel) setPlace(nextLabel);
+      return merged;
+    });
+  }, []);
 
   return (
     <div className={MOBILE_PAGE_SECTION_CLASS}>
@@ -647,6 +734,43 @@ export default function MobilePostScreen({
                 <span>{graphicWarningLabel}</span>
               </label>
             ) : null}
+          </div>
+        ) : null}
+
+        {!isEditing ? (
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <label className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+              <span className="text-slate-500">Identity</span>
+              <select
+                value={activePostAuthor?.id || 'user'}
+                onChange={(event) => {
+                  setPostAuthorScopeId(event.target.value);
+                }}
+                className="mt-1 w-full bg-transparent text-xs font-semibold text-slate-900 outline-none"
+                disabled={busy || loadingPost || ownedBusinessPagesLoading}
+              >
+                {postAuthorOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label} ({option.subtitle})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+              <span className="text-slate-500">Audience</span>
+              <select
+                value={visibility}
+                onChange={(event) => setVisibility(event.target.value)}
+                className="mt-1 w-full bg-transparent text-xs font-semibold text-slate-900 outline-none"
+                disabled={!visibilityEnabled || busy || loadingPost}
+              >
+                {allowedVisibilities.map((value) => (
+                  <option key={value} value={value}>
+                    {value === 'public' ? 'Public' : value === 'network' ? 'Network' : value === 'friends' ? 'Friends' : value === 'private' ? 'Only me' : value.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         ) : null}
 
@@ -719,12 +843,45 @@ export default function MobilePostScreen({
             <div className="mb-1 text-xs font-semibold text-slate-500">Location</div>
             <input
               value={place}
-              onChange={(e) => setPlace(String(e.target.value || ''))}
+              onChange={(e) => {
+                setPlace(String(e.target.value || ''));
+                setLocationDetails(null);
+              }}
               list="mobile_post_locations"
               placeholder="Region / country / city"
               className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
               disabled={busy || loadingPost}
             />
+            {!isEditing ? (
+              <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="text-[11px] text-slate-500">
+                    {getLocationLabel(locationDetails) || 'Use map search or current location to enrich this post.'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setLocationPickerOpen((previous) => !previous)}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-600"
+                    disabled={busy || loadingPost}
+                  >
+                    <MapPin className="h-3.5 w-3.5" aria-hidden />
+                    {locationPickerOpen ? 'Hide map' : locationDetails ? 'Edit with map' : 'Use map'}
+                  </button>
+                </div>
+                {locationPickerOpen ? (
+                  <div className="mt-3">
+                    <React.Suspense fallback={<div className="rounded-xl border border-slate-200 bg-white px-3 py-4 text-xs text-slate-500">Loading map picker...</div>}>
+                      <LocationPicker
+                        value={locationDetails}
+                        onChange={handleLocationDetailsChange}
+                        label="Integrated map location"
+                        placeholder="Search city, area, or place"
+                      />
+                    </React.Suspense>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -858,11 +1015,7 @@ export default function MobilePostScreen({
             media={media}
             onRemove={removeAttachment}
             onRetry={retryAttachment}
-            onOpenPreview={(item) => {
-              if (item.id && item.url && !String(item.url).startsWith('blob:')) {
-                void handleAttachmentDownload(item);
-              }
-            }}
+            onOpenPreview={(item) => setPreviewMedia(toPreviewMedia(item))}
             emptyLabel="Add photos, videos, or files — previews appear while uploading."
           />
         </div>
@@ -1050,6 +1203,16 @@ export default function MobilePostScreen({
             </div>
           </div>
         </div>
+      ) : null}
+
+      {previewMedia ? (
+        <React.Suspense fallback={null}>
+          <MediaPreviewModal
+            open={Boolean(previewMedia)}
+            media={previewMedia}
+            onClose={() => setPreviewMedia(null)}
+          />
+        </React.Suspense>
       ) : null}
     </div>
   );

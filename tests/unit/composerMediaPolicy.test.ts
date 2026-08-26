@@ -27,3 +27,24 @@ test('upload progress stays monotonic through retries', () => {
   assert.match(filesService, /Math\.max\(lastProgress, Math\.min\(99/);
   assert.match(filesService, /if \(percent !== lastProgress\)/);
 });
+
+test('route composer keeps popup identity and map parity', () => {
+  const mobilePost = read('src/mobile/home/screens/MobilePostScreen.tsx');
+
+  assert.match(mobilePost, /CommunityService\.getMyBusinessPages\(\)/);
+  assert.match(mobilePost, /<LocationPicker/);
+  assert.match(mobilePost, /businessPageId: activeBusinessPageId/);
+  assert.match(mobilePost, /uploaded\.id \|\| uploaded\.fileId/);
+  assert.match(mobilePost, /att\?\.id \|\| att\?\.fileId \|\| att\?\.file_id/);
+  assert.match(mobilePost, /Use map/);
+  assert.match(mobilePost, /MediaPreviewModal/);
+  assert.doesNotMatch(mobilePost, /handleAttachmentDownload/);
+});
+
+test('composer media previews resolve canonical and fallback media paths', () => {
+  const grid = read('src/components/composer/ComposerMediaPreviewGrid.tsx');
+
+  assert.match(grid, /resolvePostAttachmentMediaPair/);
+  assert.match(grid, /fallbackSrc=\{fallbackSrc \|\| undefined\}/);
+  assert.match(grid, /fallbackSrc=\{fallbackSrc \|\| src \|\| ''\}/);
+});

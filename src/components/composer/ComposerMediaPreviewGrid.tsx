@@ -9,6 +9,7 @@ import { composerAttachmentTile } from './composerClasses';
 import OptimizedImage from '../media/OptimizedImage';
 import InlineAutoplayVideo from '../media/InlineAutoplayVideo';
 import { resolveAssetUrl } from '../../utils/assetUrl';
+import { resolvePostAttachmentMediaPair } from '../../utils/postAttachmentMedia';
 
 type Props = {
   media: ComposerAttachmentPreview[];
@@ -24,7 +25,16 @@ const resolvePreviewSrc = (item: ComposerAttachmentPreview) => {
   if (local.startsWith('blob:') || local.startsWith('data:')) return local;
   const url = String(item.url || '').trim();
   if (url.startsWith('blob:') || url.startsWith('data:')) return url;
-  return resolveAssetUrl(url) || url;
+  const pair = resolvePostAttachmentMediaPair(item);
+  return resolveAssetUrl(pair.url || url) || pair.url || url;
+};
+
+const resolveFallbackSrc = (item: ComposerAttachmentPreview) => {
+  const fallback = String(item.fallbackUrl || '').trim();
+  if (fallback.startsWith('blob:') || fallback.startsWith('data:')) return fallback;
+  const pair = resolvePostAttachmentMediaPair(item);
+  const value = pair.fallbackUrl || fallback;
+  return value ? resolveAssetUrl(value) || value : '';
 };
 
 const resolvePoster = (item: ComposerAttachmentPreview) => {
@@ -64,6 +74,7 @@ const ComposerMediaPreviewGrid: React.FC<Props> = ({
       {items.map((mediaItem) => {
         const type = mediaItem.type || inferComposerMediaKind({ type: mediaItem.mimeType || '', name: mediaItem.name || '' });
         const src = resolvePreviewSrc(mediaItem);
+        const fallbackSrc = resolveFallbackSrc(mediaItem);
         const poster = resolvePoster(mediaItem);
         const progress = Math.max(0, Math.min(100, Number(mediaItem.progress) || 0));
 
@@ -98,6 +109,7 @@ const ComposerMediaPreviewGrid: React.FC<Props> = ({
                 ) : (
                   <InlineAutoplayVideo
                     src={src || ''}
+                    fallbackSrc={fallbackSrc || undefined}
                     poster={poster}
                     className="h-48 w-full object-cover"
                     controls={false}
@@ -118,7 +130,7 @@ const ComposerMediaPreviewGrid: React.FC<Props> = ({
               <button type="button" className="block h-48 w-full" onClick={() => onOpenPreview?.(mediaItem)}>
                 <OptimizedImage
                   src={poster || src || ''}
-                  fallbackSrc={src || ''}
+                  fallbackSrc={fallbackSrc || src || ''}
                   alt={mediaItem.name || 'Image attachment'}
                   width={960}
                   height={540}

@@ -26,6 +26,8 @@ export type ComposerAttachmentPreview = {
   id?: string;
   /** Durable or remote URL once uploaded */
   url: string;
+  /** Alternate durable/legacy URL used when the primary media path is unavailable. */
+  fallbackUrl?: string;
   /** Local blob preview while upload is in-flight (never published) */
   localPreviewUrl?: string;
   name?: string;
