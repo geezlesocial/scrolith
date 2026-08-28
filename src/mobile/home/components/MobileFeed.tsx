@@ -1650,7 +1650,16 @@ export default function MobileFeed({
       if (!postId || !mediaUrl) return;
       const sourcePayload: PendingPostVideoScrollViewerSource = {
         sourcePostId: postId,
-        fileId: String(media?.fileId || media?.file_id || media?.file?.id || media?.asset?.id || media?.id || '').trim() || null,
+        fileId:
+          String(
+            resolvePostAttachmentMediaPair(media).fileId ||
+              media?.fileId ||
+              media?.file_id ||
+              media?.file?.id ||
+              media?.asset?.id ||
+              media?.id ||
+              ''
+          ).trim() || null,
         mediaUrl,
         thumbnailUrl: String(media?.thumbnailUrl || resolvePostAttachmentPosterUrl(media) || '').trim() || null,
         title: String(post?.title || '').trim() || null,

@@ -149,6 +149,11 @@ export const buildPostVideoScrollViewerPath = (source: Pick<PendingPostVideoScro
   return `/scroll?${params.toString()}`;
 };
 
+/** True when a viewer source identifies a concrete post video for embedded or native shells. */
+export const hasPostVideoViewerSource = (
+  source: Pick<PendingPostVideoScrollViewerSource, 'sourcePostId' | 'mediaUrl'> | null | undefined
+): boolean => Boolean(normalizeString(source?.sourcePostId, 64) && normalizeString(source?.mediaUrl, 1200));
+
 /** True when /scroll was opened from a specific post-card video (not the generic feed). */
 export const isPostVideoWatchSearch = (search: string | URLSearchParams | null | undefined): boolean => {
   const params =

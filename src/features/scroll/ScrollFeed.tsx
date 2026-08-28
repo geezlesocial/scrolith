@@ -31,13 +31,18 @@ import { INLINE_VIDEO_PREVIEW_AUTOPLAY } from '../../utils/inlineMedia';
 import {
   clearPendingPostVideoScrollSource,
   clearPendingPostVideoScrollViewerSource,
+  hasPostVideoViewerSource,
   isPostVideoWatchSearch,
   readPendingPostVideoScrollSource,
   readPendingPostVideoScrollViewerSource,
   type PendingPostVideoScrollSource,
   type PendingPostVideoScrollViewerSource
 } from '../../utils/postVideoScrollBridge';
-import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../utils/postAttachmentMedia';
+import {
+  resolvePostAttachmentMediaPair,
+  resolvePostAttachmentMediaUrl,
+  resolvePostAttachmentPosterUrl
+} from '../../utils/postAttachmentMedia';
 import { buildPublicAppUrl } from '../../utils/siteUrl';
 import { pickInterestSurveyCandidateIds } from '../../components/recommendation/ContentInterestSurvey';
 import { postOptionsApi } from '../../services/postOptions';
@@ -102,9 +107,12 @@ const readStoredIndex = () => {
 };
 
 /** Clicked post-card / deep-linked video must not restore the previous session index. */
-const hasExplicitClickedVideoTarget = (search?: string | null) => {
+const hasExplicitClickedVideoTarget = (
+  search?: string | null,
+  viewerSource?: PendingPostVideoScrollViewerSource | null
+) => {
   const value = search ?? (typeof window !== 'undefined' ? window.location.search : '');
-  return isPostVideoWatchSearch(value) || hasExplicitScrollVideoQuery(value);
+  return isPostVideoWatchSearch(value) || hasExplicitScrollVideoQuery(value) || hasPostVideoViewerSource(viewerSource);
 };
 
 const readInitialActiveIndex = () => (hasExplicitClickedVideoTarget() ? 0 : readStoredIndex());
@@ -350,9 +358,11 @@ const inferPostAttachmentType = (attachment: any) => {
 };
 
 const resolveAttachmentBridgeId = (attachment: any, fallback = '') => {
+  const descriptorFileId = resolvePostAttachmentMediaPair(attachment).fileId;
   return (
     String(
-      attachment?.fileId ||
+      descriptorFileId ||
+        attachment?.fileId ||
         attachment?.file_id ||
         attachment?.file?.id ||
         attachment?.asset?.id ||
@@ -560,7 +570,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const observerRef = useRef<IntersectionObserver | null>(null);
-  const viewerSeedSourceRef = useRef<PendingPostVideoScrollViewerSource | null>(null);
+  const viewerSeedSourceRef = useRef<PendingPostVideoScrollViewerSource | null>(initialViewerSource || null);
   const seededItemsRef = useRef<ScrollVideo[]>(Array.isArray(initialItems) ? initialItems.filter(Boolean) : []);
   const openedSeriesSourceRef = useRef<string | null>(null);
   const pendingViewerSourceConsumedRef = useRef(false);
@@ -836,7 +846,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
               : null)
           : null;
         const seededItem = seededSource ? buildViewerSeedScroll(seededSource) : null;
-        if (seededItem?.id && hasExplicitClickedVideoTarget(typeof window !== 'undefined' ? window.location.search : '')) {
+        if (seededItem?.id && hasExplicitClickedVideoTarget(typeof window !== 'undefined' ? window.location.search : '', seededSource)) {
           viewerSeedSourceRef.current = seededSource;
           targetLockIdRef.current = seededItem.id;
         }
@@ -1435,14 +1445,15 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
     if (itemsRef.current.length === 0) return;
 
     const lockedId = targetLockIdRef.current;
-    const explicit = hasExplicitClickedVideoTarget(location.search);
+    const seededSource = viewerSeedSourceRef.current;
+    const explicit = hasExplicitClickedVideoTarget(location.search, seededSource);
     let idx = 0;
 
     if (lockedId) {
       const found = itemsRef.current.findIndex((entry) => entry.id === lockedId);
       idx = found >= 0 ? found : 0;
-    } else if (explicit && isPostVideoWatchSearch(location.search)) {
-      const seed = viewerSeedSourceRef.current;
+    } else if (explicit && (isPostVideoWatchSearch(location.search) || hasPostVideoViewerSource(seededSource))) {
+      const seed = seededSource;
       const seedId = seed ? buildViewerSeedScroll(seed).id : '';
       const found = seedId
         ? itemsRef.current.findIndex((entry) => entry.id === seedId)

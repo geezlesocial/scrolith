@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildScrollVideoUrl, normalizeScrollVideoRecommendation, isScrollHomeFallback } from '../scrollVideoRoutes';
 import { resolveStreamKind, toStreamEntry } from '../feedStream';
-import { buildPostVideoScrollViewerPath, isPostVideoWatchSearch } from '../postVideoScrollBridge';
+import { buildPostVideoScrollViewerPath, hasPostVideoViewerSource, isPostVideoWatchSearch } from '../postVideoScrollBridge';
 
 describe('phase221B feed mixed scroll card routing', () => {
   it('maps SCROLL_VIDEO type to scroll kind', () => {
@@ -41,5 +41,11 @@ describe('phase221B feed mixed scroll card routing', () => {
     expect(isPostVideoWatchSearch('?watch=post-video&post=postA')).toBe(true);
     expect(isPostVideoWatchSearch('?scroll=native1')).toBe(false);
     expect(isPostVideoWatchSearch('')).toBe(false);
+  });
+
+  it('recognizes an embedded mobile viewer source as an explicit target', () => {
+    expect(hasPostVideoViewerSource({ sourcePostId: 'postA', mediaUrl: 'https://cdn.test/video-a.mp4' })).toBe(true);
+    expect(hasPostVideoViewerSource({ sourcePostId: 'postA', mediaUrl: '' })).toBe(false);
+    expect(hasPostVideoViewerSource(null)).toBe(false);
   });
 });

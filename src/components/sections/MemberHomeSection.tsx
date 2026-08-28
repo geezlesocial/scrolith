@@ -1866,7 +1866,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       if (!postId || !mediaUrl) return;
       const sourcePayload: PendingPostVideoScrollViewerSource = {
         sourcePostId: postId,
-        fileId: String(media?.fileId || media?.file_id || media?.file?.id || media?.asset?.id || media?.id || '').trim() || null,
+        fileId:
+          String(
+            resolvePostAttachmentMediaPair(media).fileId ||
+              media?.fileId ||
+              media?.file_id ||
+              media?.file?.id ||
+              media?.asset?.id ||
+              media?.id ||
+              ''
+          ).trim() || null,
         mediaUrl,
         thumbnailUrl: String(resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl || '').trim() || null,
         title: String(post?.title || '').trim() || null,
