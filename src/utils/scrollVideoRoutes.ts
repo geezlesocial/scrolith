@@ -201,6 +201,11 @@ export const parseScrollVideoIdFromSearch = (
   );
 };
 
+/** True when the URL asks for one exact native Scroll video. */
+export const hasExplicitScrollVideoQuery = (
+  search: string | URLSearchParams | null | undefined
+): boolean => Boolean(parseScrollVideoIdFromSearch(search));
+
 export const isScrollHomeFallback = (href: string | null | undefined): boolean => {
   const h = String(href || '').trim().toLowerCase();
   return h === '/home' || h === '/m/home' || h.endsWith('/home');

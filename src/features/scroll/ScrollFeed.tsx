@@ -31,6 +31,7 @@ import { INLINE_VIDEO_PREVIEW_AUTOPLAY } from '../../utils/inlineMedia';
 import {
   clearPendingPostVideoScrollSource,
   clearPendingPostVideoScrollViewerSource,
+  isPostVideoWatchSearch,
   readPendingPostVideoScrollSource,
   readPendingPostVideoScrollViewerSource,
   type PendingPostVideoScrollSource,
@@ -42,6 +43,7 @@ import { pickInterestSurveyCandidateIds } from '../../components/recommendation/
 import { postOptionsApi } from '../../services/postOptions';
 import {
   buildScrollVideoUrl,
+  hasExplicitScrollVideoQuery,
   parseScrollVideoIdFromSearch
 } from '../../utils/scrollVideoRoutes';
 import {
@@ -98,6 +100,14 @@ const readStoredIndex = () => {
   if (!Number.isFinite(value) || value < 0) return 0;
   return Math.floor(value);
 };
+
+/** Clicked post-card / deep-linked video must not restore the previous session index. */
+const hasExplicitClickedVideoTarget = (search?: string | null) => {
+  const value = search ?? (typeof window !== 'undefined' ? window.location.search : '');
+  return isPostVideoWatchSearch(value) || hasExplicitScrollVideoQuery(value);
+};
+
+const readInitialActiveIndex = () => (hasExplicitClickedVideoTarget() ? 0 : readStoredIndex());
 
 const readMutedPreference = () => {
   const raw = String(localStorage.getItem(GLOBAL_SCROLL_MUTED_KEY) || 'true').toLowerCase();
@@ -513,7 +523,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(() => readStoredIndex());
+  const [activeIndex, setActiveIndex] = useState(() => readInitialActiveIndex());
   const [muted, setMuted] = useState(() => readMutedPreference());
   const [createOpen, setCreateOpen] = useState(false);
   const [config, setConfig] = useState<ScrollConfig | null>(null);
@@ -555,6 +565,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const openedSeriesSourceRef = useRef<string | null>(null);
   const pendingViewerSourceConsumedRef = useRef(false);
   const consumedPostVideoRouteKeyRef = useRef<string | null>(null);
+  const targetLockIdRef = useRef<string | null>(null);
   const itemsRef = useRef<ScrollVideo[]>([]);
   const activeIndexRef = useRef(activeIndex);
   const nextCursorRef = useRef<string | null>(null);
@@ -818,8 +829,17 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         const nextItems = Array.isArray(data?.items) ? data.items : [];
         const postVideoSeeds = Array.isArray(postVideoSeedResult?.items) ? postVideoSeedResult.items : [];
         postVideoNextCursorRef.current = postVideoSeedResult?.nextCursor || null;
-        const seededSource = !cursor ? viewerSeedSourceRef.current : null;
+        const seededSource = !cursor
+          ? viewerSeedSourceRef.current ||
+            (hasExplicitClickedVideoTarget(typeof window !== 'undefined' ? window.location.search : '')
+              ? readPendingPostVideoScrollViewerSource()
+              : null)
+          : null;
         const seededItem = seededSource ? buildViewerSeedScroll(seededSource) : null;
+        if (seededItem?.id && hasExplicitClickedVideoTarget(typeof window !== 'undefined' ? window.location.search : '')) {
+          viewerSeedSourceRef.current = seededSource;
+          targetLockIdRef.current = seededItem.id;
+        }
         if (!isPostVideoOnlyCursor) {
           setConfig((data?.config as ScrollConfig) || null);
         }
@@ -983,6 +1003,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
       viewerSeedSourceRef.current = pendingViewerSource;
       const seededItem = buildViewerSeedScroll(pendingViewerSource);
       seededItemsRef.current = [seededItem];
+      targetLockIdRef.current = seededItem.id;
       setActiveIndex(0);
       setItems((prev) => [seededItem, ...prev.filter((entry) => entry.id !== seededItem.id)]);
       void hydratePostVideoStream(pendingViewerSource);
@@ -1033,6 +1054,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
     viewerSeedSourceRef.current = pendingViewerSource;
     const seededItem = buildViewerSeedScroll(pendingViewerSource);
     seededItemsRef.current = [seededItem];
+    targetLockIdRef.current = seededItem.id;
     setActiveIndex(0);
     setItems((prev) => [seededItem, ...prev.filter((entry) => entry.id !== seededItem.id)]);
     void hydratePostVideoStream(pendingViewerSource);
@@ -1075,6 +1097,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
     const localIndex = items.findIndex((entry) => entry.id === targetId);
     if (localIndex >= 0) {
       deepLinkResolvedRef.current = targetId;
+      targetLockIdRef.current = targetId;
       setDeepLinkError(null);
       setActiveIndex(localIndex);
       trackScrollDeepLinkSuccess(targetId);
@@ -1092,6 +1115,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
           throw new Error('unavailable');
         }
         deepLinkResolvedRef.current = targetId;
+        targetLockIdRef.current = video.id;
         setDeepLinkError(null);
         setItems((prev) => {
           if (prev.some((entry) => entry.id === video.id)) return prev;
@@ -1297,8 +1321,10 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   ]);
 
   useEffect(() => {
+    if (targetLockIdRef.current) return;
+    if (hasExplicitClickedVideoTarget(location.search)) return;
     localStorage.setItem(LAST_SCROLL_INDEX_KEY, String(Math.max(0, activeIndex)));
-  }, [activeIndex]);
+  }, [activeIndex, location.search]);
 
   useEffect(() => {
     localStorage.setItem(GLOBAL_SCROLL_MUTED_KEY, muted ? 'true' : 'false');
@@ -1379,7 +1405,15 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
             best = { idx, ratio: entry.intersectionRatio };
           }
         }
-        if (best) setActiveIndex(best.idx);
+        if (best) {
+          const lockedId = targetLockIdRef.current;
+          if (lockedId) {
+            const lockedIdx = itemsRef.current.findIndex((entry) => entry.id === lockedId);
+            if (lockedIdx >= 0 && best.idx !== lockedIdx) return;
+            if (best.idx === lockedIdx) targetLockIdRef.current = null;
+          }
+          setActiveIndex(best.idx);
+        }
       },
       {
         root: container,
@@ -1398,11 +1432,50 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 
   useEffect(() => {
     if (loading) return;
-    const idx = Math.max(0, Math.min(activeIndex, itemsRef.current.length - 1));
+    if (itemsRef.current.length === 0) return;
+
+    const lockedId = targetLockIdRef.current;
+    const explicit = hasExplicitClickedVideoTarget(location.search);
+    let idx = 0;
+
+    if (lockedId) {
+      const found = itemsRef.current.findIndex((entry) => entry.id === lockedId);
+      idx = found >= 0 ? found : 0;
+    } else if (explicit && isPostVideoWatchSearch(location.search)) {
+      const seed = viewerSeedSourceRef.current;
+      const seedId = seed ? buildViewerSeedScroll(seed).id : '';
+      const found = seedId
+        ? itemsRef.current.findIndex((entry) => entry.id === seedId)
+        : itemsRef.current.findIndex((entry) => String(entry.id || '').startsWith('post-video:'));
+      idx = found >= 0 ? found : 0;
+      if (itemsRef.current[idx]?.id) targetLockIdRef.current = itemsRef.current[idx].id;
+    } else if (explicit) {
+      const deepLinkId = parseScrollVideoIdFromSearch(location.search);
+      const found = deepLinkId ? itemsRef.current.findIndex((entry) => entry.id === deepLinkId) : -1;
+      idx = found >= 0 ? found : 0;
+      if (found >= 0) targetLockIdRef.current = deepLinkId;
+    } else {
+      idx = Math.max(0, Math.min(activeIndexRef.current, itemsRef.current.length - 1));
+    }
+
+    setActiveIndex(idx);
     itemRefs.current[idx]?.scrollIntoView({ block: 'start', behavior: 'auto' });
-    // restore once after initial load
+    // restore once after initial load — never reuse lastIndex for a clicked/deep-linked video
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading]);
+
+  useEffect(() => {
+    const lockedId = targetLockIdRef.current;
+    if (!lockedId || items.length === 0) return;
+    const idx = items.findIndex((entry) => entry.id === lockedId);
+    if (idx < 0) return;
+    if (activeIndexRef.current !== idx) setActiveIndex(idx);
+    itemRefs.current[idx]?.scrollIntoView({ block: 'start', behavior: 'auto' });
+    const timer = window.setTimeout(() => {
+      if (targetLockIdRef.current === lockedId) targetLockIdRef.current = null;
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [items, loading]);
 
   useEffect(() => {
     const threshold = Math.max(1, profile.prefetchWindow);

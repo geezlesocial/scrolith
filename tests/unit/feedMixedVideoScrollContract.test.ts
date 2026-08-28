@@ -13,6 +13,7 @@ test('FeedMixedCard routes video-backed featured and recommended cards through S
   assert.match(src, /resolveVideoRecommendationScrollSource\(entry\)/);
   assert.match(src, /buildPostVideoScrollViewerPath\(postVideoSource\)/);
   assert.match(src, /stashPendingPostVideoScrollViewerSource\(card\.postVideoSource\)/);
+  assert.match(src, /pendingViewerSource: card\.postVideoSource/);
   assert.match(src, /postVideoSource \? 'Open in Scroll' : 'Open'/);
   assert.doesNotMatch(src, /kind === 'featured' \|\| kind === 'trending' \? '\/member-home'/);
 });

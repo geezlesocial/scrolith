@@ -586,7 +586,12 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({
                     window.open(card.href, '_blank', 'noopener,noreferrer');
                     return;
                   }
-                  navigate(card.href);
+                  navigate(
+                    card.href,
+                    isPostVideoScroll && card.postVideoSource
+                      ? { state: { pendingViewerSource: card.postVideoSource } }
+                      : undefined
+                  );
                 }}
                 className="inline-flex min-h-[36px] items-center rounded-full bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800 active:scale-[0.98]"
                 data-testid="feed-mixed-card-cta"
@@ -680,6 +685,11 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({
   return (
     <Link
       to={card.href}
+      state={
+        isPostVideoScroll && card.postVideoSource
+          ? { pendingViewerSource: card.postVideoSource }
+          : undefined
+      }
       onClick={() => {
         if (isScroll) emitScrollClick();
         if (isPostVideoScroll) stashPostVideoSource();

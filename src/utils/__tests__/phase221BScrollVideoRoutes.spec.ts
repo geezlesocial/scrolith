@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildScrollVideoUrl,
+  hasExplicitScrollVideoQuery,
   isScrollHomeFallback,
   isScrollRecommendationKind,
   normalizeScrollVideoRecommendation,
@@ -28,6 +29,9 @@ describe('phase221B scroll video routes', () => {
     expect(parseScrollVideoIdFromSearch('?scroll=vid1')).toBe('vid1');
     expect(parseScrollVideoIdFromSearch('?video=vid2')).toBe('vid2');
     expect(parseScrollVideoIdFromSearch('?series=s1&scroll=vid3')).toBe('vid3');
+    expect(hasExplicitScrollVideoQuery('?scroll=vid1')).toBe(true);
+    expect(hasExplicitScrollVideoQuery('/scroll')).toBe(false);
+    expect(hasExplicitScrollVideoQuery('')).toBe(false);
   });
 
   it('resolves scrollVideoId from multiple payload shapes', () => {
