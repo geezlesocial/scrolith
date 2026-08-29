@@ -4295,6 +4295,12 @@ const buildHealthPayload = () => ({
   }
 });
 
+const buildPublicHealthPayload = () => ({
+  status: getPrismaConnectionState() === 'degraded' ? 'DEGRADED' : 'OK',
+  database: { status: getPrismaConnectionState() },
+  timestamp: new Date().toISOString()
+});
+
 const healthHandler = (req: Request, res: Response) => {
   try {
     res.setHeader('Cache-Control', 'no-store');
@@ -4302,7 +4308,7 @@ const healthHandler = (req: Request, res: Response) => {
       res.status(200).end();
       return;
     }
-    res.json(buildHealthPayload());
+    res.json(buildPublicHealthPayload());
   } catch (error) {
     console.error('Health check error:', error);
     if (req.method === 'HEAD') {
@@ -4311,7 +4317,7 @@ const healthHandler = (req: Request, res: Response) => {
     }
     res.status(500).json({
       status: 'ERROR',
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: 'Health check failed',
       timestamp: new Date().toISOString()
     });
   }
@@ -4320,6 +4326,13 @@ const healthHandler = (req: Request, res: Response) => {
 // Health check endpoint
 app.head('/api/health', healthHandler);
 app.get('/api/health', healthHandler);
+
+// Detailed route maps and socket metadata are operational data, not a public
+// product contract. Keep them available to authenticated platform admins.
+app.get('/api/health/details', authMiddleware, adminMiddleware, (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(buildHealthPayload());
+});
 
 // Readiness probe (additive; does not change /api/health status codes)
 const readinessHandler = (req: Request, res: Response) => {
@@ -4357,7 +4370,7 @@ app.head('/api/health/ready', readinessHandler);
 app.get('/api/health/ready', readinessHandler);
 
 // Deep component health (additive; does not change /api/health contract)
-app.get('/api/health/components', async (req: Request, res: Response) => {
+app.get('/api/health/components', authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
   try {
     res.setHeader('Cache-Control', 'no-store');
     const { runDeepHealthChecks } = await import('./utils/observability/healthComponents');
