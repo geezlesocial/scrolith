@@ -1,19 +1,22 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-const origin = (process.env.COMPAT_ASSET_ORIGIN || '').trim().replace(/\/$/, '');
+const origins = (process.env.COMPAT_ASSET_ORIGINS || process.env.COMPAT_ASSET_ORIGIN || '')
+  .split(',')
+  .map((value) => value.trim().replace(/\/$/, ''))
+  .filter(Boolean);
 const distRoot = path.resolve(process.env.COMPAT_ASSET_OUTPUT || 'dist');
 const assetRoot = path.join(distRoot, 'assets');
 const maxAssets = 500;
 const maxBytes = 80 * 1024 * 1024;
 const textExtensions = new Set(['.css', '.html', '.js', '.json', '.mjs', '.svg', '.txt']);
 
-if (!origin) {
+if (origins.length === 0) {
   console.log('Compatibility asset import skipped: COMPAT_ASSET_ORIGIN is not set.');
   process.exit(0);
 }
 
-const originUrl = new URL(origin);
+const originUrls = origins.map((origin) => new URL(origin));
 
 const assetPathsFrom = (text) => {
   const paths = new Set();
@@ -27,8 +30,8 @@ const assetPathsFrom = (text) => {
   return paths;
 };
 
-const fetchSameOrigin = async (assetPath) => {
-  const url = new URL(assetPath, `${origin}/`);
+const fetchSameOrigin = async (originUrl, assetPath) => {
+  const url = new URL(assetPath, `${originUrl.origin}/`);
   const response = await fetch(url, { redirect: 'follow' });
 
   if (new URL(response.url).origin !== originUrl.origin) {
@@ -43,37 +46,54 @@ const fetchSameOrigin = async (assetPath) => {
   return body;
 };
 
-const rootResponse = await fetchSameOrigin('/');
-const queue = [...assetPathsFrom(rootResponse.toString('utf8'))];
-const queued = new Set(queue);
+const roots = await Promise.all(
+  originUrls.map(async (originUrl) => ({
+    originUrl,
+    body: await fetchSameOrigin(originUrl, '/'),
+  })),
+);
+const queue = roots.flatMap(({ originUrl, body }) =>
+  [...assetPathsFrom(body.toString('utf8'))].map((assetPath) => ({ originUrl, assetPath })),
+);
+const queued = new Set(queue.map(({ originUrl, assetPath }) => `${originUrl.origin}\0${assetPath}`));
 const downloaded = [];
 const failures = [];
 let totalBytes = 0;
+const assetSources = new Map();
 
 while (queue.length > 0) {
   if (downloaded.length >= maxAssets) throw new Error(`compatibility asset limit exceeded (${maxAssets})`);
 
-  const assetPath = queue.shift();
+  const { originUrl, assetPath } = queue.shift();
   const localPath = path.join(distRoot, assetPath.replace(/^\//, '').split('/').join(path.sep));
   const existing = await readFile(localPath).catch(() => null);
 
   try {
-    const body = existing || await fetchSameOrigin(assetPath);
+    const body = await fetchSameOrigin(originUrl, assetPath);
     totalBytes += body.length;
     if (totalBytes > maxBytes) throw new Error(`compatibility asset size limit exceeded (${maxBytes} bytes)`);
 
+    const previousSource = assetSources.get(localPath);
+    if (previousSource && !previousSource.equals(body)) {
+      throw new Error(`asset collision across compatibility origins: ${assetPath}`);
+    }
+    if (existing && !existing.equals(body)) {
+      throw new Error(`existing asset differs from compatibility origin: ${assetPath}`);
+    }
     if (!existing) {
       await mkdir(path.dirname(localPath), { recursive: true });
       await writeFile(localPath, body);
       downloaded.push({ path: assetPath, bytes: body.length });
     }
+    assetSources.set(localPath, body);
 
     const extension = path.extname(assetPath).toLowerCase();
     if (textExtensions.has(extension)) {
       for (const nestedPath of assetPathsFrom(body.toString('utf8'))) {
-        if (!queued.has(nestedPath)) {
-          queued.add(nestedPath);
-          queue.push(nestedPath);
+        const nestedKey = `${originUrl.origin}\0${nestedPath}`;
+        if (!queued.has(nestedKey)) {
+          queued.add(nestedKey);
+          queue.push({ originUrl, assetPath: nestedPath });
         }
       }
     }
@@ -86,4 +106,4 @@ if (failures.length > 0) {
   throw new Error(`compatibility asset import failed:\n${failures.join('\n')}`);
 }
 
-console.log(`Imported ${downloaded.length} compatibility assets (${totalBytes} bytes) from ${origin}.`);
+console.log(`Imported ${downloaded.length} compatibility assets (${totalBytes} bytes) from ${origins.join(', ')}.`);
