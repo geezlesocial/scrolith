@@ -1757,6 +1757,129 @@ export const getScrollFeed = async (req: Request, res: Response) => {
 };
 
 /**
+ * Video-only Scroll search. Reuses feed visibility, block, hidden-item, and
+ * media payload rules instead of creating a second global search path.
+ * GET /scroll/search?q=&limit=&cursor=
+ */
+export const searchScrollVideos = async (req: Request, res: Response) => {
+  try {
+    const userId = String((req as any)?.user?.id || '').trim();
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const query = String(req.query?.q || '').trim().replace(/\s+/g, ' ');
+    if (query.length < 2) {
+      return res.status(400).json({
+        success: false,
+        error: 'Scroll search query must contain at least 2 characters.',
+        code: 'SCROLL_SEARCH_QUERY_TOO_SHORT'
+      });
+    }
+
+    const limit = Math.max(1, Math.min(24, toInt(req.query?.limit, 20)));
+    const cursor = String(req.query?.cursor || '').trim();
+    const config = await getOrCreateScrollConfig();
+    if (config.enabled === false) {
+      return res.json({ success: true, data: { items: [], nextCursor: null } });
+    }
+
+    const prismaAny = prisma as any;
+    const blockRows = await prismaAny.userBlock.findMany({
+      where: { OR: [{ blockerId: userId }, { blockedId: userId }] },
+      select: { blockerId: true, blockedId: true }
+    });
+    const blockedIds = uniqueStrings(
+      (blockRows || []).flatMap((row: any) => [row?.blockerId, row?.blockedId])
+    ).filter((id) => id !== userId);
+    const authorRows = await prisma.user.findMany({
+      where: {
+        ...(blockedIds.length ? { id: { notIn: blockedIds } } : {}),
+        OR: [
+          { name: { contains: query, mode: 'insensitive' } },
+          { username: { contains: query, mode: 'insensitive' } }
+        ]
+      },
+      select: { id: true },
+      take: 200
+    });
+    const matchingAuthorIds = uniqueStrings((authorRows || []).map((row: any) => row?.id));
+    const searchableFields: any[] = [
+      { title: { contains: query, mode: 'insensitive' } },
+      { description: { contains: query, mode: 'insensitive' } },
+      { location: { contains: query, mode: 'insensitive' } }
+    ];
+    if (matchingAuthorIds.length) searchableFields.push({ authorId: { in: matchingAuthorIds } });
+
+    let cursorWhere: any = {};
+    if (cursor) {
+      const cursorRow = await prismaAny.scrollVideo.findUnique({
+        where: { id: cursor },
+        select: { id: true, createdAt: true }
+      });
+      if (cursorRow) {
+        cursorWhere = {
+          OR: [
+            { createdAt: { lt: cursorRow.createdAt } },
+            { createdAt: cursorRow.createdAt, id: { lt: cursorRow.id } }
+          ]
+        };
+      }
+    }
+
+    const candidateTake = Math.min(Math.max(limit * 4, limit), 120);
+    const rows = await prismaAny.scrollVideo.findMany({
+      where: {
+        status: 'active',
+        fileId: { not: '' },
+        ...(blockedIds.length ? { authorId: { notIn: blockedIds } } : {}),
+        OR: [
+          { authorId: userId, AND: searchableFields },
+          { visibility: { in: ['public', 'network', 'followers'] }, AND: searchableFields }
+        ],
+        ...cursorWhere
+      },
+      select: scrollVideoListSelect,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: candidateTake + 1
+    });
+    const hasNext = rows.length > candidateTake;
+    const slice = hasNext ? rows.slice(0, candidateTake) : rows;
+    const hiddenRows = slice.length
+      ? await prismaAny.scrollHidden
+          .findMany({
+            where: { userId, scrollId: { in: slice.map((row: any) => String(row.id || '').trim()).filter(Boolean) } },
+            select: { scrollId: true }
+          })
+          .catch((error: any) => {
+            if (isScrollSchemaMissingError(error)) return [];
+            throw error;
+          })
+      : [];
+    const hiddenIds = new Set((hiddenRows || []).map((row: any) => String(row?.scrollId || '').trim()));
+    const visibleRows = slice.filter((row: any) => !hiddenIds.has(String(row?.id || '').trim()));
+    const payloads = await fetchScrollPayloadList(req, visibleRows, userId);
+    const items = payloads.filter((item: any) => Boolean(item?.media?.url) && item?.media?.unavailable !== true).slice(0, limit);
+
+    return res.json({
+      success: true,
+      data: {
+        items,
+        nextCursor: hasNext && slice.length ? String(slice[slice.length - 1]?.id || '') || null : null
+      }
+    });
+  } catch (error: any) {
+    if (isScrollSchemaMissingError(error)) {
+      return res.status(503).json({
+        success: false,
+        error: 'Scroll module tables are not ready. Run the latest backend migration.',
+        code: 'SCROLL_SCHEMA_MISSING'
+      });
+    }
+    console.error('searchScrollVideos error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to search Scroll videos.' });
+  }
+};
+
+/**
  * Owner inventory — list active Scroll videos for the signed-in user.
  * GET /scroll/mine?limit=&cursor=
  */
