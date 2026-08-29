@@ -447,30 +447,13 @@ const LiveViewer = React.lazy(() => import('./features/live/LiveViewer'));
 const MemberHomeSection = React.lazy(() => import('./components/sections/MemberHomeSection'));
 
 const preloadAuthenticatedRouteModules = ({ mobileShell }: { mobileShell: boolean }) => {
-  const commonModules = [
-    import('./pages/PostDetailView'),
-    import('./features/scroll/ScrollFeed'),
-    import('./create-gig/CreateGig'),
-    import('./create-job-post/CreateJob'),
-    import('./pages/Support'),
-    import('./profile/EditProfile'),
-    import('./pages/marketplace/MarketplacePage')
-  ];
+  // Warm only the two existing media/detail destinations most commonly opened
+  // from the home surface. Other routes remain lazy until the user requests them.
+  const priorityModules = mobileShell
+    ? [import('./features/scroll/ScrollFeed')]
+    : [import('./pages/PostDetailView'), import('./features/scroll/ScrollFeed')];
 
-  const mobileModules = mobileShell
-    ? [
-        import('./mobile/home/MobileHome'),
-        import('./mobile/home/screens/MobileFeedScreen'),
-        import('./mobile/home/screens/MobileNetworkScreen'),
-        import('./mobile/home/screens/MobilePostScreen'),
-        import('./mobile/home/components/MobileAppRouteFrame'),
-        import('./mobile/home/screens/MobileNotificationsScreen'),
-        import('./mobile/home/screens/MobileJobsScreen'),
-        import('./mobile/home/screens/MobileBriefsScreen')
-      ]
-    : [];
-
-  return Promise.allSettled([...commonModules, ...mobileModules]);
+  return Promise.allSettled(priorityModules);
 };
 
 const shouldAvoidAggressiveRouteWarmup = () => {
