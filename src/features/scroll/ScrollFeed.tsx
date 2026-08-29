@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Loader2, PlusCircle, Radio, Volume2, VolumeX, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Clapperboard, Loader2, PlusCircle, Radio, Search, Volume2, VolumeX, X } from 'lucide-react';
 import FeedLoadSkeleton from '../../components/feed/FeedLoadSkeleton';
 import type { AdCampaign, ScrollAdsRuntimePolicy } from '../../types';
 import ScrollCard from './ScrollCard';
@@ -8,6 +8,7 @@ import ScrollAdOverlay from './ScrollAdOverlay';
 import ScrollCreateModal from './ScrollCreateModal';
 import ScrollCommentsSheet from './ScrollCommentsSheet';
 import ScrollSeriesModal from './ScrollSeriesModal';
+import ScrollSearchOverlay from './ScrollSearchOverlay';
 import {
   ScrollService,
   type ScrollConfig,
@@ -522,6 +523,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const isPostVideoRoute = !embedded && isPostVideoWatchSearch(location.search);
   const routeState = (location.state as ScrollFeedRouteState | null) || null;
   const routePendingViewerSource = routeState?.pendingViewerSource || null;
   const { user } = useUser();
@@ -536,6 +538,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const [activeIndex, setActiveIndex] = useState(() => readInitialActiveIndex());
   const [muted, setMuted] = useState(() => readMutedPreference());
   const [createOpen, setCreateOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [config, setConfig] = useState<ScrollConfig | null>(null);
   const [sourceVideo, setSourceVideo] = useState<PendingPostVideoScrollSource | null>(null);
   const [editingScroll, setEditingScroll] = useState<ScrollVideo | null>(null);
@@ -568,6 +571,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const autoAdvanceOnEnd = !embedded && SCROLL_VIDEO_ROUTE_PATTERN.test(location.pathname);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const searchTriggerRef = useRef<HTMLButtonElement | null>(null);
   const itemRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const observerRef = useRef<IntersectionObserver | null>(null);
   const viewerSeedSourceRef = useRef<PendingPostVideoScrollViewerSource | null>(initialViewerSource || null);
@@ -817,6 +821,13 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 
   const loadFeed = useCallback(
     async (cursor?: string | null) => {
+      // Explicit post-video routes are hydrated by the canonical target
+      // resolver below; the normal feed must not compete with that target.
+      if (!cursor && isPostVideoRoute) {
+        setLoading(false);
+        setLoadingMore(false);
+        return;
+      }
       try {
         if (cursor) {
           setLoadingMore(true);
@@ -888,7 +899,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         setLoadingMore(false);
       }
     },
-    [loadPostVideoSeeds, profile.feedPageSize, showNotification]
+    [isPostVideoRoute, loadPostVideoSeeds, profile.feedPageSize, showNotification]
   );
 
   useEffect(() => {
@@ -2036,7 +2047,30 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
+        <div className="pointer-events-auto mr-auto flex min-w-0 items-center gap-2 pl-1">
+          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-cyan-200/30 bg-cyan-300/15 text-cyan-100 shadow-lg backdrop-blur-md">
+            <Clapperboard className="h-4 w-4" aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold tracking-wide text-white">Scroll</p>
+            <p className="truncate text-[10px] uppercase tracking-[0.18em] text-white/55">Discover in motion</p>
+          </div>
+        </div>
         <div className="pointer-events-auto ml-auto flex shrink-0 items-center gap-2">
+          <button
+            ref={searchTriggerRef}
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            className="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/20 bg-black/45 px-3 text-sm font-semibold text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-black/75"
+            aria-label="Search Scroll videos"
+            aria-expanded={searchOpen}
+            aria-controls="scroll-search-dialog"
+            aria-haspopup="dialog"
+            data-testid="scroll-search-trigger"
+          >
+            <Search className="h-4 w-4" aria-hidden />
+            <span className="hidden sm:inline">Search</span>
+          </button>
           <button
             type="button"
             onClick={() => setMuted((prev) => !prev)}
@@ -2186,7 +2220,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
                       return followStateMap[authorId] ?? scroll.viewer?.isFollowingAuthor;
                     })()
                   }
-                  autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                  autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY && !searchOpen}
                   muted={muted}
                   dataSaver={Boolean(profile.dataSaver || profile.lowBandwidth)}
                   networkClass={detectNetworkClass()}
@@ -2455,6 +2489,18 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
           setRemixSource(null);
         }}
         config={config}
+      />
+
+      <ScrollSearchOverlay
+        open={searchOpen}
+        onClose={() => {
+          setSearchOpen(false);
+          window.setTimeout(() => searchTriggerRef.current?.focus(), 0);
+        }}
+        onSelect={(selected) => {
+          setSearchOpen(false);
+          navigate(buildScrollVideoUrl(selected.id));
+        }}
       />
 
       <ScrollSeriesModal

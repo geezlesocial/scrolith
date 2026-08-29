@@ -11,6 +11,7 @@ import { useUser } from '../../context/UserContext';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
 import type { ScrollVideo } from '../../services/scroll';
 import type { PendingPostVideoScrollViewerSource } from '../../utils/postVideoScrollBridge';
+import { openVideoInScroll } from '../../utils/openVideoInScroll';
 
 import MobileHeader from './components/MobileHeader';
 import MobileBottomNav, { MobileHomeLayoutSettings, MobileTabKey } from './components/MobileBottomNav';
@@ -651,18 +652,14 @@ const MobileHome = () => {
   );
   const handleOpenPostVideoScroll = useMemo(
     () => (source: PendingPostVideoScrollViewerSource) => {
-      flushSync(() => {
-        setActivePanelTab(null);
-        setScrollOverlay({
-          key: Date.now(),
-          initialItems: [],
-          initialActiveScrollId: null,
-          initialViewerSource: source,
-          initialSeriesId: null
-        });
+      flushSync(() => setActivePanelTab(null));
+      openVideoInScroll({
+        navigate,
+        source,
+        sourceSurface: 'mobile-home'
       });
     },
-    []
+    [navigate]
   );
   const handleOpenScrollSeries = useMemo(
     () => (seriesId: string, scrollId?: string | null) => {
