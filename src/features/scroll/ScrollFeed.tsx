@@ -2013,7 +2013,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   }, [embedded, navigate, onClose]);
 
   return (
-    <div className="relative h-screen bg-black text-white">
+    <div className="relative h-[100dvh] min-h-[100svh] w-full overflow-hidden bg-black text-white">
       {deepLinkError ? (
         <div
           className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-4 bg-black/95 px-6 text-center"
@@ -2069,7 +2069,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
             data-testid="scroll-search-trigger"
           >
             <Search className="h-4 w-4" aria-hidden />
-            <span className="hidden sm:inline">Search</span>
+            <span>Search</span>
           </button>
           <button
             type="button"
@@ -2133,7 +2133,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 
       <div
         ref={containerRef}
-        className="h-screen snap-y snap-mandatory overflow-y-auto"
+        className="h-[100dvh] min-h-[100svh] snap-y snap-mandatory overflow-y-auto"
         style={{ WebkitOverflowScrolling: 'touch', overscrollBehaviorY: 'contain', touchAction: 'pan-y' }}
         onTouchStartCapture={(event) => {
           if (isInteractiveScrollControlTarget(event.target)) {
@@ -2164,10 +2164,10 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
           <FeedLoadSkeleton
             variant="scroll"
             label="Loading Scroll feed"
-            className="h-screen w-full"
+            className="h-[100dvh] min-h-[100svh] w-full"
           />
         ) : items.length === 0 ? (
-          <div className="flex h-screen flex-col items-center justify-center px-6 text-center">
+          <div className="flex h-[100dvh] min-h-[100svh] flex-col items-center justify-center px-6 text-center">
             <p className="text-xl font-semibold">No Scroll videos yet.</p>
             <p className="mt-2 text-sm text-white/70">Create the first one and start your vertical feed.</p>
               <button
@@ -2202,7 +2202,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
                 ref={(node) => {
                   itemRefs.current[index] = node;
                 }}
-                className="h-screen w-full"
+                className="h-[100dvh] min-h-[100svh] w-full"
                 data-index={index}
                 data-virtualized={inWindow ? 'hot' : 'cold'}
               >

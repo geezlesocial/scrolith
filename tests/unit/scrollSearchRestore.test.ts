@@ -18,12 +18,17 @@ test('mobile post-video taps use the canonical Scroll route instead of embedded 
 });
 
 test('Scroll search is restored on the canonical Scroll runtime', () => {
+  const app = read('src/App.tsx');
   const feed = read('src/features/scroll/ScrollFeed.tsx');
   const overlay = read('src/features/scroll/ScrollSearchOverlay.tsx');
   const service = read('src/services/scroll.ts');
 
+  assert.match(app, /path="\/scroll"[\s\S]*<ProtectedRoute>[\s\S]*<ScrollFeed \/>/);
+  assert.doesNotMatch(app, /path="\/scroll"[\s\S]*renderResponsiveMobilePage\('Scroll'/);
   assert.match(feed, /<ScrollSearchOverlay/);
   assert.match(feed, /data-testid="scroll-search-trigger"/);
+  assert.match(feed, /data-testid="scroll-search-trigger"[\s\S]*<\/button>/);
+  assert.match(feed, /<span>Search<\/span>/);
   assert.match(feed, /navigate\(buildScrollVideoUrl\(selected\.id\)\)/);
   assert.match(overlay, /ScrollService\.search\(/);
   assert.match(overlay, /autoPlay muted playsInline preload="metadata"/);

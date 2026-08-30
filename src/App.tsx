@@ -1729,14 +1729,14 @@ const AppContent = () => {
                   </ProtectedRoute>
                 }
               />
-               <Route
-                 path="/scroll"
-                 element={
-                   <ProtectedRoute>
-                     {renderResponsiveMobilePage('Scroll', <ScrollFeed />, false)}
-                   </ProtectedRoute>
-                 }
-               />
+              <Route
+                path="/scroll"
+                element={
+                  <ProtectedRoute>
+                    <ScrollFeed />
+                  </ProtectedRoute>
+                }
+              />
               <Route
                 path="/live"
                 element={
