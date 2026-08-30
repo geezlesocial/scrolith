@@ -7,8 +7,8 @@ const origins = (process.env.COMPAT_ASSET_ORIGINS || process.env.COMPAT_ASSET_OR
   .filter(Boolean);
 const distRoot = path.resolve(process.env.COMPAT_ASSET_OUTPUT || 'dist');
 const assetRoot = path.join(distRoot, 'assets');
-const maxAssets = 500;
-const maxBytes = 80 * 1024 * 1024;
+const maxAssets = Number.parseInt(process.env.COMPAT_MAX_ASSETS || '1000', 10);
+const maxBytes = Number.parseInt(process.env.COMPAT_MAX_BYTES || String(160 * 1024 * 1024), 10);
 const textExtensions = new Set(['.css', '.html', '.js', '.json', '.mjs', '.svg', '.txt']);
 
 if (origins.length === 0) {
