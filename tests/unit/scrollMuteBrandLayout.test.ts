@@ -13,14 +13,25 @@ const scrollCard = readFileSync(join(here, '../../src/features/scroll/ScrollCard
 const scrollFeed = readFileSync(join(here, '../../src/features/scroll/ScrollFeed.tsx'), 'utf8');
 
 test('Mute control is in feed header next to Create (not centered over author)', () => {
-  assert.match(scrollFeed, /data-testid="scroll-mute-control"/);
-  assert.match(scrollFeed, /Unmute/);
-  assert.match(scrollFeed, /Mute/);
-  assert.match(scrollFeed, /ml-auto flex shrink-0 items-center gap-2/);
+  assert.equal(scrollFeed.includes('scroll-mute-control'), true);
+  assert.equal(scrollFeed.includes('gap-1 sm:gap-2'), true);
   // Create follows mute in the same right cluster
   const muteIdx = scrollFeed.indexOf('data-testid="scroll-mute-control"');
-  const createIdx = scrollFeed.indexOf('Create');
+  const createIdx = scrollFeed.indexOf('<span className="hidden sm:inline">Create</span>');
   assert.ok(muteIdx > 0 && createIdx > muteIdx);
+});
+
+test('mobile Scroll header uses icon-only controls while desktop labels remain available', () => {
+  assert.match(scrollFeed, /data-testid="scroll-search-trigger"/);
+  assert.match(scrollFeed, /\[&>span\]:hidden sm:h-11 sm:w-auto sm:px-3 sm:\[&>span\]:inline/);
+  assert.match(scrollFeed, /<span>Search<\/span>/);
+  assert.match(scrollFeed, /hidden whitespace-nowrap sm:inline/);
+  assert.match(scrollFeed, /<span className="hidden sm:inline">Create<\/span>/);
+});
+
+test('touch Scroll keeps the engagement rail visible after overlay controls recede', () => {
+  assert.match(scrollCard, /const actionRailVisible = overlayControlsVisible \|\| touchOverlayMode/);
+  assert.match(scrollCard, /actionRailVisible \? 'translate-x-0 opacity-100'/);
 });
 
 test('ScrollCard does not place absolute centered mute over the name', () => {

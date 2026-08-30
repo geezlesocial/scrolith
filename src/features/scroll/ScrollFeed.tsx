@@ -2038,7 +2038,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         Top chrome: Back | spacer | Mute + Create.
         Mute stays in the right cluster only — never centered over the author name.
       */}
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-40 flex items-center justify-between gap-2 px-3 py-3 sm:gap-3 sm:px-4 sm:py-4">
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-40 flex items-center justify-between gap-1 px-2 py-3 sm:gap-3 sm:px-4 sm:py-4">
         <button
           type="button"
           onClick={handleClose}
@@ -2051,37 +2051,37 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
           <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-cyan-200/30 bg-cyan-300/15 text-cyan-100 shadow-lg backdrop-blur-md">
             <Clapperboard className="h-4 w-4" aria-hidden />
           </span>
-          <div className="min-w-0">
+          <div className="hidden min-w-0 sm:block">
             <p className="truncate text-sm font-semibold tracking-wide text-white">Scroll</p>
             <p className="truncate text-[10px] uppercase tracking-[0.18em] text-white/55">Discover in motion</p>
           </div>
         </div>
-        <div className="pointer-events-auto ml-auto flex shrink-0 items-center gap-2">
+        <div className="pointer-events-auto ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
           <button
             ref={searchTriggerRef}
             type="button"
             onClick={() => setSearchOpen(true)}
-            className="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/20 bg-black/45 px-3 text-sm font-semibold text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-black/75"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/20 bg-black/45 px-0 text-sm font-semibold text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-black/75 [&>span]:hidden sm:h-11 sm:w-auto sm:px-3 sm:[&>span]:inline"
             aria-label="Search Scroll videos"
             aria-expanded={searchOpen}
             aria-controls="scroll-search-dialog"
             aria-haspopup="dialog"
             data-testid="scroll-search-trigger"
           >
-            <Search className="h-4 w-4" aria-hidden />
+            <Search className="h-5 w-5 sm:h-4 sm:w-4" aria-hidden />
             <span>Search</span>
           </button>
           <button
             type="button"
             onClick={() => setMuted((prev) => !prev)}
-            className="inline-flex h-10 max-w-full items-center gap-1.5 rounded-full border border-white/20 bg-black/55 px-3 text-xs font-semibold text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-black/75"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/20 bg-black/55 px-0 text-xs font-semibold text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-black/75 sm:h-10 sm:w-auto sm:px-3"
             aria-label={muted ? 'Unmute all Scrolls' : 'Mute all Scrolls'}
             aria-pressed={muted}
             data-testid="scroll-mute-control"
-            title={muted ? 'Unmute' : 'Mute'}
-          >
-            {muted ? <VolumeX className="h-4 w-4 shrink-0" aria-hidden /> : <Volume2 className="h-4 w-4 shrink-0" aria-hidden />}
-            <span className="whitespace-nowrap">{muted ? 'Unmute' : 'Mute'}</span>
+            title={muted ? 'Unmute all Scrolls' : 'Mute all Scrolls'}
+            >
+            {muted ? <VolumeX className="h-5 w-5 shrink-0 sm:h-4 sm:w-4" aria-hidden /> : <Volume2 className="h-5 w-5 shrink-0 sm:h-4 sm:w-4" aria-hidden />}
+            <span className="hidden whitespace-nowrap sm:inline">{muted ? 'Unmute' : 'Mute'}</span>
           </button>
           <button
             type="button"
@@ -2091,10 +2091,12 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
               setRemixSource(null);
               setCreateOpen(true);
             }}
-            className="inline-flex shrink-0 items-center gap-2 rounded-full bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200 transition"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center gap-2 rounded-full bg-cyan-300 px-0 text-sm font-semibold text-slate-950 hover:bg-cyan-200 transition sm:h-auto sm:w-auto sm:px-4 sm:py-2"
+            aria-label="Create Scroll"
+            title="Create Scroll"
           >
-            <PlusCircle className="h-4 w-4" />
-            Create
+            <PlusCircle className="h-5 w-5 sm:h-4 sm:w-4" aria-hidden />
+            <span className="hidden sm:inline">Create</span>
           </button>
         </div>
       </header>

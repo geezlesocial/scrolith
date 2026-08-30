@@ -268,6 +268,8 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   const canDeleteScroll = Boolean(scroll.canDelete) || isOwner;
   const hasOwnerActions = canEditScroll || canDeleteScroll;
   const overlayControlsVisible = controlsVisible || ownerMenuOpen;
+  // Keep the core engagement rail available on touch surfaces; media and metadata can still recede.
+  const actionRailVisible = overlayControlsVisible || touchOverlayMode;
   const reactionInitialCounts = useMemo(
     () => (Number(scroll.metrics?.likes || 0) > 0 ? { like: Number(scroll.metrics.likes || 0) } : undefined),
     [scroll.metrics?.likes]
@@ -1143,7 +1145,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
 
       <div
         className={`absolute right-2.5 top-1/2 z-30 pointer-events-auto flex -translate-y-1/2 flex-col items-center gap-1.5 transition-all duration-300 sm:right-3 ${
-          overlayControlsVisible ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-0 pointer-events-none'
+          actionRailVisible ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-0 pointer-events-none'
         }`}
       >
         <ReactionBar
