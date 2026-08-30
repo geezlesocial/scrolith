@@ -1,5 +1,6 @@
 export type VerificationLevel = 'standard' | 'pro' | 'business' | 'government';
 export type VerificationSubjectRole = 'guest' | 'user' | 'freelancer' | 'employer' | 'business' | 'admin';
+export type IdentityTrustState = 'verified' | 'pending' | 'needs_action' | 'unverified';
 
 export type VerificationSettings = {
   enabled: boolean;
@@ -180,6 +181,52 @@ export const resolveVerificationLevel = (entity: any): VerificationLevel | null 
   }
 
   return 'standard';
+};
+
+const readIdentityVerificationStatus = (entity: any) =>
+  String(
+    entity?.kycStatus ??
+      entity?.kyc_status ??
+      entity?.verificationStatus ??
+      entity?.verification_status ??
+      entity?.verificationState ??
+      entity?.verification_state ??
+      ''
+  )
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+
+/**
+ * Normalize the status vocabulary returned by profile, post, job, and KYC APIs.
+ * The UI can expose pending/action-needed states without treating them as verified.
+ */
+export const resolveIdentityTrustState = (entity: any): IdentityTrustState => {
+  if (!entity) return 'unverified';
+
+  const status = readIdentityVerificationStatus(entity);
+  if (['pending', 'under_review', 'in_review', 'submitted', 'processing'].includes(status)) {
+    return 'pending';
+  }
+  if (['requires_updates', 'needs_action', 'action_required', 'rejected', 'expired', 'revoked'].includes(status)) {
+    return 'needs_action';
+  }
+  if (['verified', 'approved', 'complete', 'completed'].includes(status)) return 'verified';
+
+  return resolveVerificationLevel(entity) ? 'verified' : 'unverified';
+};
+
+export const identityTrustStateLabel = (state: IdentityTrustState) => {
+  switch (state) {
+    case 'verified':
+      return 'Verified identity';
+    case 'pending':
+      return 'Verification pending';
+    case 'needs_action':
+      return 'Verification needs attention';
+    default:
+      return 'Identity not verified';
+  }
 };
 
 export const resolveVisibleVerificationLevel = (

@@ -22,7 +22,9 @@ const namedSizeMap = {
 
 function resolveBadgeSize(size: VerifiedBadgeProps["size"]): number {
   if (typeof size === "number") return size;
-  if (size && size in namedSizeMap) return namedSizeMap[size];
+  if (typeof size === "string" && size in namedSizeMap) {
+    return (namedSizeMap as Record<string, number>)[size];
+  }
   return namedSizeMap.sm;
 }
 
@@ -32,7 +34,7 @@ export const VerifiedBadge: React.FC<VerifiedBadgeProps> = ({
   title = "Verified account",
   ariaHidden = false,
 }) => {
-  const pixelSize = resolveBadgeSize(size);
+  const pixelSize = resolveBadgeSize(size as VerifiedBadgeProps['size']);
 
   return (
     <span
@@ -48,6 +50,7 @@ export const VerifiedBadge: React.FC<VerifiedBadgeProps> = ({
         width={pixelSize}
         height={pixelSize}
         loading="lazy"
+        fetchPriority="low"
         decoding="async"
         className="block object-contain"
         style={{

@@ -3597,7 +3597,9 @@ const CommunityHome = () => {
                     type: post.author?.type || (post.businessPage ? 'business' : 'user'),
                     businessSlug: post.author?.businessSlug || post.businessPage?.slug || null,
                     isVerified: post.author?.isVerified,
-                    isPro: post.author?.isPro
+                    isPro: post.author?.isPro,
+                    kycStatus: post.author?.kycStatus ?? post.author?.kyc_status,
+                    verificationStatus: post.author?.verificationStatus ?? post.author?.verification_status
                   };
                   const followTargetId =
                     String(resolvedAuthor.type || '').toLowerCase() === 'user'

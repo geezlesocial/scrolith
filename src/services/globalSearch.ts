@@ -4,6 +4,7 @@ import type { MarketplaceListing } from '../types/marketplace';
 import { resolveAssetUrl } from '../utils/assetUrl';
 import { CMSService } from './cms';
 import { CommunityService } from './community';
+import { rankSearchItems } from '../utils/searchRanking';
 
 export type GlobalSearchGroupKey =
   | 'people'
@@ -309,7 +310,7 @@ export const searchGlobalWithMarketplace = async (
               : Array.isArray((sourceGroups as any)?.[key])
                 ? (sourceGroups as any)[key]
                 : [];
-    groups[key] = uniqueSearchItems(source.map(normalizeGlobalSearchItem)).slice(0, maxResults);
+    groups[key] = rankSearchItems(uniqueSearchItems(source.map(normalizeGlobalSearchItem)), clean).slice(0, maxResults);
   });
 
   const merged = Array.isArray(unified?.results) && unified.results.length
@@ -321,7 +322,7 @@ export const searchGlobalWithMarketplace = async (
         ...groupItems
       ]
     : GLOBAL_SEARCH_GROUP_ORDER.flatMap((key) => groups[key]);
-  const results = uniqueSearchItems(merged).slice(0, Math.max(maxResults, 12));
+  const results = rankSearchItems(uniqueSearchItems(merged), clean).slice(0, Math.max(maxResults, 12));
   const totals = {
     people: groups.people.length,
     pages: groups.pages.length,

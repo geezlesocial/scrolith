@@ -189,9 +189,10 @@ const ContentInterestSurvey: React.FC<ContentInterestSurveyProps> = ({
       data-content-type={contentType}
       data-entity-id={normalizedEntityId}
       data-survey-state={ackVisible ? 'ack' : canPrompt ? 'prompt' : 'idle'}
+      aria-busy={busySignal ? 'true' : 'false'}
     >
       {ackVisible && ackMessage ? (
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" aria-live="polite">
           <p className={ackClassName}>{ackMessage}</p>
           <p className={secondaryTextClassName}>Thanks. Your recommendation preferences have been updated.</p>
         </div>
@@ -221,7 +222,7 @@ const ContentInterestSurvey: React.FC<ContentInterestSurveyProps> = ({
             </button>
           </div>
           {error ? (
-            <p className={secondaryTextClassName} role="alert" data-testid="content-interest-error">
+            <p className={secondaryTextClassName} role="alert" aria-live="assertive" data-testid="content-interest-error">
               {error}
             </p>
           ) : null}

@@ -461,9 +461,13 @@ const shouldAvoidAggressiveRouteWarmup = () => {
   const connection = (navigator as Navigator & {
     connection?: { saveData?: boolean; effectiveType?: string };
   }).connection;
-  if (!connection) return false;
-  if (connection.saveData) return true;
-  return ['slow-2g', '2g'].includes(String(connection.effectiveType || '').toLowerCase());
+  if (connection?.saveData) return true;
+  if (['slow-2g', '2g', '3g'].includes(String(connection?.effectiveType || '').toLowerCase())) return true;
+
+  const deviceMemory = Number((navigator as Navigator & { deviceMemory?: number }).deviceMemory || 0);
+  if (deviceMemory > 0 && deviceMemory <= 2) return true;
+  const hardwareConcurrency = Number(navigator.hardwareConcurrency || 0);
+  return hardwareConcurrency > 0 && hardwareConcurrency <= 2;
 };
 
 // Error Boundary Component
@@ -901,8 +905,9 @@ const AppContent = () => {
 
     if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
       idleId = (window as any).requestIdleCallback(warmRoutes, { timeout: 2400 });
-    } else {
-      timeoutId = window.setTimeout(warmRoutes, 1200);
+    } else if (typeof window !== 'undefined') {
+      const browserWindow = window as Window;
+      timeoutId = browserWindow.setTimeout(warmRoutes, 1200);
     }
 
     return () => {

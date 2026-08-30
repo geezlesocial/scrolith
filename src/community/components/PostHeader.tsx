@@ -4,7 +4,11 @@ import { Link } from 'react-router-dom';
 import FollowButton from './FollowButton';
 import VerifiedBadge from '../../components/common/VerifiedBadge';
 import EnterpriseAvatar from '../../components/common/EnterpriseAvatar';
-import { resolveVerificationLevel } from '../../utils/verification';
+import {
+  identityTrustStateLabel,
+  resolveIdentityTrustState,
+  resolveVerificationLevel
+} from '../../utils/verification';
 import {
   postCardAvatarClass,
   postCardFollowButtonClass,
@@ -26,6 +30,10 @@ type PostHeaderAuthor = {
   isPro?: boolean;
   verificationLevel?: string | null;
   verification_level?: string | null;
+  kycStatus?: string | null;
+  kyc_status?: string | null;
+  verificationStatus?: string | null;
+  verification_status?: string | null;
   /** Optional professional headline / context line */
   headline?: string | null;
 };
@@ -98,6 +106,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   const authorName = author.displayName || 'Community member';
   const authorType = String(author.type || 'user').toLowerCase();
   const verificationLevel = resolveVerificationLevel(author);
+  const identityTrustState = resolveIdentityTrustState(author);
   const authorHandle = String(author.username || '').trim().replace(/^@+/, '');
   const headline = String(author.headline || '').trim();
   const formattedCreatedAt = formatPostHeaderTimestamp(createdAt);
@@ -137,7 +146,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
               >
                 {authorName}
               </Link>
-              {verificationLevel ? (
+              {verificationLevel && identityTrustState === 'verified' ? (
                 <VerifiedBadge
                   level={verificationLevel}
                   size={16}
@@ -145,6 +154,20 @@ const PostHeader: React.FC<PostHeaderProps> = ({
                   subjectType={author.type || 'user'}
                   subjectRole={authorType === 'business' ? 'business' : 'user'}
                 />
+              ) : null}
+              {identityTrustState === 'pending' || identityTrustState === 'needs_action' ? (
+                <span
+                  className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                    identityTrustState === 'pending'
+                      ? 'bg-amber-50 text-amber-700'
+                      : identityTrustState === 'needs_action'
+                        ? 'bg-rose-50 text-rose-700'
+                        : 'bg-slate-100 text-slate-600'
+                  }`}
+                  title={identityTrustStateLabel(identityTrustState)}
+                >
+                  {identityTrustStateLabel(identityTrustState)}
+                </span>
               ) : null}
               {author.isPro ? (
                 <span

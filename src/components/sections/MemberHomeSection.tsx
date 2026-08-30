@@ -9694,7 +9694,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     readRenderableText((post as any).description) ||
                     readRenderableText(post.originalPost?.content) ||
                     '';
-                  const resolvedAuthor = {
+                  const resolvedAuthor: React.ComponentProps<typeof PostHeader>['author'] = {
                     id: post.author?.id || post.authorId,
                     username: post.author?.username ?? post.authorUsername,
                     displayName: post.author?.displayName || post.authorName,
@@ -9702,7 +9702,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     type: post.author?.type || (post.businessPage ? 'business' : 'user'),
                     businessSlug: post.author?.businessSlug || post.businessPage?.slug || null,
                     isVerified: post.author?.isVerified,
-                    isPro: post.author?.isPro
+                    isPro: post.author?.isPro,
+                    kycStatus: (post.author as any)?.kycStatus ?? (post.author as any)?.kyc_status,
+                    verificationStatus:
+                      (post.author as any)?.verificationStatus ?? (post.author as any)?.verification_status
                   };
                   const authorTypeNorm = String(resolvedAuthor.type || 'user').toLowerCase();
                   const followTargetId = String(resolvedAuthor.id || '').trim();
