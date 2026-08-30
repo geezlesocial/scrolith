@@ -27,6 +27,14 @@ const assetPathsFrom = (text) => {
     if (!assetPath.includes('..')) paths.add(assetPath);
   }
 
+  // Vite's dynamic-import manifest stores lazy chunks as bare asset names in
+  // the main bundle. Resolve those names from the shared assets directory so
+  // an older HTML shell can still load its route chunks during a split.
+  const bareAssetPattern = /["'`](?:\.\/)?(?:assets\/)?([A-Za-z0-9][A-Za-z0-9._-]*\.(?:css|js|json|mjs|svg|txt))["'`]/g;
+  for (const match of text.matchAll(bareAssetPattern)) {
+    paths.add(`/assets/${match[1]}`);
+  }
+
   return paths;
 };
 
