@@ -1,5 +1,5 @@
 /**
- * Scroll feed — Mute/Unmute without overlapping author + Scroll under Follow.
+ * Scroll feed — stable touch chrome without overlapping the author identity.
  * Run: node --import tsx --test tests/unit/scrollMuteBrandLayout.test.ts
  */
 import test from 'node:test';
@@ -50,9 +50,11 @@ test('ScrollCard does not place absolute centered mute over the name', () => {
   assert.match(scrollCard, /truncate text-sm font-semibold/);
 });
 
-test('Scroll brand label sits under FollowButton', () => {
+test('Scroll brand label sits beside the username with the custom mark', () => {
   assert.match(scrollCard, /data-testid="scroll-brand-label"/);
-  const followIdx = scrollCard.indexOf('<FollowButton');
+  assert.match(scrollCard, /src="\/scroll-mark\.svg"/);
+  const usernameIdx = scrollCard.indexOf('scroll.author?.username');
   const brandIdx = scrollCard.indexOf('data-testid="scroll-brand-label"');
-  assert.ok(followIdx > 0 && brandIdx > followIdx, 'Scroll brand must appear after FollowButton in source');
+  assert.ok(usernameIdx > 0 && brandIdx > usernameIdx, 'Scroll brand must appear after the username in source');
+  assert.match(scrollCard, /<FollowButton[\s\S]*className="h-7/);
 });

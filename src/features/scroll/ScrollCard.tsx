@@ -272,6 +272,52 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   const actionRailVisible = overlayControlsVisible || touchOverlayMode;
   // Follow and response actions remain usable on touch surfaces after the cinematic chrome fades.
   const persistentTouchControlsVisible = overlayControlsVisible || touchOverlayMode;
+  const authorIdentity = (
+    <>
+      <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-white/15 ring-2 ring-white/70 flex items-center justify-center text-sm font-semibold">
+        {authorAvatar ? (
+          <OptimizedImage
+            src={authorAvatar}
+            alt={authorName}
+            width={80}
+            height={80}
+            sizes="40px"
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <span>{authorInitial(authorName)}</span>
+        )}
+      </div>
+      <div className="min-w-0 flex-1 overflow-hidden">
+        <p className="truncate text-sm font-semibold leading-tight">{authorName}</p>
+        <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5">
+          <p className="min-w-0 truncate text-xs text-white/80">
+            {scroll.author?.username ? `@${scroll.author.username}` : 'Scrolith'}
+          </p>
+          <span
+            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/25 bg-black/50 px-2 py-1 text-[10px] font-semibold tracking-wide text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md"
+            data-testid="scroll-brand-label"
+            title="Scroll"
+          >
+            <img src="/scroll-mark.svg" alt="" className="h-4 w-3.5 object-contain" aria-hidden="true" />
+            <span>Scroll</span>
+          </span>
+          {scroll.isAIEnhanced ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] font-semibold text-cyan-100 ring-1 ring-cyan-300/40">
+              <Sparkles className="h-3 w-3" />
+              AI
+            </span>
+          ) : null}
+          {scroll.graphicWarning ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-1 text-[10px] font-semibold text-amber-100 ring-1 ring-amber-300/40">
+              <AlertTriangle className="h-3 w-3" />
+              Graphic warning
+            </span>
+          ) : null}
+        </div>
+      </div>
+    </>
+  );
   const reactionInitialCounts = useMemo(
     () => (Number(scroll.metrics?.likes || 0) > 0 ? { like: Number(scroll.metrics.likes || 0) } : undefined),
     [scroll.metrics?.likes]
@@ -936,8 +982,9 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
 
       {/* top-14 clears feed Mute/Create header so the name never sits under those controls */}
       <div className="pointer-events-none absolute left-3 right-3 top-14 z-30 flex items-start justify-between gap-2 sm:left-4 sm:right-4 sm:top-16 sm:gap-3">
-          {/* Author column — full remaining width under header; name truncates, never under Mute */}
-          <div className="pointer-events-auto min-w-0 flex-1 pr-2">
+        {/* Author identity and Follow share one stable row on touch and desktop surfaces. */}
+        <div className="pointer-events-auto min-w-0 flex-1 pr-2">
+          <div className="flex w-full max-w-full items-start gap-2 sm:gap-2.5">
             {authorProfileUrl ? (
               <button
                 type="button"
@@ -946,80 +993,16 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
                   event.stopPropagation();
                   navigate(authorProfileUrl, { state: { fromMobileHome: true } });
                 }}
-                className="flex w-full max-w-full items-start gap-2.5 text-left sm:gap-3"
+                className="flex min-w-0 flex-1 items-start gap-2.5 text-left sm:gap-3"
               >
-                <div className="h-10 w-10 shrink-0 rounded-full bg-white/15 ring-2 ring-white/70 overflow-hidden flex items-center justify-center text-sm font-semibold">
-                  {authorAvatar ? (
-                    <OptimizedImage
-                      src={authorAvatar}
-                      alt={authorName}
-                      width={80}
-                      height={80}
-                      sizes="40px"
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <span>{authorInitial(authorName)}</span>
-                  )}
-                </div>
-                <div className="min-w-0 flex-1 overflow-hidden">
-                  <p className="truncate text-sm font-semibold leading-tight">{authorName}</p>
-                  <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-2">
-                    <p className="truncate text-xs text-white/80">{scroll.author?.username ? `@${scroll.author.username}` : 'Scrolith'}</p>
-                    {scroll.isAIEnhanced ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] font-semibold text-cyan-100 ring-1 ring-cyan-300/40">
-                        <Sparkles className="h-3 w-3" />
-                        AI
-                      </span>
-                    ) : null}
-                    {scroll.graphicWarning ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-1 text-[10px] font-semibold text-amber-100 ring-1 ring-amber-300/40">
-                        <AlertTriangle className="h-3 w-3" />
-                        Graphic warning
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
+                {authorIdentity}
               </button>
             ) : (
-              <div className="flex w-full max-w-full items-start gap-2.5 sm:gap-3">
-                <div className="h-10 w-10 shrink-0 rounded-full bg-white/15 ring-2 ring-white/70 overflow-hidden flex items-center justify-center text-sm font-semibold">
-                  {authorAvatar ? (
-                    <OptimizedImage
-                      src={authorAvatar}
-                      alt={authorName}
-                      width={80}
-                      height={80}
-                      sizes="40px"
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <span>{authorInitial(authorName)}</span>
-                  )}
-                </div>
-                <div className="min-w-0 flex-1 overflow-hidden">
-                  <p className="truncate text-sm font-semibold leading-tight">{authorName}</p>
-                  <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-2">
-                    <p className="truncate text-xs text-white/80">{scroll.author?.username ? `@${scroll.author.username}` : 'Scrolith'}</p>
-                    {scroll.isAIEnhanced ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] font-semibold text-cyan-100 ring-1 ring-cyan-300/40">
-                        <Sparkles className="h-3 w-3" />
-                        AI
-                      </span>
-                    ) : null}
-                    {scroll.graphicWarning ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-1 text-[10px] font-semibold text-amber-100 ring-1 ring-amber-300/40">
-                        <AlertTriangle className="h-3 w-3" />
-                        Graphic warning
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
+              <div className="flex min-w-0 flex-1 items-start gap-2.5 sm:gap-3">{authorIdentity}</div>
             )}
-            <div className="min-w-0">
+            <div className="shrink-0 pt-0.5">
               <div
-                className={`mt-2 transition-all duration-300 ${
+                className={`transition-all duration-300 ${
                   touchOverlayMode
                     ? persistentTouchControlsVisible
                       ? 'max-h-10 opacity-100'
@@ -1035,18 +1018,9 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
                   className="h-7 border-white/15 bg-white/10 px-2.5 text-[11px] text-white shadow-sm backdrop-blur-sm hover:bg-white/20 hover:text-white"
                 />
               </div>
-              {/* Scroll brand — directly under Follow (enterprise product label) */}
-              <div
-                className="mt-1.5"
-                data-testid="scroll-brand-label"
-              >
-                <div className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-black/50 px-2.5 py-1 text-[10px] font-semibold tracking-wide text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md">
-                  <Clapperboard className="h-3 w-3 text-cyan-200" aria-hidden />
-                  <span>Scroll</span>
-                </div>
-              </div>
             </div>
           </div>
+        </div>
 
         {/* Right chrome: owner/expand only. Mute is in ScrollFeed header next to Create (no name overlap). */}
         <div
