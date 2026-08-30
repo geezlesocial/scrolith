@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { proposalsApi, Proposal, AcceptProposalData } from '../../services/proposals';
+import { MessagingService } from '../../services/messaging';
 import { useNotification } from '../../context/NotificationContext';
 import { useUser } from '../../context/UserContext';
 import { Table } from '../shared/Table';
@@ -12,6 +13,7 @@ import { BriefsService } from '../../services/briefs';
 import type { DealFlowSettings } from '../../types';
 import AcceptProposalContractModal from '../../components/contracts/AcceptProposalContractModal';
 import ProBadge from '../../components/ProBadge';
+import { buildContractDashboardPath } from '../../utils/workflowNavigation';
 import {
   FileText,
   User,
@@ -35,6 +37,7 @@ interface ProposalWithActions extends Proposal {
 export const ProposalsOffers: React.FC = () => {
   const { user } = useUser();
   const { showNotification } = useNotification();
+  const navigate = useNavigate();
 
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -127,8 +130,36 @@ export const ProposalsOffers: React.FC = () => {
           showNotification('success', 'Success', 'Proposal removed from shortlist');
           break;
         case 'message':
-          await proposalsApi.messageFreelancer(proposalId, data?.message);
-          showNotification('success', 'Success', 'Message sent to freelancer');
+          if (!user?.id) throw new Error('You must be signed in to message a freelancer.');
+          if (!selectedProposal?.freelancerId) throw new Error('Freelancer details are unavailable for this proposal.');
+          {
+            const conversations = await MessagingService.getAllConversations(user.id, user.role as any, {
+              force: true,
+              limit: 200
+            });
+            const existing = conversations.find(
+              (conversation) =>
+                conversation.type === 'direct' &&
+                conversation.participants.some((participant) => participant.id === selectedProposal.freelancerId)
+            );
+            const conversationId =
+              existing?.id ||
+              (await MessagingService.createConversation([user.id, selectedProposal.freelancerId], {
+                type: 'direct'
+              }));
+            const message = `Regarding "${selectedProposal.jobTitle || 'your proposal'}": ${String(data?.message || '').trim()}`;
+            await MessagingService.sendMessage(
+              conversationId,
+              user.id,
+              message,
+              String(user.role || 'employer'),
+              [],
+              null,
+              { clientMessageId: `proposal-message:${proposalId}:${Date.now()}` }
+            );
+            showNotification('success', 'Message sent', 'The freelancer has been notified in Messages.');
+            navigate(`/messages/${encodeURIComponent(conversationId)}`);
+          }
           break;
         default:
           throw new Error('Unknown action');
@@ -161,11 +192,14 @@ export const ProposalsOffers: React.FC = () => {
     if (!selectedProposal) return;
     setModalLoading(true);
     try {
-      await proposalsApi.acceptProposal(selectedProposal.id, payload);
+      const result = await proposalsApi.acceptProposal(selectedProposal.id, payload);
       showNotification('success', 'Contract Created', 'Proposal accepted and converted into an active contract.');
       setShowAcceptModal(false);
       setSelectedProposal(null);
       await loadProposals();
+      if (result.contractId) {
+        navigate(buildContractDashboardPath(result.contractId));
+      }
     } catch (error: any) {
       showNotification('error', 'Contract Error', error?.message || 'Failed to create contract from proposal.');
     } finally {

@@ -11,6 +11,7 @@ import ConfirmModal from './ConfirmModal';
 import { PaymentService } from '../../services/payment';
 import { WalletService, walletApi } from '../../services/wallet';
 import { getUserFacingPaymentMethodName } from '../../utils/paymentGatewayDisplay';
+import { getContractPaymentSummary } from '../../utils/workflowNavigation';
 
 interface ContractListProps {
     role: 'client' | 'freelancer' | 'admin';
@@ -177,14 +178,14 @@ const ContractList: React.FC<ContractListProps> = ({ role, userId }) => {
 
     const getFixedContractStats = (contract?: Contract | null) => {
         const milestones = getMilestones(contract);
-        const paidTotal = milestones
-            .filter((entry) => entry.status === 'paid')
-            .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+        const paymentSummary = getContractPaymentSummary(contract || { type: 'fixed', milestones: [] });
         const completedCount = milestones.filter((entry) => entry.status === 'paid').length;
         const nextMilestone = milestones.find((entry) => entry.status !== 'paid') || null;
         return {
             milestones,
-            paidTotal,
+            paidTotal: paymentSummary.paidAmount,
+            approvedTotal: paymentSummary.approvedAmount,
+            submittedTotal: paymentSummary.submittedAmount,
             completedCount,
             nextMilestone
         };
@@ -650,7 +651,18 @@ const ContractList: React.FC<ContractListProps> = ({ role, userId }) => {
                                         </button>
                                     ) : (
                                         <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                                            Paid milestones: {formatPrice(getFixedContractStats(selectedContract).paidTotal)}
+                                            <div>Paid milestones: {formatPrice(getFixedContractStats(selectedContract).paidTotal)}</div>
+                                            {getFixedContractStats(selectedContract).approvedTotal > 0 ? (
+                                                <div className="mt-1 text-xs text-emerald-700">
+                                                    {formatPrice(getFixedContractStats(selectedContract).approvedTotal)} approved for payment. Mark the approved milestone as paid below.
+                                                </div>
+                                            ) : getFixedContractStats(selectedContract).submittedTotal > 0 ? (
+                                                <div className="mt-1 text-xs text-emerald-700">
+                                                    Awaiting approval for {formatPrice(getFixedContractStats(selectedContract).submittedTotal)} in submitted milestones.
+                                                </div>
+                                            ) : (
+                                                <div className="mt-1 text-xs text-emerald-700">No milestone payment is ready yet.</div>
+                                            )}
                                         </div>
                                     )}
                                     <button 

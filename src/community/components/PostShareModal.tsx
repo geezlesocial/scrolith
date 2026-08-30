@@ -16,7 +16,7 @@ import { useNotification } from '../../context/NotificationContext';
 import { MessagingService } from '../../services/messaging';
 import { CommunityService } from '../../services/community';
 import MobileDialog from '../../components/mobile/MobileDialog';
-import { buildPostSocialShareTargets, normalizeShareText } from '../../utils/postShare';
+import { buildPostMessageId, buildPostSocialShareTargets, normalizeShareText } from '../../utils/postShare';
 
 type TabKey = 'message' | 'link' | 'social' | 'network';
 type SocialChannel = 'facebook' | 'x' | 'linkedin' | 'whatsapp';
@@ -187,8 +187,19 @@ const PostShareModal: React.FC<Props> = ({
     setBusy(true);
     try {
       const text = socialShareText;
+      const shareAttemptId =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `share_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
       for (const conversationId of selectedIds) {
-        await MessagingService.sendMessage(conversationId, user.id, text, String(user.role || 'guest'));
+        await MessagingService.sendMessage(conversationId, user.id, text, String(user.role || 'guest'), [], null, {
+          clientMessageId: buildPostMessageId({
+            postId,
+            conversationId,
+            permalinkUrl: resolvedPostUrl,
+            shareAttemptId
+          })
+        });
       }
       if (postId) {
         await CommunityService.postShare(postId, 'dm');

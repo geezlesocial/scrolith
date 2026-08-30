@@ -123,6 +123,10 @@ export interface AcceptProposalData {
   briefId?: string;
 }
 
+export interface AcceptProposalResult {
+  contractId?: string;
+}
+
 export interface CreateProposalData {
   jobId: string;
   coverLetter: string;
@@ -165,9 +169,12 @@ export const proposalsApi = {
     return mapProposal(data);
   },
 
-  acceptProposal: async (id: string, data?: AcceptProposalData): Promise<void> => {
-    const response = await api.post<ApiResponse<void>>(`/proposals/${id}/accept`, data);
-    handleApiResponse(response);
+  acceptProposal: async (id: string, data?: AcceptProposalData): Promise<AcceptProposalResult> => {
+    const response = await api.post<ApiResponse<AcceptProposalResult>>(`/proposals/${id}/accept`, data);
+    const result = handleApiResponse<any>(response) || {};
+    return {
+      contractId: result?.contractId ?? result?.contract_id ?? result?.contract?.id
+    };
   },
 
   rejectProposal: async (id: string, reason?: string): Promise<void> => {

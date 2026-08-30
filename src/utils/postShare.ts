@@ -7,6 +7,18 @@ export const normalizeShareText = (value: unknown, maxLength: number) => {
   return normalized.slice(0, maxLength);
 };
 
+export const buildPostMessageId = (input: {
+  postId?: string | null;
+  conversationId: string;
+  permalinkUrl: string;
+  shareAttemptId: string;
+}) => {
+  const postKey = String(input.postId || input.permalinkUrl || 'post').trim();
+  const conversationKey = String(input.conversationId || '').trim();
+  const attemptKey = String(input.shareAttemptId || '').trim();
+  return `post-share:${postKey}:${conversationKey}:${attemptKey}`;
+};
+
 export const buildPostPermalink = (postId?: string | null) => {
   const encodedId = encodeURIComponent(String(postId || '').trim());
   if (!encodedId) return buildPublicAppUrl('/');
