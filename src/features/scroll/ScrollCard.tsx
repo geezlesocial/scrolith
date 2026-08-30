@@ -270,6 +270,8 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   const overlayControlsVisible = controlsVisible || ownerMenuOpen;
   // Keep the core engagement rail available on touch surfaces; media and metadata can still recede.
   const actionRailVisible = overlayControlsVisible || touchOverlayMode;
+  // Follow and response actions remain usable on touch surfaces after the cinematic chrome fades.
+  const persistentTouchControlsVisible = overlayControlsVisible || touchOverlayMode;
   const reactionInitialCounts = useMemo(
     () => (Number(scroll.metrics?.likes || 0) > 0 ? { like: Number(scroll.metrics.likes || 0) } : undefined),
     [scroll.metrics?.likes]
@@ -1019,7 +1021,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
               <div
                 className={`mt-2 transition-all duration-300 ${
                   touchOverlayMode
-                    ? overlayControlsVisible
+                    ? persistentTouchControlsVisible
                       ? 'max-h-10 opacity-100'
                       : 'max-h-0 overflow-hidden opacity-0 pointer-events-none'
                     : ''
@@ -1216,10 +1218,10 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
 
       <div
         className={`pointer-events-none absolute inset-x-3 bottom-4 z-20 transition-all duration-300 ease-out motion-reduce:transition-none sm:inset-x-4 sm:bottom-5 ${
-          !overlayControlsVisible
+          !persistentTouchControlsVisible
             ? 'translate-y-4 opacity-0 pointer-events-none'
             : 'translate-y-0 opacity-100'
-        } ${overlayControlsVisible ? 'pr-[72px] sm:pr-[88px]' : 'pr-0'}`}
+        } ${persistentTouchControlsVisible ? 'pr-[72px] sm:pr-[88px]' : 'pr-0'}`}
       >
         <div className="w-full max-w-[min(32rem,100%)] space-y-1.5">
           {scroll.sourceScroll ? (

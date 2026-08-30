@@ -34,6 +34,14 @@ test('touch Scroll keeps the engagement rail visible after overlay controls rece
   assert.match(scrollCard, /actionRailVisible \? 'translate-x-0 opacity-100'/);
 });
 
+test('touch Scroll keeps Follow and Remix/Duet controls visible after chrome recedes', () => {
+  assert.match(scrollCard, /const persistentTouchControlsVisible = overlayControlsVisible \|\| touchOverlayMode/);
+  assert.match(scrollCard, /persistentTouchControlsVisible\n\s+\? 'max-h-10 opacity-100'/);
+  assert.match(scrollCard, /!persistentTouchControlsVisible\n\s+\? 'translate-y-4 opacity-0 pointer-events-none'/);
+  assert.match(scrollCard, /void onRemix\(scroll, 'remix'\)/);
+  assert.match(scrollCard, /void onRemix\(scroll, 'duet'\)/);
+});
+
 test('ScrollCard does not place absolute centered mute over the name', () => {
   assert.doesNotMatch(scrollCard, /absolute left-1\/2 top-3 z-40 -translate-x-1\/2/);
   assert.doesNotMatch(scrollCard, /data-testid="scroll-mute-control"/);
