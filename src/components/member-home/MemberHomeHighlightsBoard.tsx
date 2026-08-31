@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Sparkles } from 'lucide-react';
+import { ArrowRight, Play, Sparkles } from 'lucide-react';
 import InlineAutoplayVideo from '../media/InlineAutoplayVideo';
 import OptimizedImage from '../media/OptimizedImage';
 import { resolveResponsiveAssetUrl } from '../../utils/assetUrl';
@@ -208,11 +208,13 @@ const ModuleThumb = ({
   item,
   compact,
   large = false,
+  stacked = false,
   hoverPreview = false
 }: {
   item: MemberHomeHighlightItem;
   compact: boolean;
   large?: boolean;
+  stacked?: boolean;
   hoverPreview?: boolean;
 }) => {
   const fallbackMediaUrl = String(item.fallbackMediaUrl || '').trim();
@@ -269,7 +271,9 @@ const ModuleThumb = ({
   };
 
   // Keep preview state and hooks above conditional returns so media fallback changes cannot alter hook order.
-  const size = large ? (compact ? 96 : 112) : compact ? 44 : 48;
+  const size = stacked ? (compact ? 220 : 280) : large ? (compact ? 96 : 112) : compact ? 44 : 48;
+  const sourceIsVideo = Boolean(src && (src === videoUrl || isVideoUrl(src)));
+  const imageSrc = sourceIsVideo ? '' : src;
   const shouldRenderVideo = Boolean(
     videoUrl && (isVideoUrl(videoUrl) || videoUrl.includes('/api/files/content/') || Boolean(posterUrl))
   );
@@ -286,7 +290,7 @@ const ModuleThumb = ({
     shouldRenderVideo &&
     !prefersReducedMotion &&
     (!hoverPreview || isCoarsePointer || (hoverActive && previewAllowed));
-  const rawPoster = posterUrl || src || fallbackMediaUrl || '';
+  const rawPoster = posterUrl || (sourceIsVideo ? '' : src) || fallbackMediaUrl || '';
   const hasRealPoster =
     Boolean(rawPoster) && !/__video_fallback_thumbnail|video_fallback/i.test(String(rawPoster));
   const optimizedPosterUrl =
@@ -353,9 +357,11 @@ const ModuleThumb = ({
       ref={rootRef}
       className={[
         'relative shrink-0 overflow-hidden border border-slate-200/80 bg-slate-50',
-        large
-          ? 'h-24 w-24 rounded-2xl sm:h-28 sm:w-28'
-          : 'h-11 w-11 rounded-xl sm:h-12 sm:w-12',
+        stacked
+          ? 'aspect-[16/10] w-full rounded-xl'
+          : large
+            ? 'h-24 w-24 rounded-2xl sm:h-28 sm:w-28'
+            : 'h-11 w-11 rounded-xl sm:h-12 sm:w-12',
         shouldRenderVideo ? 'ring-1 ring-slate-900/5' : ''
       ].join(' ')}
       aria-hidden={!shouldRenderVideo}
@@ -372,9 +378,9 @@ const ModuleThumb = ({
       }
     >
       {/* Poster always present for zero flash; video fades over it. */}
-      {(optimizedPosterUrl || src) && shouldRenderVideo ? (
+      {(optimizedPosterUrl || imageSrc) && shouldRenderVideo ? (
         <img
-          src={optimizedPosterUrl || src}
+          src={optimizedPosterUrl || imageSrc}
           alt=""
           className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ease-out motion-reduce:transition-none ${
             playVideo && previewAllowed ? 'opacity-0' : 'opacity-100'
@@ -415,9 +421,15 @@ const ModuleThumb = ({
           }
           preload="auto"
         />
+      ) : shouldRenderVideo ? (
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80 text-white">
+          <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-slate-900 shadow-lg">
+            <Play className="ml-0.5 h-5 w-5 fill-current" aria-hidden />
+          </span>
+        </div>
       ) : (
         <OptimizedImage
-          src={src || optimizedPosterUrl || posterUrl}
+          src={imageSrc || optimizedPosterUrl || posterUrl}
           fallbackSrc={fallbackMediaUrl || undefined}
           alt=""
           width={size * 2}
@@ -584,27 +596,33 @@ const ModuleCard = ({
   const listingLike = isMarketplaceOrListingHighlight(item);
   // Large thumbs only for series/video previews — listing cards stay compact so
   // titles/CTAs never collide in multi-column grids (mobile + desktop).
-  const largeThumb = seriesLike;
+  const hasMedia = Boolean(
+    String(item.mediaUrl || '').trim() || String(item.videoUrl || '').trim() || String(item.posterUrl || '').trim()
+  );
+  // Recommendation media is the primary scan target. Keep it above the copy so
+  // narrow board columns never compress the title, reason, or CTA into a sliver.
+  const largeThumb = hasMedia;
 
   return (
     <div
       className={[
-        'h-full min-h-[7.5rem] min-w-0 overflow-hidden rounded-2xl border p-3 shadow-sm transition',
-        'hover:border-slate-300 hover:shadow-md sm:min-h-[8rem] sm:p-3.5',
+        'h-full min-h-[18rem] min-w-0 overflow-hidden rounded-2xl border p-3 shadow-sm transition',
+        'hover:border-slate-300 hover:shadow-md sm:min-h-[19rem] sm:p-3.5',
         tone.ring
       ].join(' ')}
       data-testid="scrolith-discovery-module-card"
       data-module-kind={seriesLike ? 'series' : listingLike ? 'listing' : 'generic'}
     >
       <ActionSurface item={item} className="h-full min-w-0">
-        <div className="flex h-full min-w-0 items-start gap-3">
+        <div className="flex h-full min-w-0 flex-col">
           <ModuleThumb
             item={item}
             compact={compact}
             large={largeThumb}
-            hoverPreview={seriesLike}
+            stacked={hasMedia}
+            hoverPreview={Boolean(item.videoUrl)}
           />
-          <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex min-w-0 flex-1 flex-col pt-3">
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               {item.eyebrow ? (
                 <p className="max-w-full truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
@@ -752,7 +770,7 @@ export default function MemberHomeHighlightsBoard({
             'mt-3 sm:mt-3.5',
             compact
               ? 'grid grid-cols-1 gap-2.5'
-              : 'grid auto-rows-fr grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 xl:grid-cols-3'
+              : 'grid auto-rows-fr grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3'
           ].join(' ')}
           data-testid="scrolith-discovery-module-grid"
         >

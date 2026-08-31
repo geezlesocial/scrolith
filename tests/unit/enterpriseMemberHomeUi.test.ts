@@ -244,8 +244,11 @@ test('discovery board is compact enterprise layout with bounded Scrolitha coach 
   assert.match(boardSource, /data-testid="scrolith-discovery-module-card"/);
   assert.match(
     boardSource,
-    /compact \? 'grid grid-cols-1 gap-2\.5' : 'grid grid-cols-1 gap-2\.5 sm:grid-cols-2 xl:grid-cols-3'/
+    /compact \? 'grid grid-cols-1 gap-2\.5' : 'grid auto-rows-fr grid-cols-1 gap-2\.5 sm:grid-cols-2 sm:gap-3'/
   );
+  assert.match(boardSource, /stacked\?: boolean/);
+  assert.match(boardSource, /aspect-\[16\/10\] w-full rounded-xl/);
+  assert.match(boardSource, /hoverPreview=\{Boolean\(item\.videoUrl\)\}/);
   assert.match(boardSource, /const ActionSurface/);
   assert.match(boardSource, /item\.onClick/);
   assert.match(boardSource, /item\.href/);
