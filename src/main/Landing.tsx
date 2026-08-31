@@ -67,7 +67,11 @@ const GuestCommunityPreviewSection = lazyGuestSection('GuestCommunityPreviewSect
 const GuestFinalCtaSection = lazyGuestSection('GuestFinalCtaSection');
 
 // Legacy Sections
-import { TrustSection, CategoriesSection, HowItWorksSection, FeaturedSection, CTASection } from '../components/sections/LegacySections';
+const TrustSection = React.lazy(() => import('../components/sections/LegacySections').then((module) => ({ default: module.TrustSection })));
+const CategoriesSection = React.lazy(() => import('../components/sections/LegacySections').then((module) => ({ default: module.CategoriesSection })));
+const HowItWorksSection = React.lazy(() => import('../components/sections/LegacySections').then((module) => ({ default: module.HowItWorksSection })));
+const FeaturedSection = React.lazy(() => import('../components/sections/LegacySections').then((module) => ({ default: module.FeaturedSection })));
+const CTASection = React.lazy(() => import('../components/sections/LegacySections').then((module) => ({ default: module.CTASection })));
 
 type RenderSection =
   | HomepageSection

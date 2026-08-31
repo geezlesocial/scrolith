@@ -7,9 +7,6 @@ import {
   useLocation,
   useNavigate
 } from 'react-router-dom';
-import Navbar from './components/Navbar';
-import ToastContainer from './components/ToastContainer';
-import OfflineBanner from './components/OfflineBanner';
 import { SkipLink, RouteAnnouncer, KeyboardShortcutsHelp } from './components/a11y';
 import { UserRole } from './types';
 import { CurrencyProvider } from './context/CurrencyContext';
@@ -25,7 +22,6 @@ import { PreloaderProvider } from './context/PreloaderContext';
 import { I18nProvider } from './i18n/I18nProvider';
 import GlobalPreloader from './components/GlobalPreloader';
 import { AlertTriangleIcon } from './components/icons/ShellIcons';
-import { MarketingService } from './services/marketing';
 import { resolveResponsiveAssetUrl } from './utils/assetUrl';
 import { getCanonicalAppOrigin, getCanonicalRedirectUrl } from './utils/siteUrl';
 import { isLikelyChunkLoadError, normalizeRouteHref } from './mobile/runtime/routeRecovery';
@@ -61,6 +57,9 @@ const MOBILE_POST_AUTH_TARGET_KEY = 'scrolith:mobile-post-auth-target';
 const IS_MOBILE_APP_BUILD = import.meta.env.VITE_SCROLITH_MOBILE_APP === 'true';
 const AuthenticatedRuntimeProviders = lazy(() => import('./context/AuthenticatedRuntimeProviders'));
 const DesktopMessagingDock = lazy(() => import('./components/messaging/DesktopMessagingDock'));
+const Navbar = lazy(() => import('./components/Navbar'));
+const ToastContainer = lazy(() => import('./components/ToastContainer'));
+const OfflineBanner = lazy(() => import('./components/OfflineBanner'));
 
 const getCapacitorRuntime = () => {
   if (typeof window === 'undefined') return null;
@@ -934,7 +933,8 @@ const AppContent = () => {
     if (!normalized) return;
     const linkedKey = `affiliate.ref.linked.${user.id}.${normalized}`;
     if (sessionStorage.getItem(linkedKey) === '1') return;
-    MarketingService.linkReferralCode(normalized)
+    import('./services/marketing')
+      .then(({ MarketingService }) => MarketingService.linkReferralCode(normalized))
       .then(() => {
         sessionStorage.setItem(linkedKey, '1');
       })
@@ -1476,7 +1476,11 @@ const AppContent = () => {
         !isMobileShellRoute &&
         !isScrollRoute &&
         !isFollowOnboardingRoute &&
-        !isMobileStandaloneRoute && <Navbar />}
+        !isMobileStandaloneRoute && (
+          <Suspense fallback={null}>
+            <Navbar />
+          </Suspense>
+        )}
       {isAuthenticated &&
         user &&
         !isAdminRoute &&
