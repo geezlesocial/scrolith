@@ -17,6 +17,7 @@ type EnterpriseImageProps = {
   aspectRatio?: string;
   rounded?: string;
   loading?: 'lazy' | 'eager';
+  onError?: () => void;
 };
 
 const PLACEHOLDER_LABEL: Record<string, string> = {
@@ -39,7 +40,8 @@ const EnterpriseImage: React.FC<EnterpriseImageProps> = ({
   placeholder = 'generic',
   aspectRatio,
   rounded = 'rounded-xl',
-  loading = 'lazy'
+  loading = 'lazy',
+  onError: onImageError
 }) => {
   const queue = React.useMemo(() => {
     const list: string[] = [];
@@ -71,6 +73,7 @@ const EnterpriseImage: React.FC<EnterpriseImageProps> = ({
     }
     setExhausted(true);
     setLoaded(false);
+    onImageError?.();
   };
 
   const label = PLACEHOLDER_LABEL[placeholder] || 'Media';
@@ -112,7 +115,7 @@ const EnterpriseImage: React.FC<EnterpriseImageProps> = ({
           className={`relative z-[1] h-full w-full object-cover transition-opacity duration-300 ${
             loaded ? 'opacity-100' : 'opacity-0'
           }`}
-          loading={loading}
+          loading={loading as 'lazy' | 'eager'}
           decoding="async"
           onLoad={() => setLoaded(true)}
           onError={onError}

@@ -11,6 +11,8 @@ import { useCart } from '../context/CartContext';
 import { useNotification } from '../context/NotificationContext';
 import { FAVORITES_RATE_LIMIT_MESSAGE, isFavoritesRateLimitedError } from '../services/favorites';
 import ListingBodyContent from '../components/ListingBodyContent';
+import JobCardMedia from '../components/media/JobCardMedia';
+import { getJobCardMedia } from '../utils/jobCardMedia';
 
 const BrowseJobs = () => {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -116,58 +118,66 @@ const BrowseJobs = () => {
               isPro: (job as any)?.clientIsPro,
               type: (job as any)?.clientType || 'business'
             });
+            const jobMedia = getJobCardMedia(job);
+            const jobType = String((job as any)?.type || (job as any)?.jobType || '').trim();
+            const postedAt = (job as any)?.postedTime || (job as any)?.postedAt || job.createdAt;
             return (
-            <article key={job.id} className="bg-white shadow rounded-lg p-6 hover:shadow-md transition">
-              <div className="flex justify-between items-start">
-                <div>
-                  <Link to={`/jobs/${job.id}`} className="hover:text-blue-600">
-                    <h2 className="text-xl font-bold text-gray-900">{job.title}</h2>
+            <article key={job.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:border-slate-300 hover:shadow-md">
+              <div className={jobMedia ? 'grid md:grid-cols-[minmax(240px,32%)_1fr]' : ''}>
+                {jobMedia ? (
+                  <Link to={`/jobs/${job.id}`} className="block min-h-[180px] border-b border-slate-200 bg-slate-950 md:border-b-0 md:border-r">
+                    <JobCardMedia media={jobMedia} alt={job.title} />
                   </Link>
-                  <div className="mt-1 flex items-center text-sm text-gray-500 space-x-4">
-                     <span>{job.type}</span>
-                     <span>-</span>
-                     <span>{job.budget}</span>
-                     <span>-</span>
-                     <span className="inline-flex items-center gap-2">
-                       <span>{job.clientName}</span>
-                       {clientVerificationLevel ? (
-                         <VerifiedBadge
-                           size={16}
-                           level={clientVerificationLevel}
-                           className="ml-1"
-                           subjectRole={(job as any)?.clientType === 'business' ? 'business' : 'employer'}
-                           subjectType={(job as any)?.clientType || 'business'}
-                         />
-                       ) : null}
-                       <ProBadge role="employer" isPro={(job as any)?.clientIsPro} />
-                     </span>
-                  </div>
-                </div>
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                  {job.status}
-                </span>
-              </div>
-              <ListingBodyContent
-                content={job.description}
-                preview
-                previewMaxLength={160}
-                className="mt-4 text-gray-600 line-clamp-2"
-                as="p"
-              />
-              <div className="mt-4 flex items-center justify-between">
-                 <div className="flex items-center space-x-2">
-                    {(job.tags || []).map((tag) => (
-                        <span key={tag} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
-                            <Tag className="w-3 h-3 mr-1" />{tag}
+                ) : null}
+                <div className="min-w-0 p-5 sm:p-6">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <Link to={`/jobs/${job.id}`} className="hover:text-blue-600">
+                        <h2 className="break-words text-xl font-bold leading-tight text-slate-900">{job.title}</h2>
+                      </Link>
+                      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500">
+                        {jobType ? <span>{jobType}</span> : null}
+                        <span>{job.budget}</span>
+                        <span className="inline-flex items-center gap-2">
+                          <span>{job.clientName}</span>
+                          {clientVerificationLevel ? (
+                            <VerifiedBadge
+                              size={16}
+                              level={clientVerificationLevel}
+                              className="ml-1"
+                              subjectRole={(job as any)?.clientType === 'business' ? 'business' : 'employer'}
+                              subjectType={(job as any)?.clientType || 'business'}
+                            />
+                          ) : null}
+                          <ProBadge role="employer" isPro={(job as any)?.clientIsPro} />
                         </span>
-                    ))}
-                 </div>
-                 <div className="flex items-center text-sm text-gray-500">
-                    <Clock className="w-4 h-4 mr-1"/>
-                    Posted {new Date(job.postedTime).toLocaleDateString()}
-                 </div>
-              </div>
-              <div className="mt-4 flex flex-wrap items-center gap-2">
+                      </div>
+                    </div>
+                    <span className="inline-flex shrink-0 items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+                      {job.status}
+                    </span>
+                  </div>
+                  <ListingBodyContent
+                    content={job.description}
+                    preview
+                    previewMaxLength={180}
+                    className="mt-4 line-clamp-3 text-slate-600"
+                    as="p"
+                  />
+                  <div className="mt-5 flex flex-wrap items-start justify-between gap-3 border-t border-slate-100 pt-4">
+                    <div className="flex min-w-0 flex-wrap gap-2">
+                      {(job.tags || []).map((tag) => (
+                        <span key={tag} className="inline-flex items-center rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+                          <Tag className="mr-1 h-3 w-3" />{tag}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="inline-flex shrink-0 items-center text-sm text-slate-500">
+                      <Clock className="mr-1 h-4 w-4"/>
+                      Posted {postedAt ? new Date(postedAt).toLocaleDateString() : 'recently'}
+                    </div>
+                  </div>
+                  <div className="mt-5 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={(event) => handleFavorite(event, job.id)}
@@ -200,6 +210,8 @@ const BrowseJobs = () => {
                 >
                   View Details
                 </Link>
+                  </div>
+                </div>
               </div>
             </article>
           );

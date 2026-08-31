@@ -18,6 +18,8 @@ import { resolveListingFitReasons } from '../../../utils/feedIntelligence';
 import { SafePrice, SafeText } from '../../../utils/safeRender';
 import EnterpriseAvatar from '../../../components/common/EnterpriseAvatar';
 import EnterpriseImage from '../../../components/common/EnterpriseImage';
+import JobCardMedia from '../../../components/media/JobCardMedia';
+import { getJobCardMedia } from '../../../utils/jobCardMedia';
 
 type JobLike = {
   id: string;
@@ -205,9 +207,12 @@ export default function RecommendedListingCard({
   const getImageState = useMemo(
     () => (id: string, row: any) => {
       const imageKey = `${kind}:${id}`;
-      const imageUrl = resolveListingImage(row);
+      const jobMedia = kind === 'jobs' ? getJobCardMedia(row) : null;
+      const imageUrl = kind === 'jobs'
+        ? String(jobMedia?.thumbnailUrl || jobMedia?.url || '').trim()
+        : resolveListingImage(row);
       const canRenderImage = Boolean(imageUrl) && !failedImages[imageKey];
-      return { imageKey, imageUrl, canRenderImage };
+      return { imageKey, imageUrl, canRenderImage, jobMedia };
     },
     [kind, failedImages]
   );
@@ -268,7 +273,7 @@ export default function RecommendedListingCard({
             const budget = formatMoney(job.budget);
             const href = `/jobs/${encodeURIComponent(id)}`;
             const canContact = Boolean(job.clientId) && Boolean(onContact);
-            const { imageKey, imageUrl, canRenderImage } = getImageState(id, job);
+            const { imageKey, imageUrl, canRenderImage, jobMedia } = getImageState(id, job);
             const clientAvatar = resolveListingAvatar({
               avatar: job.clientAvatar,
               clientAvatar: job.clientAvatar,
@@ -321,19 +326,15 @@ export default function RecommendedListingCard({
                     size="sm"
                   />
                 </div>
-                <Link to={href} className="mt-3 block overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-                  <EnterpriseImage
-                    src={canRenderImage ? imageUrl : null}
-                    candidates={[job.image, job.images]}
-                    alt={SafeText(job.title, 'Featured job')}
-                    width={320}
-                    height={160}
-                    aspectRatio="16 / 9"
-                    rounded="rounded-xl"
-                    placeholder="job"
-                    className="h-40 w-full"
-                  />
-                </Link>
+                {canRenderImage && jobMedia ? (
+                  <Link to={href} className="mt-3 block overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                    <JobCardMedia
+                      media={jobMedia}
+                      alt={SafeText(job.title, 'Featured job')}
+                      onError={() => setFailedImages((previous) => ({ ...previous, [imageKey]: true }))}
+                    />
+                  </Link>
+                ) : null}
                 <RecoSignalChips
                   reasons={resolveListingFitReasons(job, 'job')}
                   whyRecommended="Matched from live hiring demand for your professional graph."

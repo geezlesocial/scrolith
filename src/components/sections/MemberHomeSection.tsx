@@ -131,6 +131,7 @@ import { downloadToDevice } from '../../utils/deviceDownload';
 import GraphicWarningGate from '../media/GraphicWarningGate';
 import InlineAutoplayVideo from '../media/InlineAutoplayVideo';
 import OptimizedImage from '../media/OptimizedImage';
+import JobCardMedia from '../media/JobCardMedia';
 import VideoCaptionOverlay from '../media/VideoCaptionOverlay';
 import AdVideoPlayer from '../ads/AdVideoPlayer';
 import OverlayActionRailButton from '../media/OverlayActionRailButton';
@@ -160,6 +161,7 @@ import { DEFAULT_MEMBER_HOME_REGIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../../c
 import { normalizeContentOfferTags, type OfferTagSelection } from '../../utils/contentOffers';
 import { buildPublicAppUrl } from '../../utils/siteUrl';
 import { buildAttachmentCaptionMap, resolveFirstAttachmentCaption, resolveVideoCaption } from '../../utils/videoCaption';
+import { getJobCardMedia } from '../../utils/jobCardMedia';
 import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../utils/communityEventHighlights';
 import type { CommunityClub, StructuredLocationFields } from '../../types';
 import {
@@ -7040,8 +7042,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         const contactName = String(job?.clientName || 'Employer').trim() || 'Employer';
         const canContact = Boolean(contactId);
         const listingImageKey = `job:${listingId}`;
-        const listingImageUrl = resolveListingImageUrl(job);
-        const hasListingImage = Boolean(listingImageUrl) && !listingImageErrors[listingImageKey];
+        const listingMedia = getJobCardMedia(job);
+        const hasListingMedia = Boolean(listingMedia) && !listingImageErrors[listingImageKey];
         return (
           <article
             key={`feed_listing_job_${slotIndex}_${listingId}`}
@@ -7093,22 +7095,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               </div>
               <p className="mt-1 text-xs text-slate-600">Optimize title, clarity, and action intent for stronger applications.</p>
             </div>
-            <Link to={`/jobs/${encodeURIComponent(listingId)}`} className="mt-3 block overflow-hidden rounded-2xl border border-indigo-100 bg-white">
-              {hasListingImage ? (
-                <img
-                  src={listingImageUrl}
+            {hasListingMedia && listingMedia ? (
+              <Link to={`/jobs/${encodeURIComponent(listingId)}`} className="mt-3 block overflow-hidden rounded-2xl border border-indigo-100 bg-white">
+                <JobCardMedia
+                  media={listingMedia}
                   alt={job?.title || 'Featured job'}
-                  className="h-48 w-full object-cover"
-                  loading="lazy"
                   onError={() => markListingImageError(listingImageKey)}
                 />
-              ) : (
-                <div className="flex h-40 w-full items-center justify-center gap-2 bg-gradient-to-br from-indigo-100 via-white to-slate-50 text-indigo-500">
-                  <ImageIcon className="h-5 w-5" />
-                  <span className="text-xs font-semibold uppercase tracking-wide">Job image</span>
-                </div>
-              )}
-            </Link>
+              </Link>
+            ) : null}
             <div className="mt-3 grid grid-cols-3 gap-2">
               <Link
                 to={`/jobs/${encodeURIComponent(listingId)}`}
@@ -8256,6 +8251,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     });
 
     if (topJob) {
+      const topJobMedia = getJobCardMedia(topJob);
       items.push({
         id: `desktop-job:${topJob.id}`,
         eyebrow: 'Featured jobs',
@@ -8265,8 +8261,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         badge: 'Live',
         ctaLabel: 'Browse jobs',
         href: topJob?.id ? `/jobs/${encodeURIComponent(topJob.id)}` : '/browse-jobs',
-        mediaUrl: resolveListingImageUrl(topJob),
-        icon: <Briefcase className="h-4 w-4" />,
+        mediaUrl: topJobMedia?.thumbnailUrl || topJobMedia?.url || '',
+        videoUrl: topJobMedia?.type === 'video' ? topJobMedia.url : '',
+        posterUrl: topJobMedia?.thumbnailUrl || '',
+        icon: topJobMedia ? <Briefcase className="h-4 w-4" /> : undefined,
         tone: 'blue'
       });
     }
