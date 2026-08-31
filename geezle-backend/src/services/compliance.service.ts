@@ -56,6 +56,36 @@ export const getComplianceSummary = async () => {
   return { casesOpen, appealsOpen, holdsActive, riskRules, highRiskEntities };
 };
 
+/** Read-only aggregate for authorized compliance reporting; no case or subject data is exposed. */
+export const getComplianceReport = async () => {
+  const [summary, totalCases, evidenceItems, decisionsRecorded, appealsTotal, settings] = await Promise.all([
+    getComplianceSummary(),
+    prisma.complianceCase.count(),
+    prisma.complianceEvidence.count(),
+    prisma.complianceDecisionLog.count(),
+    prisma.complianceAppeal.count(),
+    getComplianceSettings()
+  ]);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    schemaVersion: 'compliance-report.v1',
+    settings: {
+      enabled: settings.enabled,
+      shadowMode: settings.shadowMode,
+      autoHoldHighConfidence: settings.autoHoldHighConfidence,
+      defaultSlaHours: settings.defaultSlaHours
+    },
+    summary,
+    totals: {
+      cases: totalCases,
+      evidenceItems,
+      decisionsRecorded,
+      appeals: appealsTotal
+    }
+  };
+};
+
 export const listRiskRules = async () =>
   prisma.riskRule.findMany({ where: {}, orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }] });
 

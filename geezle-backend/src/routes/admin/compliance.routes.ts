@@ -6,6 +6,7 @@ import {
   applyHoldAction,
   createComplianceCase,
   createRiskSnapshot,
+  getComplianceReport,
   getComplianceSettings,
   getComplianceSummary,
   listAppeals,
@@ -68,6 +69,16 @@ router.get('/summary', requirePermission('compliance.read'), async (_req, res) =
     return res.json({ success: true, data: await getComplianceSummary() });
   } catch (error) {
     return handleError(res, error, 'Failed to load compliance summary');
+  }
+});
+
+router.get('/report', requirePermission('compliance.read'), async (_req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Scrolith-API-Version', 'phase4.v1');
+    return res.json({ success: true, data: await getComplianceReport() });
+  } catch (error) {
+    return handleError(res, error, 'Failed to load compliance report');
   }
 });
 

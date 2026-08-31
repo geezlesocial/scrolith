@@ -10,6 +10,11 @@ import {
 
 const router = express.Router();
 
+router.use((_req, res, next) => {
+  res.setHeader('X-Scrolith-API-Version', 'v1');
+  return next();
+});
+
 const handleError = (res: express.Response, error: unknown, fallback: string) => {
   const message = error instanceof Error ? error.message : fallback;
   const lower = message.toLowerCase();

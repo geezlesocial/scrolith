@@ -33,9 +33,11 @@ const mockPrisma: any = {
     create: jest.fn()
   },
   complianceEvidence: {
+    count: jest.fn(),
     create: jest.fn()
   },
   complianceDecisionLog: {
+    count: jest.fn(),
     create: jest.fn()
   }
 };
@@ -55,6 +57,8 @@ describe('compliance.service', () => {
     mockPrisma.holdAction.count.mockResolvedValue(0);
     mockPrisma.riskRule.count.mockResolvedValue(0);
     mockPrisma.riskScoreSnapshot.count.mockResolvedValue(0);
+    mockPrisma.complianceEvidence.count.mockResolvedValue(0);
+    mockPrisma.complianceDecisionLog.count.mockResolvedValue(0);
     mockPrisma.riskRule.findMany.mockResolvedValue([]);
     mockPrisma.complianceAppeal.findMany.mockResolvedValue([]);
   });
@@ -109,5 +113,25 @@ describe('compliance.service', () => {
       })
     );
     expect(result).toEqual(expect.objectContaining({ status: 'RELEASED' }));
+  });
+
+  test('builds a redacted compliance report from existing aggregates', async () => {
+    mockPrisma.complianceCase.count.mockResolvedValueOnce(2).mockResolvedValueOnce(11);
+    mockPrisma.complianceAppeal.count.mockResolvedValueOnce(1).mockResolvedValueOnce(4);
+    mockPrisma.holdAction.count.mockResolvedValue(3);
+    mockPrisma.riskRule.count.mockResolvedValue(5);
+    mockPrisma.riskScoreSnapshot.count.mockResolvedValue(2);
+    mockPrisma.complianceEvidence.count.mockResolvedValue(7);
+    mockPrisma.complianceDecisionLog.count.mockResolvedValue(9);
+
+    const service = await import('../compliance.service');
+    const result = await service.getComplianceReport();
+
+    expect(result).toEqual(expect.objectContaining({
+      schemaVersion: 'compliance-report.v1',
+      summary: expect.objectContaining({ casesOpen: 2, appealsOpen: 1 }),
+      totals: { cases: 11, evidenceItems: 7, decisionsRecorded: 9, appeals: 4 }
+    }));
+    expect(JSON.stringify(result)).not.toContain('subjectUserId');
   });
 });
