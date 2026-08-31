@@ -157,6 +157,58 @@ export const getObservabilityRegistry = () => {
 
 export const isMetricsEnabled = () => Boolean(promClient && registry);
 
+type MetricSample = { value?: number | string };
+type MetricSnapshot = { name?: string; values?: MetricSample[] };
+
+const sumMetric = (metrics: MetricSnapshot[], name: string) => {
+  const metric = metrics.find((entry) => entry.name === name);
+  return (metric?.values || []).reduce((total, sample) => {
+    const value = Number(sample?.value);
+    return total + (Number.isFinite(value) ? value : 0);
+  }, 0);
+};
+
+/**
+ * Small, label-free operator snapshot for the authenticated admin dashboard.
+ * Prometheus remains the source for detailed time-series analysis; this avoids
+ * sending route, user, or provider labels to the UI on every refresh.
+ */
+export const getObservabilitySnapshot = async () => {
+  ensureObservabilityMetrics();
+  if (!registry || typeof registry.getMetricsAsJSON !== 'function') {
+    return { enabled: false } as const;
+  }
+
+  const metrics = (await registry.getMetricsAsJSON()) as MetricSnapshot[];
+  return {
+    enabled: true as const,
+    generatedAt: new Date().toISOString(),
+    http: {
+      requests: sumMetric(metrics, 'scrolith_http_requests_total'),
+      errors5xx: sumMetric(metrics, 'scrolith_http_errors_total')
+    },
+    messaging: {
+      sent: sumMetric(metrics, 'scrolith_messages_sent_total'),
+      failed: sumMetric(metrics, 'scrolith_messages_failed_total'),
+      reconnects: sumMetric(metrics, 'scrolith_socket_reconnects_total')
+    },
+    media: {
+      uploadFailures: sumMetric(metrics, 'scrolith_upload_failures_total')
+    },
+    calls: {
+      active: sumMetric(metrics, 'scrolith_calls_active'),
+      attempts: sumMetric(metrics, 'scrolith_call_attempts_total'),
+      outcomes: sumMetric(metrics, 'scrolith_call_outcomes_total'),
+      iceEvents: sumMetric(metrics, 'scrolith_call_ice_events_total'),
+      turnEvents: sumMetric(metrics, 'scrolith_call_turn_events_total')
+    },
+    database: {
+      errors: sumMetric(metrics, 'scrolith_db_errors_total'),
+      poolReady: sumMetric(metrics, 'scrolith_db_pool_state')
+    }
+  };
+};
+
 const inc = (name: string, labels?: LabelMap, value = 1) => {
   ensureObservabilityMetrics();
   const metric = counters.get(name);

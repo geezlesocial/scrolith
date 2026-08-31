@@ -6,6 +6,7 @@ import {
   recordCallMetric,
   recordMessageMetric,
   recordAuthMetric,
+  getObservabilitySnapshot,
   METRICS_CATALOG
 } from '../utils/observability/metricsRegistry';
 import {
@@ -58,6 +59,21 @@ describe('observability phase1 metrics', () => {
     const body = await registry.metrics();
     expect(body).toContain('scrolith_http_requests_total');
     expect(body).toContain('scrolith_call_attempts_total');
+  });
+
+  test('operator snapshot is label-free and covers reliability domains', async () => {
+    const snapshot = await getObservabilitySnapshot();
+    expect(snapshot).toHaveProperty('enabled');
+    if (snapshot.enabled) {
+      expect(snapshot).toMatchObject({
+        http: expect.any(Object),
+        messaging: expect.any(Object),
+        media: expect.any(Object),
+        calls: expect.any(Object),
+        database: expect.any(Object)
+      });
+      expect(JSON.stringify(snapshot)).not.toContain('route');
+    }
   });
 });
 
