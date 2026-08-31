@@ -102,6 +102,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
   const userPausedRef = useRef(false);
   const lastTapAtRef = useRef(0);
   const stalledRecoveryRef = useRef(0);
+  const stallRecoveryTimerRef = useRef<number | null>(null);
   const offscreenReleaseTimerRef = useRef<number | null>(null);
   const activeRef = useRef(active);
   const autoplayEnabledRef = useRef(autoplayEnabled);
@@ -360,10 +361,12 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
     const recoverFromStallOnce = () => {
       if (!activeRef.current || document.hidden || !isInViewRef.current || userPausedRef.current) return;
       if (node.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return;
-      if (stalledRecoveryRef.current >= 2) return;
+      if (stalledRecoveryRef.current >= 3) return;
       stalledRecoveryRef.current += 1;
       setIsLoadingVideo(true);
-      window.setTimeout(() => {
+      if (stallRecoveryTimerRef.current) window.clearTimeout(stallRecoveryTimerRef.current);
+      stallRecoveryTimerRef.current = window.setTimeout(() => {
+        stallRecoveryTimerRef.current = null;
         const current = videoRef.current;
         if (!current || current.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return;
         try {
@@ -376,7 +379,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
             playAttempt.catch(() => undefined);
           }
         }
-      }, 250);
+      }, Math.min(1000, 250 * 2 ** (stalledRecoveryRef.current - 1)));
     };
     const handleLoadedData = () => {
       stalledRecoveryRef.current = 0;
@@ -512,6 +515,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
       if (!node) return;
       activeAutoplayVideos.delete(node);
       if (offscreenReleaseTimerRef.current) window.clearTimeout(offscreenReleaseTimerRef.current);
+      if (stallRecoveryTimerRef.current) window.clearTimeout(stallRecoveryTimerRef.current);
       releaseVideoBuffer(node);
     };
   }, []);

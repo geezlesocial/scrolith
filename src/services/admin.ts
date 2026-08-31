@@ -1819,6 +1819,10 @@ export const AdminService = {
     return adminGet<any>('/realtime/summary');
   },
 
+  getObservabilitySummary: async (): Promise<any> => {
+    return adminGet<any>('/observability/summary');
+  },
+
   getRealtimeRuntime: async (): Promise<any> => {
     return adminGet<any>('/realtime/runtime');
   },

@@ -28,6 +28,16 @@ const emptyRuntime = {
   activeSockets: [] as any[]
 };
 
+const emptyObservability = {
+  status: 'UNKNOWN',
+  generatedAt: null,
+  http: { requests: 0, errors5xx: 0 },
+  messaging: { sent: 0, failed: 0, reconnects: 0 },
+  media: { uploadFailures: 0 },
+  calls: { active: 0, attempts: 0, outcomes: 0, iceEvents: 0, turnEvents: 0 },
+  database: { errors: 0, poolReady: 0 }
+};
+
 const emptyIncidentForm = {
   code: 'REALTIME_MANUAL',
   severity: 'WARN',
@@ -55,6 +65,7 @@ const RealtimeOpsCenter: React.FC = () => {
   const [resolvingIncidentId, setResolvingIncidentId] = useState<string | null>(null);
 
   const [summary, setSummary] = useState<any>(emptySummary);
+  const [observability, setObservability] = useState<any>(emptyObservability);
   const [runtime, setRuntime] = useState<any>(emptyRuntime);
   const [sessions, setSessions] = useState<any[]>([]);
   const [presence, setPresence] = useState<any[]>([]);
@@ -74,6 +85,7 @@ const RealtimeOpsCenter: React.FC = () => {
   const runtimeIncidents = useMemo(() => (Array.isArray(runtime?.recentIncidents) ? runtime.recentIncidents.slice(0, 6) : []), [runtime]);
 
   const loadSummary = async () => setSummary((await AdminService.getRealtimeOpsSummary()) || emptySummary);
+  const loadObservability = async () => setObservability((await AdminService.getObservabilitySummary()) || emptyObservability);
   const loadRuntime = async () => setRuntime((await AdminService.getRealtimeRuntime()) || emptyRuntime);
 
   const loadSessions = async () => {
@@ -122,7 +134,7 @@ const RealtimeOpsCenter: React.FC = () => {
   const refreshAll = async () => {
     try {
       setRefreshing(true);
-      await Promise.all([loadSummary(), loadRuntime(), loadSessions(), loadPresence(), loadDeliveries(), loadIncidents(), loadReplays()]);
+      await Promise.all([loadSummary(), loadObservability(), loadRuntime(), loadSessions(), loadPresence(), loadDeliveries(), loadIncidents(), loadReplays()]);
     } finally {
       setRefreshing(false);
     }
@@ -263,6 +275,34 @@ const RealtimeOpsCenter: React.FC = () => {
           );
         })}
       </div>
+
+      <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm" aria-labelledby="reliability-snapshot-heading">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 id="reliability-snapshot-heading" className="text-base font-semibold text-gray-900">Reliability snapshot</h3>
+            <p className="mt-1 text-xs text-gray-500">Label-free platform totals from the existing metrics registry.</p>
+          </div>
+          <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${observability.status === 'OK' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+            {observability.status}
+          </span>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            ['HTTP 5xx', observability.http?.errors5xx, 'text-rose-700'],
+            ['Media upload failures', observability.media?.uploadFailures, 'text-amber-700'],
+            ['Active calls', observability.calls?.active, 'text-blue-700'],
+            ['Database errors', observability.database?.errors, 'text-rose-700']
+          ].map(([label, value, tone]) => (
+            <div key={String(label)} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{label}</div>
+              <div className={`mt-1 text-lg font-bold ${tone}`}>{Number(value || 0).toLocaleString()}</div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 text-[11px] text-gray-400">
+          Messages sent {Number(observability.messaging?.sent || 0).toLocaleString()} · reconnects {Number(observability.messaging?.reconnects || 0).toLocaleString()} · call attempts {Number(observability.calls?.attempts || 0).toLocaleString()}
+        </div>
+      </section>
 
       <div className="grid gap-6 xl:grid-cols-[1.35fr,0.95fr]">
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">

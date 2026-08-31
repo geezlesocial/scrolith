@@ -22,6 +22,7 @@ import { LanguagePreferencesService, type UserLanguagePreferences } from '../../
 import { clearLocalDeviceSecurityMaterial, DeviceSecurityService, getOrCreateDeviceId } from '../../services/deviceSecurity';
 import { listOnboardingLanguages } from '../../utils/supportedLanguages';
 import UserTwoFactorPanel from './UserTwoFactorPanel';
+import MessagingPrivacySettingsPanel from '../../components/messaging/MessagingPrivacySettingsPanel';
 
 type PendingLoginApproval = {
     id: string;
@@ -248,7 +249,7 @@ const SettingsModule = () => {
     const { currency, setCurrency, availableCurrencies } = useCurrency();
     const { profile, userDataSaver, setUserDataSaver } = usePerformanceProfile();
     const [searchParams] = useSearchParams();
-    const [activeSection, setActiveSection] = useState<'notifications' | 'security' | 'account'>('notifications');
+    const [activeSection, setActiveSection] = useState<'notifications' | 'security' | 'account' | 'privacy'>('notifications');
     const [settings, setSettings] = useState<UserSettings | null>(null);
     const [loading, setLoading] = useState(true);
     const [savingSettings, setSavingSettings] = useState(false);
@@ -681,6 +682,12 @@ const SettingsModule = () => {
             <div className="w-full md:w-64 bg-gray-50 border-r border-gray-200 p-4">
                 <h3 className="font-bold text-gray-900 mb-4 px-2">Account Settings</h3>
                 <nav className="space-y-1">
+                    <button
+                        onClick={() => setActiveSection('privacy')}
+                        className={`w-full flex items-center px-4 py-2.5 text-sm font-medium rounded-lg transition-colors ${activeSection === 'privacy' ? 'bg-white shadow text-indigo-600' : 'text-gray-600 hover:bg-gray-100'}`}
+                    >
+                        <Shield className="w-4 h-4 mr-3" /> Privacy & Data
+                    </button>
                     <button 
                         onClick={() => setActiveSection('notifications')}
                         className={`w-full flex items-center px-4 py-2.5 text-sm font-medium rounded-lg transition-colors ${activeSection === 'notifications' ? 'bg-white shadow text-indigo-600' : 'text-gray-600 hover:bg-gray-100'}`}
@@ -996,6 +1003,17 @@ const SettingsModule = () => {
                                         </div>
                                     </div>
                                 </div>
+                            </div>
+                        )}
+
+                        {activeSection === 'privacy' && (
+                            <div className="space-y-6 animate-fade-in">
+                                <h2 className="text-xl font-bold text-gray-900">Privacy & Data</h2>
+                                <p className="text-sm text-gray-500">Manage existing messaging visibility and media data preferences across your devices.</p>
+                                <MessagingPrivacySettingsPanel
+                                    open={activeSection === 'privacy'}
+                                    onError={(message) => showNotification('alert', 'Privacy Settings', message)}
+                                />
                             </div>
                         )}
 
