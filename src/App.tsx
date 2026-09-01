@@ -1533,6 +1533,9 @@ const AppContent = () => {
                   <ProtectedRoute>
                     <SignedInHomepageBoundary>
                       <MobileHome />
+                      <Suspense fallback={null}>
+                        <MemberHomeDeveloperWidget />
+                      </Suspense>
                     </SignedInHomepageBoundary>
                   </ProtectedRoute>
                 }

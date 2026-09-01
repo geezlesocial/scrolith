@@ -18,13 +18,18 @@ const createStorage = () => {
   };
 };
 
-test('developer widget is restricted to the exact member-home route', () => {
+test('developer widget accepts the existing member-home entry routes only', () => {
   assert.equal(isMemberHomeDeveloperWidgetPath('/member-home'), true);
   assert.equal(isMemberHomeDeveloperWidgetPath('/member-home/'), true);
-  assert.equal(isMemberHomeDeveloperWidgetPath('/'), false);
-  assert.equal(isMemberHomeDeveloperWidgetPath('/home'), false);
-  assert.equal(isMemberHomeDeveloperWidgetPath('/m/home'), false);
+  assert.equal(isMemberHomeDeveloperWidgetPath('/'), true);
+  assert.equal(isMemberHomeDeveloperWidgetPath('/home'), true);
+  assert.equal(isMemberHomeDeveloperWidgetPath('/m/home'), true);
+  assert.equal(isMemberHomeDeveloperWidgetPath('/m/home/'), true);
+  assert.equal(isMemberHomeDeveloperWidgetPath('/m'), false);
+  assert.equal(isMemberHomeDeveloperWidgetPath('/m/network'), false);
   assert.equal(isMemberHomeDeveloperWidgetPath('/community'), false);
+  assert.equal(isMemberHomeDeveloperWidgetPath('/messages'), false);
+  assert.equal(isMemberHomeDeveloperWidgetPath('/scroll'), false);
 });
 
 test('developer widget starts a ten-minute session window and dismisses it', () => {

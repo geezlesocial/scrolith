@@ -11,8 +11,10 @@ export type DeveloperWidgetVisibility = {
   remainingMs: number;
 };
 
+const MEMBER_HOME_DEVELOPER_WIDGET_PATHS = new Set(['/','/home','/member-home','/m/home']);
+
 export const isMemberHomeDeveloperWidgetPath = (pathname: string) =>
-  (String(pathname || '').replace(/\/+$/, '') || '/') === '/member-home';
+  MEMBER_HOME_DEVELOPER_WIDGET_PATHS.has((String(pathname || '').replace(/\/+$/, '') || '/'));
 
 export const getMemberHomeDeveloperWidgetVisibility = (
   storage: DeveloperWidgetStorage | null | undefined,
