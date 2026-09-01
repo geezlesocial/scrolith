@@ -19,14 +19,21 @@ const MemberHomeDeveloperWidget = () => {
       return;
     }
 
-    const visibility = getMemberHomeDeveloperWidgetVisibility(window.sessionStorage);
+    let storage: Storage | undefined;
+    try {
+      storage = window.sessionStorage;
+    } catch {
+      // Some privacy-restricted WebViews deny access to sessionStorage.
+    }
+
+    const visibility = getMemberHomeDeveloperWidgetVisibility(storage);
     setVisible(visibility.visible);
     if (!visibility.visible) return;
 
     const timer = window.setTimeout(() => {
       setVisible(false);
       try {
-        window.sessionStorage.setItem(MEMBER_HOME_DEVELOPER_WIDGET_DISMISSED_KEY, '1');
+        storage?.setItem(MEMBER_HOME_DEVELOPER_WIDGET_DISMISSED_KEY, '1');
       } catch {
         // Ignore storage failures; the timer still dismisses this mounted instance.
       }
