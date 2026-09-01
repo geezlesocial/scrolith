@@ -154,31 +154,31 @@ const VoiceCallControls: React.FC<{
   };
 
   return (
-    <div className="flex flex-wrap items-center justify-end gap-1.5">
+    <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
       <button
         type="button"
         disabled={disabled}
         onClick={() => void handleStart({ conference: false, video: false })}
-        className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-50 sm:w-10 sm:px-0"
+        className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-0 text-gray-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-50 md:h-10 md:w-10"
         title="Start voice call"
         aria-label="Start voice call"
         data-testid="messages-voice-call-btn"
       >
         <Phone className="h-4 w-4" />
-        <span className="text-xs font-semibold sm:sr-only">Voice</span>
+        <span className="hidden text-xs font-semibold md:sr-only">Voice</span>
       </button>
       {canVideo ? (
         <button
           type="button"
           disabled={disabled}
           onClick={() => void handleStart({ conference: false, video: true })}
-          className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50 sm:w-10 sm:px-0"
+          className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-0 text-gray-600 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50 md:h-10 md:w-10"
           title="Start video call"
           aria-label="Start video call"
           data-testid="messages-video-call-btn"
         >
           <Video className="h-4 w-4" />
-          <span className="text-xs font-semibold sm:sr-only">Video call</span>
+          <span className="hidden text-xs font-semibold md:sr-only">Video call</span>
         </button>
       ) : null}
       {canConference ? (
@@ -186,13 +186,13 @@ const VoiceCallControls: React.FC<{
           type="button"
           disabled={disabled}
           onClick={() => void handleStart({ conference: true, video: false })}
-          className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:opacity-50 sm:w-10 sm:px-0"
+          className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-0 text-gray-600 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:opacity-50 md:h-10 md:w-10"
           title="Start conference call"
           aria-label="Start conference call"
           data-testid="messages-conference-call-btn"
         >
           <Users className="h-4 w-4" />
-          <span className="text-xs font-semibold sm:sr-only">Conference</span>
+        <span className="hidden text-xs font-semibold md:sr-only">Conference</span>
         </button>
       ) : null}
     </div>
@@ -1122,7 +1122,7 @@ const Messages = () => {
       const label = String(selfRow?.label || '').toLowerCase();
       if (label === 'scrolitha_duplicate_merged') return true;
       // Soft-left self on a scrolitha duplicate should not appear in the inbox.
-      if (selfRow && (selfRow.deletedAt || selfRow.deleted_at) && isScrolithaParticipantEntity(
+       if (selfRow && ((selfRow as any).deletedAt || (selfRow as any).deleted_at) && isScrolithaParticipantEntity(
           (convo.participants || []).find((p: any) => isScrolithaParticipantEntity(p))
       )) {
           return true;
@@ -2160,7 +2160,7 @@ const Messages = () => {
           const list = await MessagingService.getAllConversations(user.id, user.role, { force: true });
           setConversations(prev => {
               const activeId = activeConvoIdRef.current;
-              const existingMap = new Map(prev.map(conversation => [conversation.id, conversation]));
+               const existingMap = new Map<string, Conversation>(prev.map(conversation => [conversation.id, conversation]));
               const next = list.map((conversation) => {
                   const existing = existingMap.get(conversation.id);
                   if (!existing) return conversation;
@@ -4326,9 +4326,9 @@ const Messages = () => {
                             }`}
                             data-testid="messages-conversation-header"
                         >
-                            <div className="flex items-center justify-between gap-2">
-                            <div className="flex min-w-0 items-center">
-                                <button onClick={handleBackToInbox} className="mr-2 inline-flex h-9 w-9 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 md:hidden">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex min-w-0 flex-1 basis-full items-center md:basis-auto">
+                                <button onClick={handleBackToInbox} className="mr-2 inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 md:hidden">
                                     <ArrowLeft className="w-5 h-5" />
                                 </button>
                                 <button
@@ -4479,11 +4479,11 @@ const Messages = () => {
                                     )}
                                 </div>
                             </div>
-                            <div className="flex items-center gap-1.5 sm:gap-2">
+                            <div className="flex w-full flex-wrap items-center justify-end gap-1.5 md:w-auto md:gap-2">
                                 <button
                                     type="button"
                                     onClick={() => setChatAppearanceOpen(true)}
-                                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-500 transition hover:bg-gray-100 hover:text-gray-800"
+                                    className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-gray-500 transition hover:bg-gray-100 hover:text-gray-800 md:h-10 md:w-10"
                                     title="Chat appearance"
                                     aria-label="Chat appearance"
                                     data-testid="messages-appearance-btn"
@@ -4494,7 +4494,7 @@ const Messages = () => {
                                     <button
                                         type="button"
                                         onClick={() => setShowGroupManage(true)}
-                                        className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-indigo-700 shadow-sm transition hover:bg-indigo-100"
+                                        className="inline-flex h-11 min-h-[44px] items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-indigo-700 shadow-sm transition hover:bg-indigo-100 md:h-10"
                                         title="Group settings"
                                         data-testid="messages-group-settings-btn"
                                     >
@@ -4507,7 +4507,7 @@ const Messages = () => {
                                         type="button"
                                         onClick={() => void openConversationBriefComposer()}
                                         disabled={briefComposerBusy}
-                                        className="inline-flex h-10 items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-indigo-700 shadow-sm transition hover:bg-indigo-100 disabled:opacity-60"
+                                        className="inline-flex h-11 min-h-[44px] items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-indigo-700 shadow-sm transition hover:bg-indigo-100 disabled:opacity-60 md:h-10"
                                         title="Create brief from chat"
                                     >
                                         {briefComposerBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
@@ -4530,13 +4530,13 @@ const Messages = () => {
                                     onError={(message) => showNotification('error', 'Call', message)}
                                 />
                                 {user?.role === UserRole.ADMIN && (
-                                    <button className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-red-500 transition hover:bg-red-50" title="Admin Actions">
+                                    <button className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-red-500 transition hover:bg-red-50 md:h-10 md:w-10" title="Admin Actions">
                                         <ShieldAlert className="w-5 h-5" />
                                     </button>
                                 )}
                                 <button
                                     onClick={() => refreshConversationData()}
-                                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                                    className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 md:h-10 md:w-10"
                                     title="Refresh"
                                     type="button"
                                 >
@@ -4550,7 +4550,7 @@ const Messages = () => {
                                     <button
                                         type="button"
                                         onClick={() => setShowConversationMenu((prev) => !prev)}
-                                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                                        className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 md:h-10 md:w-10"
                                         aria-haspopup="menu"
                                         aria-expanded={showConversationMenu}
                                         data-testid="messages-conversation-menu-btn"
@@ -4599,7 +4599,7 @@ const Messages = () => {
                             {groupPins.length > 0 ? (
                                 <button
                                     type="button"
-                                    className="sticky top-0 z-20 mb-1 w-full rounded-xl border px-3 py-2 text-left text-xs shadow-sm backdrop-blur"
+                                    className="relative mb-1 w-full rounded-xl border px-3 py-2 text-left text-xs shadow-sm backdrop-blur md:sticky md:top-0 md:z-20"
                                     style={{
                                         background: 'var(--chat-pin-bg, #fffbeb)',
                                         color: 'var(--chat-pin-text, #78350f)',
@@ -4625,7 +4625,7 @@ const Messages = () => {
                                 </button>
                             ) : null}
                             {showJumpToUnread ? (
-                                <div className="sticky top-2 z-10 flex justify-center">
+                                <div className="relative z-10 flex justify-center py-1 md:sticky md:top-2">
                                     <button
                                         type="button"
                                         className="rounded-full border border-blue-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm backdrop-blur hover:bg-blue-50"
@@ -4645,7 +4645,7 @@ const Messages = () => {
                             {buildThreadTimeline(activeConvo.messages || [], { viewerId: user?.id }).map((item) => {
                                 if (item.kind === 'date') {
                                     return (
-                                        <div key={item.key} className="sticky top-10 z-[5] flex justify-center py-1">
+                                        <div key={item.key} className="relative flex justify-center py-1 md:sticky md:top-10 md:z-[5]">
                                             <span className="rounded-full border border-slate-200 bg-white/90 px-3 py-1 text-[11px] font-semibold text-slate-600 shadow-sm backdrop-blur">
                                                 {item.label}
                                             </span>
@@ -4862,6 +4862,7 @@ const Messages = () => {
                                             <MessageAttachmentsList
                                                 attachments={attachmentList}
                                                 outgoing={msg.senderId === user?.id}
+                                                enableImageLightbox={isMobileViewport}
                                             />
                                         ) : null}
                                         <div className={`text-[10px] mt-1 text-right flex justify-end items-center gap-1 ${msg.senderId === user?.id ? 'text-blue-100' : 'text-gray-400'}`}>

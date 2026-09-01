@@ -25,6 +25,7 @@ type MessageAttachmentRendererProps = {
   variant?: 'default' | 'outgoing';
   className?: string;
   autoPreload?: boolean;
+  enableImageLightbox?: boolean;
 };
 
 const mapLoadError = (err: any): string => {
@@ -79,7 +80,8 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
   forceVoiceNote = false,
   variant = 'default',
   className = '',
-  autoPreload
+  autoPreload,
+  enableImageLightbox = false
 }) => {
   const normalized = useMemo(
     () => normalizeMessageAttachment(attachment, { forceVoiceNote }),
@@ -117,6 +119,7 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const [videoMode, setVideoMode] = useState<'idle' | 'direct' | 'blob' | 'download_only'>('idle');
   const [durationLabel, setDurationLabel] = useState(
     formatMediaDuration(normalized?.durationMs)
@@ -299,6 +302,20 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
     };
   }, [releaseHeldUrl, stopMediaElements]);
 
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setLightboxOpen(false);
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [lightboxOpen]);
+
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [inViewport, setInViewport] = useState(false);
 
@@ -423,7 +440,7 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
   const showDownloadOnlyVideo = normalized.type === 'video' && (videoMode === 'download_only' || error === 'preview_too_large');
 
   return (
-    <div ref={rootRef} className={`rounded-lg border p-2 text-xs ${shellClass} ${className}`.trim()}>
+    <div ref={rootRef} className={`min-w-0 max-w-full rounded-lg border p-2 text-xs ${shellClass} ${className}`.trim()}>
       <div className="mb-2 flex min-w-0 items-center justify-between gap-2">
         <div className="min-w-0 flex-1 overflow-hidden">
           <div className="truncate font-semibold" title={normalized.name}>
@@ -497,7 +514,21 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
             )
           ) : null}
           {resolvedSrc ? (
-            <a href={resolvedSrc} target="_blank" rel="noreferrer" className="block" onClick={(e) => e.stopPropagation()}>
+            <a
+              href={resolvedSrc}
+              target={enableImageLightbox ? undefined : '_blank'}
+              rel={enableImageLightbox ? undefined : 'noreferrer'}
+              className="block cursor-zoom-in"
+              aria-haspopup={enableImageLightbox ? 'dialog' : undefined}
+              aria-label={enableImageLightbox ? `Open ${normalized.name || 'image attachment'} full screen` : undefined}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (enableImageLightbox) {
+                  event.preventDefault();
+                  setLightboxOpen(true);
+                }
+              }}
+            >
               <img
                 src={resolvedSrc}
                 alt={normalized.name || 'Message image attachment'}
@@ -553,6 +584,32 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
               )}
             </div>
           )}
+          {enableImageLightbox && lightboxOpen && resolvedSrc ? (
+            <div
+              className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/95 p-4 sm:p-8"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Image preview"
+              onClick={() => setLightboxOpen(false)}
+            >
+              <button
+                type="button"
+                className="absolute right-3 top-[max(0.75rem,env(safe-area-inset-top))] inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white shadow-lg backdrop-blur transition hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                onClick={() => setLightboxOpen(false)}
+                aria-label="Close image preview"
+                title="Close image preview"
+              >
+                <span aria-hidden className="text-sm font-bold">Close</span>
+              </button>
+              <img
+                src={resolvedSrc}
+                alt={normalized.name || 'Message image attachment'}
+                className="max-h-[90vh] max-w-full rounded-lg object-contain shadow-2xl"
+                style={{ touchAction: 'pinch-zoom' }}
+                onClick={(event) => event.stopPropagation()}
+              />
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -701,7 +758,8 @@ export const MessageAttachmentsList: React.FC<{
   attachments: NormalizedMessageAttachment[] | any[];
   outgoing?: boolean;
   className?: string;
-}> = ({ attachments, outgoing = false, className = '' }) => {
+  enableImageLightbox?: boolean;
+}> = ({ attachments, outgoing = false, className = '', enableImageLightbox = false }) => {
   const list = Array.isArray(attachments) ? attachments : [];
   if (!list.length) return null;
   return (
@@ -715,6 +773,7 @@ export const MessageAttachmentsList: React.FC<{
             attachment={attachment}
             forceVoiceNote={attachment?.type === 'voice_note'}
             variant={outgoing ? 'outgoing' : 'default'}
+            enableImageLightbox={enableImageLightbox}
           />
         );
       })}

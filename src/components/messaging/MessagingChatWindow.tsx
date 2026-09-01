@@ -74,10 +74,11 @@ const DockCallControls: React.FC<{
   disabled?: boolean;
   canConference?: boolean;
   canVideo?: boolean;
+  iconOnly?: boolean;
   conversationId: string;
   callTargets: Array<{ id: string; name: string; avatar?: string }>;
   onError: (message: string) => void;
-}> = ({ disabled, canConference, canVideo, conversationId, callTargets, onError }) => {
+}> = ({ disabled, canConference, canVideo, iconOnly = false, conversationId, callTargets, onError }) => {
   const { startCall } = useVoiceCall();
 
   const handleStart = (options: { conference?: boolean; video?: boolean }) => {
@@ -91,31 +92,35 @@ const DockCallControls: React.FC<{
   };
 
   return (
-    <div className="flex flex-wrap items-center justify-end gap-1">
+    <div className="flex max-w-full flex-wrap items-center justify-end gap-1">
       <button
         type="button"
         disabled={disabled}
         onClick={() => handleStart({ conference: false, video: false })}
-        className="inline-flex items-center gap-1 rounded px-2 py-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:opacity-40"
+        className={iconOnly
+          ? 'inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-xl p-2 text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:opacity-40'
+          : 'inline-flex items-center gap-1 rounded px-2 py-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:opacity-40'}
         aria-label="Start voice call"
         title="Start voice call"
         data-testid="dock-voice-call-btn"
       >
         <Phone className="h-4 w-4" />
-        <span className="text-[11px] font-semibold">Voice</span>
+        <span className={iconOnly ? 'sr-only' : 'text-[11px] font-semibold'}>Voice</span>
       </button>
       {canVideo ? (
         <button
           type="button"
           disabled={disabled}
           onClick={() => handleStart({ conference: false, video: true })}
-          className="inline-flex items-center gap-1 rounded px-2 py-1.5 text-slate-500 hover:bg-slate-200 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 disabled:opacity-40"
+          className={iconOnly
+            ? 'inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-xl p-2 text-slate-500 hover:bg-slate-200 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 disabled:opacity-40'
+            : 'inline-flex items-center gap-1 rounded px-2 py-1.5 text-slate-500 hover:bg-slate-200 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 disabled:opacity-40'}
           aria-label="Start video call"
           title="Start video call"
           data-testid="dock-video-call-btn"
         >
           <Video className="h-4 w-4" />
-          <span className="text-[11px] font-semibold">Video call</span>
+          <span className={iconOnly ? 'sr-only' : 'text-[11px] font-semibold'}>Video call</span>
         </button>
       ) : null}
       {canConference ? (
@@ -123,13 +128,15 @@ const DockCallControls: React.FC<{
           type="button"
           disabled={disabled}
           onClick={() => handleStart({ conference: true, video: false })}
-          className="inline-flex items-center gap-1 rounded px-2 py-1.5 text-slate-500 hover:bg-slate-200 hover:text-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:opacity-40"
+          className={iconOnly
+            ? 'inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-xl p-2 text-slate-500 hover:bg-slate-200 hover:text-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:opacity-40'
+            : 'inline-flex items-center gap-1 rounded px-2 py-1.5 text-slate-500 hover:bg-slate-200 hover:text-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:opacity-40'}
           aria-label="Start conference call"
           title="Start conference call"
           data-testid="dock-conference-call-btn"
         >
           <Users className="h-4 w-4" />
-          <span className="text-[11px] font-semibold">Conference</span>
+          <span className={iconOnly ? 'sr-only' : 'text-[11px] font-semibold'}>Conference</span>
         </button>
       ) : null}
     </div>
@@ -490,7 +497,7 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
       data-messaging-presentation={presentation}
     >
       <div
-        className={`flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 ${
+        className={`flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 ${
           isFullscreen ? 'pt-[max(0.5rem,env(safe-area-inset-top))]' : ''
         }`}
       >
@@ -498,7 +505,7 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="mr-0.5 rounded-full p-1.5 text-slate-600 hover:bg-slate-200 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+            className="mr-0.5 inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full text-slate-600 hover:bg-slate-200 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
             aria-label="Back to inbox preview"
             title="Back"
           >
@@ -579,10 +586,13 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
                 : 'Messaging'}
           </div>
         </div>
+        <div className={isFullscreen ? 'flex w-full flex-wrap items-center gap-2' : 'contents'}>
         <button
           type="button"
           onClick={() => setAppearanceOpen(true)}
-          className="rounded p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+          className={isFullscreen
+            ? 'inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40'
+            : 'rounded p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40'}
           aria-label="Chat appearance"
           title="Chat appearance"
           data-testid="chat-appearance-open"
@@ -594,6 +604,7 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
             disabled={!conversationId || voiceCallsBlocked || dockCallTargets.length === 0}
             canConference={canConferenceCall}
             canVideo={canVideoCall}
+            iconOnly={isFullscreen}
             conversationId={conversationId}
             callTargets={dockCallTargets}
             onError={(message) => setSendError(message)}
@@ -602,7 +613,9 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
         <Link
           to={`/messages/${encodeURIComponent(conversationId)}`}
           state={{ softOpen: true, fromHeaderMessages: true }}
-          className="rounded p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+          className={isFullscreen
+            ? 'inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40'
+            : 'rounded p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40'}
           aria-label="Open full conversation"
           title="Open full conversation"
           onClick={() => {
@@ -632,6 +645,7 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
             <X className="h-4 w-4" />
           </button>
         ) : null}
+        </div>
       </div>
 
       <div className="relative min-h-0 flex-1">
@@ -809,6 +823,7 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
                           <MessageAttachmentsList
                             attachments={mediaAttachments}
                             outgoing={mine && !failed}
+                            enableImageLightbox={isFullscreen}
                           />
                         ) : null}
                       </>
