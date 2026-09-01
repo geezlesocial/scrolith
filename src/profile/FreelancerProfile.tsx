@@ -733,17 +733,17 @@ const FreelancerProfile = () => {
   }, [publicUser?.id]);
 
   return (
-    <div className="bg-gray-50 min-h-screen pb-12">
+    <div className="min-h-screen min-w-0 overflow-x-clip bg-gray-50 pb-12">
         {error && (
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-24">
-            <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-4 text-sm">
+          <div className="mx-auto max-w-6xl px-3 pt-5 sm:px-6 sm:pt-8 lg:px-8">
+            <div className="break-words rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 [overflow-wrap:anywhere]">
               {error}
             </div>
           </div>
         )}
         {/* Header Cover */}
         <div
-          className="h-64 md:h-72 w-full relative overflow-hidden bg-gradient-to-br from-blue-900 via-indigo-800 to-slate-800"
+          className="relative h-44 w-full overflow-hidden bg-gradient-to-br from-blue-900 via-indigo-800 to-slate-800 sm:h-56 md:h-72"
         >
             {coverUrl && (
               <EnterpriseImage
@@ -769,9 +769,9 @@ const FreelancerProfile = () => {
             <div className="absolute inset-0 bg-black/30"></div>
         </div>
 
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 -mt-20 relative z-10">
-            <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-200">
-                <div className="p-5 md:p-8">
+        <div className="relative z-10 mx-auto -mt-12 w-full max-w-6xl min-w-0 px-3 sm:-mt-20 sm:px-6 lg:px-8">
+            <div className="min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+                <div className="min-w-0 p-4 sm:p-5 md:p-8">
                     <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
                         <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end sm:gap-6">
                             <button
@@ -805,7 +805,7 @@ const FreelancerProfile = () => {
                             </button>
                             <div className="min-w-0 flex-1 text-center sm:text-left">
                                 <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
-                                    <h1 className="text-3xl sm:text-4xl font-bold text-gray-900">{publicUser?.name || "Profile"}</h1>
+                                    <h1 className="max-w-full break-words text-2xl font-bold leading-tight text-gray-900 sm:text-4xl [overflow-wrap:anywhere]">{publicUser?.name || "Profile"}</h1>
                                     {profileVerificationLevel ? (
                                       <VerifiedBadge
                                         size={20}
@@ -818,9 +818,9 @@ const FreelancerProfile = () => {
                                     <ProBadge role="freelancer" isPro={publicUser?.isProFreelancer} size="md" />
                                 </div>
                                 {publicUser?.username && (
-                                  <p className="text-sm font-semibold text-blue-600 break-all">{cleanBaseUrl}/u/{publicUser.username}</p>
+                                  <p className="max-w-full break-all text-sm font-semibold text-blue-600">{cleanBaseUrl}/u/{publicUser.username}</p>
                                 )}
-                                <p className="text-lg text-gray-600 font-medium">{profile?.title || "-"}</p>
+                                <p className="max-w-3xl break-words text-base font-medium leading-6 text-gray-600 sm:text-lg [overflow-wrap:anywhere]">{profile?.title || "-"}</p>
                                 <div className="mt-2 flex flex-wrap items-center justify-center gap-3 text-sm text-gray-500 sm:justify-start">
                                     <span className="inline-flex items-center gap-1">
                                       <Users className="w-4 h-4" />
@@ -848,11 +848,11 @@ const FreelancerProfile = () => {
                                 </div>
                             </div>
                         </div>
-                        <div className="flex w-full flex-wrap gap-3 sm:w-auto">
+                        <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:gap-3">
                             {isOwner ? (
                                 <button
                                   onClick={() => setShowInlineEditor((prev) => !prev)}
-                                  className="flex-1 rounded-lg border border-gray-300 bg-white px-6 py-2 font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 sm:flex-none"
+                                  className="min-h-11 flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2 font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 sm:flex-none sm:px-6"
                                 >
                                     {showInlineEditor ? 'Close Editor' : 'Edit Profile'}
                                 </button>
@@ -861,7 +861,7 @@ const FreelancerProfile = () => {
                                     <button
                                         onClick={followState.isFollowing ? handleUnfollow : handleFollow}
                                         disabled={followLoading}
-                                        className={`flex-1 rounded-lg border px-6 py-2 font-medium transition sm:flex-none ${
+                                        className={`min-h-11 flex-1 rounded-lg border px-4 py-2 font-medium transition sm:flex-none sm:px-6 ${
                                           followState.isFollowing
                                             ? 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
                                             : 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
@@ -871,7 +871,7 @@ const FreelancerProfile = () => {
                                     </button>
                                     <button
                                         onClick={handleContact}
-                                        className="flex-1 rounded-lg border border-gray-300 bg-white px-6 py-2 font-medium text-gray-700 transition hover:bg-gray-50 sm:flex-none"
+                                        className="min-h-11 flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2 font-medium text-gray-700 transition hover:bg-gray-50 sm:flex-none sm:px-6"
                                     >
                                         Contact
                                     </button>
@@ -881,8 +881,8 @@ const FreelancerProfile = () => {
                     </div>
 
                     {/* Navigation Tabs */}
-                    <div className="mt-8 overflow-x-auto">
-                        <div className="flex min-w-max gap-6 border-b border-gray-200 px-1">
+                    <div className="mt-6 -mx-1 overflow-x-auto px-1 sm:mt-8" style={{ scrollbarGutter: 'stable' }}>
+                        <div className="flex min-w-max gap-1 border-b border-gray-200 sm:gap-4">
                             {[
                                 { id: 'overview', label: 'Overview' },
                                 storefrontHasTab ? { id: 'storefront', label: 'Storefront' } : null,
@@ -895,7 +895,7 @@ const FreelancerProfile = () => {
                                 <button
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id)}
-                                    className={`shrink-0 pb-4 text-sm font-medium border-b-2 transition-colors ${
+                                    className={`min-h-11 shrink-0 border-b-2 px-3 pb-3 pt-2 text-sm font-medium transition-colors sm:px-2 sm:pb-4 ${
                                         activeTab === tab.id
                                         ? 'border-blue-600 text-blue-600' 
                                         : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -909,7 +909,7 @@ const FreelancerProfile = () => {
                 </div>
 
         {isOwner && showInlineEditor && (
-          <div className="border-t border-gray-100 bg-gray-50 p-6">
+          <div className="border-t border-gray-100 bg-gray-50 p-3 sm:p-6">
             <Suspense
               fallback={
                 <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500">
@@ -923,18 +923,24 @@ const FreelancerProfile = () => {
         )}
 
                 {activeTab === 'overview' && (
-                  <div className="bg-gray-50 p-6 md:p-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  <div className="grid min-w-0 grid-cols-1 gap-5 bg-gray-50 p-3 sm:p-5 md:gap-8 md:p-8 lg:grid-cols-3">
                     {/* Left Column */}
-                    <div className="lg:col-span-2 space-y-8">
+                    <div className="min-w-0 space-y-5 md:space-y-8 lg:col-span-2">
                         {/* Intro Video */}
                         {profile?.introVideoUrl && (
-                            <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                                <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
+                            <div className="min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
+                                <h3 className="mb-4 flex items-center text-lg font-bold text-gray-900">
                                     <PlayCircle className="w-5 h-5 mr-2 text-blue-600" /> Intro Video
                                 </h3>
-                                <div className="aspect-video bg-black rounded-lg overflow-hidden">
-                                    <video controls className="w-full h-full">
-                                        <source src={profile.introVideoUrl} type="video/mp4" />
+                                <div className="w-full overflow-hidden rounded-lg bg-black" style={{ aspectRatio: '16 / 9' }}>
+                                    <video
+                                      controls
+                                      playsInline
+                                      preload="metadata"
+                                      className="h-full w-full object-contain"
+                                      aria-label="Profile introduction video"
+                                    >
+                                        <source src={resolveAssetUrl(profile.introVideoUrl)} type="video/mp4" />
                                         Your browser does not support the video tag.
                                     </video>
                                 </div>
@@ -942,13 +948,13 @@ const FreelancerProfile = () => {
                         )}
 
                         {/* About */}
-                        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                            <h3 className="text-lg font-bold text-gray-900 mb-4">About Me</h3>
-                            <p className="text-gray-600 leading-relaxed">{profile?.bio || "No bio provided yet."}</p>
+                        <div className="min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
+                            <h3 className="mb-4 text-lg font-bold text-gray-900">About Me</h3>
+                            <p className="max-w-prose whitespace-pre-wrap break-words text-gray-600 leading-7 [overflow-wrap:anywhere]">{profile?.bio || "No bio provided yet."}</p>
                         </div>
 
                         {/* Pinned & Highlighted posts (My Posts pin/highlight → Overview) */}
-                        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                        <div className="min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
                           <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
                             <div>
                               <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
@@ -987,7 +993,7 @@ const FreelancerProfile = () => {
                                 return (
                                   <article
                                     key={post.id}
-                                    className={`rounded-xl border p-4 ${
+                                    className={`min-w-0 rounded-xl border p-4 ${
                                       isHighlighted
                                         ? 'border-violet-200 bg-violet-50/40'
                                         : 'border-slate-200 bg-white'
@@ -1007,12 +1013,12 @@ const FreelancerProfile = () => {
                                         </span>
                                       ) : null}
                                       {post.title ? (
-                                        <h4 className="text-sm font-semibold text-slate-900">{post.title}</h4>
+                                        <h4 className="min-w-0 break-words text-sm font-semibold text-slate-900 [overflow-wrap:anywhere]">{post.title}</h4>
                                       ) : null}
                                     </div>
-                                    <p className="text-sm text-slate-600 leading-relaxed">{preview}</p>
+                                    <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-600 [overflow-wrap:anywhere]">{preview}</p>
                                     {attachments.length > 0 ? (
-                                      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                                         {attachments.slice(0, 3).map((media: any, index: number) => {
                                           const url =
                                             resolvePostAttachmentMediaUrl(media) ||
@@ -1064,7 +1070,7 @@ const FreelancerProfile = () => {
                         </div>
 
                         {/* Experience */}
-                        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                        <div className="min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
                             <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center">
                                 <Briefcase className="w-5 h-5 mr-2 text-blue-600" aria-hidden="true" /> Work Experience
                             </h3>
@@ -1081,11 +1087,11 @@ const FreelancerProfile = () => {
                                 {(profile?.experience || []).map((exp: any, index: number) => (
                                     <div key={exp.id || `exp-${index}`} className="relative pl-8 border-l-2 border-gray-100 last:border-0">
                                         <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-blue-100 border-2 border-blue-600"></div>
-                                        <h4 className="text-base font-bold text-gray-900">{exp.title || 'Untitled role'}</h4>
-                                        <div className="text-sm text-gray-500 mb-2">
+                                        <h4 className="break-words text-base font-bold text-gray-900 [overflow-wrap:anywhere]">{exp.title || 'Untitled role'}</h4>
+                                        <div className="mb-2 break-words text-sm text-gray-500 [overflow-wrap:anywhere]">
                                           {exp.company || 'Company'} &middot; {exp.start_date || exp.startDate || '-'} - {exp.end_date || exp.endDate || 'Present'}
                                         </div>
-                                        <p className="text-sm text-gray-600">{exp.description || ''}</p>
+                                        <p className="whitespace-pre-wrap break-words text-sm leading-6 text-gray-600 [overflow-wrap:anywhere]">{exp.description || ''}</p>
                                     </div>
                                 ))}
                             </div>
@@ -1093,7 +1099,7 @@ const FreelancerProfile = () => {
                         </div>
 
                         {/* Education */}
-                        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                        <div className="min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
                             <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center">
                                 <GraduationCap className="w-5 h-5 mr-2 text-blue-600" aria-hidden="true" /> Education
                             </h3>
@@ -1108,12 +1114,12 @@ const FreelancerProfile = () => {
                             ) : (
                             <div className="space-y-4">
                                 {(profile?.education || []).map((edu: any, index: number) => (
-                                    <div key={edu.id || `edu-${index}`} className="flex justify-between items-start">
-                                        <div>
-                                            <h4 className="text-base font-bold text-gray-900">{edu.school || 'School'}</h4>
-                                            <p className="text-sm text-gray-600">{edu.degree || 'Degree'}{edu.field_of_study || edu.fieldOfStudy ? `, ${edu.field_of_study || edu.fieldOfStudy}` : ''}</p>
+                                    <div key={edu.id || `edu-${index}`} className="flex min-w-0 flex-col items-start justify-between gap-2 sm:flex-row">
+                                        <div className="min-w-0">
+                                            <h4 className="break-words text-base font-bold text-gray-900 [overflow-wrap:anywhere]">{edu.school || 'School'}</h4>
+                                            <p className="break-words text-sm text-gray-600 [overflow-wrap:anywhere]">{edu.degree || 'Degree'}{edu.field_of_study || edu.fieldOfStudy ? `, ${edu.field_of_study || edu.fieldOfStudy}` : ''}</p>
                                         </div>
-                                        <div className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
+                                        <div className="shrink-0 rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-500">
                                             {edu.start_year || edu.startYear || '-'} - {edu.end_year || edu.endYear || '-'}
                                         </div>
                                     </div>
@@ -1124,7 +1130,7 @@ const FreelancerProfile = () => {
                     </div>
 
                     {/* Right Column */}
-                    <div className="space-y-6">
+                    <div className="min-w-0 space-y-5 md:space-y-6">
                         {/* Delivery & Reliability Score */}
                         {trustScore && (
                             <div className="bg-gradient-to-br from-indigo-900 to-blue-900 p-6 rounded-xl shadow-lg text-white">
@@ -1380,7 +1386,7 @@ const FreelancerProfile = () => {
                 )}
 
                 {activeTab === 'storefront' && (
-                  <div className="bg-gray-50 p-6 md:p-8 space-y-6">
+                  <div className="min-w-0 space-y-5 bg-gray-50 p-3 sm:space-y-6 sm:p-6 md:p-8">
                     {storefrontLoading ? (
                       <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500 shadow-sm">
                         Loading storefront...
@@ -1388,13 +1394,13 @@ const FreelancerProfile = () => {
                     ) : null}
 
                     {!storefrontLoading && storefrontMerchantSummary ? (
-                      <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-blue-50 p-6 shadow-sm">
+                      <div className="min-w-0 rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-blue-50 p-4 shadow-sm sm:p-6">
                         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                          <div className="max-w-2xl">
+                          <div className="min-w-0 max-w-2xl">
                             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">Storefront</p>
-                            <h3 className="mt-2 text-2xl font-bold text-gray-900">{storefrontMerchantSummary.title || publicUser?.name || 'Storefront'}</h3>
+                            <h3 className="mt-2 break-words text-2xl font-bold text-gray-900 [overflow-wrap:anywhere]">{storefrontMerchantSummary.title || publicUser?.name || 'Storefront'}</h3>
                             {storefrontMerchantSummary.subtitle ? (
-                              <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-600">{storefrontMerchantSummary.subtitle}</p>
+                              <p className="mt-2 max-w-2xl break-words text-sm leading-6 text-gray-600 [overflow-wrap:anywhere]">{storefrontMerchantSummary.subtitle}</p>
                             ) : null}
                             <div className="mt-4 flex flex-wrap gap-2 text-xs">
                               {storefrontMerchantSummary.category ? (
@@ -1451,7 +1457,7 @@ const FreelancerProfile = () => {
                     ) : null}
 
                     {!storefrontLoading && storefrontFeaturedServices.length > 0 ? (
-                      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+                      <div className="min-w-0 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
                         <div className="flex items-center justify-between gap-3">
                           <div>
                             <h3 className="text-lg font-bold text-gray-900">Featured Services</h3>
@@ -1467,7 +1473,7 @@ const FreelancerProfile = () => {
                     ) : null}
 
                     {!storefrontLoading && storefrontServices.length > 0 ? (
-                      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+                      <div className="min-w-0 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
                         <div className="flex items-center justify-between gap-3">
                           <div>
                             <h3 className="text-lg font-bold text-gray-900">Service Catalog</h3>
@@ -1483,7 +1489,7 @@ const FreelancerProfile = () => {
                     ) : null}
 
                     {!storefrontLoading && storefront && !storefrontServices.length ? (
-                      <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center shadow-sm">
+                      <div className="min-w-0 rounded-2xl border border-dashed border-gray-300 bg-white p-5 text-center shadow-sm sm:p-8">
                         <h3 className="text-lg font-bold text-gray-900">No storefront services yet</h3>
                         <p className="mt-2 text-sm text-gray-500">
                           {storefront.canManage
@@ -1512,8 +1518,8 @@ const FreelancerProfile = () => {
                 )}
 
                 {activeTab === 'portfolio' && (
-                  <div className="bg-gray-50 p-6 md:p-8">
-                    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                  <div className="min-w-0 bg-gray-50 p-3 sm:p-6 md:p-8">
+                    <div className="min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
                       <h3 className="text-lg font-bold text-gray-900 mb-6">Portfolio</h3>
                       {portfolioItems.length === 0 && (
                         <p className="text-sm text-gray-500">No portfolio items added yet.</p>
@@ -1522,13 +1528,13 @@ const FreelancerProfile = () => {
                         {portfolioItems.map((item) => {
                           const image = resolveAssetUrl((item as any).image_url || (item as any).imageUrl);
                           return (
-                            <div key={item.id} className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                            <div key={item.id} className="min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
                               {image && (
                                 <img src={image} alt={item.title} className="h-44 w-full object-cover" />
                               )}
                               <div className="p-4 space-y-2">
-                                <h4 className="font-semibold text-gray-900">{item.title || 'Untitled'}</h4>
-                                {item.description && <p className="text-sm text-gray-600">{item.description}</p>}
+                                <h4 className="break-words font-semibold text-gray-900 [overflow-wrap:anywhere]">{item.title || 'Untitled'}</h4>
+                                {item.description && <p className="whitespace-pre-wrap break-words text-sm leading-6 text-gray-600 [overflow-wrap:anywhere]">{item.description}</p>}
                                 {item.link && (
                                   <a href={item.link} target="_blank" rel="noreferrer" className="text-sm text-blue-600 hover:underline">
                                     View project
@@ -1544,8 +1550,8 @@ const FreelancerProfile = () => {
                 )}
 
                 {activeTab === 'reviews' && (
-                  <div className="bg-gray-50 p-6 md:p-8">
-                    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                  <div className="min-w-0 bg-gray-50 p-3 sm:p-6 md:p-8">
+                    <div className="min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
                       <h3 className="text-lg font-bold text-gray-900 mb-6">Reviews</h3>
                       {reviewsLoading && (
                         <p className="text-sm text-gray-500">Loading reviews...</p>
@@ -1555,9 +1561,9 @@ const FreelancerProfile = () => {
                       )}
                       <div className="space-y-4">
                         {reviews.map((review) => (
-                          <div key={review.id} className="border border-gray-200 rounded-lg p-4">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-3">
+                          <div key={review.id} className="min-w-0 rounded-lg border border-gray-200 p-4">
+                            <div className="flex min-w-0 items-start justify-between gap-3">
+                              <div className="flex min-w-0 items-center gap-3">
                                 <EnterpriseAvatar
                                   src={
                                     resolveUserAvatarUrl(review.author) ||
@@ -1569,8 +1575,8 @@ const FreelancerProfile = () => {
                                   size="md"
                                   alt={review.author?.name || 'Reviewer'}
                                 />
-                                <div>
-                                  <div className="text-sm font-semibold text-gray-900">{review.author?.name || 'Reviewer'}</div>
+                                <div className="min-w-0">
+                                  <div className="break-words text-sm font-semibold text-gray-900 [overflow-wrap:anywhere]">{review.author?.name || 'Reviewer'}</div>
                                   <div className="text-xs text-gray-500">{review.createdAt ? new Date(review.createdAt).toLocaleDateString() : ''}</div>
                                 </div>
                               </div>
@@ -1579,8 +1585,8 @@ const FreelancerProfile = () => {
                                 {review.rating || 0}
                               </div>
                             </div>
-                            {review.title && <div className="mt-3 text-sm font-semibold text-gray-800">{review.title}</div>}
-                            {review.comment && <p className="mt-2 text-sm text-gray-600">{review.comment}</p>}
+                            {review.title && <div className="mt-3 break-words text-sm font-semibold text-gray-800 [overflow-wrap:anywhere]">{review.title}</div>}
+                            {review.comment && <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-gray-600 [overflow-wrap:anywhere]">{review.comment}</p>}
                           </div>
                         ))}
                       </div>
@@ -1589,8 +1595,8 @@ const FreelancerProfile = () => {
                 )}
 
                 {activeTab === 'followers' && (
-                  <div className="bg-gray-50 p-6 md:p-8">
-                    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                  <div className="min-w-0 bg-gray-50 p-3 sm:p-6 md:p-8">
+                    <div className="min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
                       <h3 className="text-lg font-bold text-gray-900 mb-6">Followers</h3>
                       {followersLoading && (
                         <p className="text-sm text-gray-500">Loading followers...</p>
@@ -1602,7 +1608,7 @@ const FreelancerProfile = () => {
                         {followersList.map((follower) => {
                           const isBlocked = blockedUserIds.has(follower.id);
                           return (
-                            <div key={follower.id} className="flex items-center justify-between rounded-lg border border-gray-200 p-3">
+                            <div key={follower.id} className="flex min-w-0 items-start justify-between gap-3 rounded-lg border border-gray-200 p-3">
                               <Link to={follower.username ? `/u/${follower.username}` : `/profile/${follower.id}`} className="flex items-center gap-3 min-w-0">
                                 <EnterpriseAvatar
                                   src={
@@ -1620,10 +1626,10 @@ const FreelancerProfile = () => {
                                   <div className="truncate text-xs text-gray-500">{follower.username ? `@${follower.username}` : 'Member'}</div>
                                 </div>
                               </Link>
-                              <div className="flex items-center gap-2">
+                              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                                 <Link
                                   to={follower.username ? `/u/${follower.username}` : `/profile/${follower.id}`}
-                                  className="rounded-full border border-gray-300 px-3 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                  className="min-h-10 rounded-full border border-gray-300 px-3 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
                                 >
                                   View
                                 </Link>
@@ -1631,7 +1637,7 @@ const FreelancerProfile = () => {
                                   <button
                                     onClick={() => handleToggleBlockFollower(follower.id)}
                                     disabled={blockBusyId === follower.id}
-                                    className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                                    className={`min-h-10 rounded-full border px-3 py-1 text-xs font-semibold ${
                                       isBlocked
                                         ? 'border-emerald-300 text-emerald-700 hover:bg-emerald-50'
                                         : 'border-rose-300 text-rose-700 hover:bg-rose-50'
