@@ -444,6 +444,9 @@ const ScrollFeed = React.lazy(() => import('./features/scroll/ScrollFeed'));
 const LiveStudio = React.lazy(() => import('./features/live/LiveStudio'));
 const LiveViewer = React.lazy(() => import('./features/live/LiveViewer'));
 const MemberHomeSection = React.lazy(() => import('./components/sections/MemberHomeSection'));
+const MemberHomeDeveloperWidget = React.lazy(
+  () => import('./components/member-home/MemberHomeDeveloperWidget')
+);
 
 const preloadAuthenticatedRouteModules = ({ mobileShell }: { mobileShell: boolean }) => {
   // Warm only the two existing media/detail destinations most commonly opened
@@ -1442,6 +1445,9 @@ const AppContent = () => {
   ) : (
     <SignedInHomepageBoundary>
       {shouldUseMobileMemberHome ? <MobileHome /> : <MemberHomeSection />}
+      <Suspense fallback={null}>
+        <MemberHomeDeveloperWidget />
+      </Suspense>
     </SignedInHomepageBoundary>
   );
   const unmatchedRouteElement =
