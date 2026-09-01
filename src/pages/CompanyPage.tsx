@@ -1227,8 +1227,8 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
     }
   }, [activeTab, isOwner, storefront?.canManage, storefront?.enabled, visibleServicePackages.length]);
 
-  const pageShellClassName = embedded ? 'w-full' : 'mx-auto w-full max-w-6xl px-4 py-6';
-  const centeredShellClassName = embedded ? 'w-full' : 'mx-auto w-full max-w-6xl px-4 py-8';
+  const pageShellClassName = embedded ? 'w-full min-w-0 overflow-x-hidden' : 'mx-auto w-full max-w-6xl min-w-0 overflow-x-hidden px-3 py-4 sm:px-4 sm:py-6';
+  const centeredShellClassName = embedded ? 'w-full min-w-0 overflow-x-hidden' : 'mx-auto w-full max-w-6xl min-w-0 overflow-x-hidden px-3 py-6 sm:px-4 sm:py-8';
   const contentGridClassName = embedded
     ? isOwner
       ? 'xl:grid-cols-[minmax(0,1fr),320px] 2xl:grid-cols-[220px,minmax(0,1fr),320px]'
@@ -1237,8 +1237,8 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
       ? 'lg:grid-cols-[220px,minmax(0,1fr),340px]'
       : 'lg:grid-cols-[minmax(0,1fr),340px]';
   const ownerAsideClassName = embedded ? 'space-y-4 xl:col-span-2 2xl:col-span-1' : 'space-y-4';
-  const mainColumnClassName = 'min-w-0 space-y-4';
-  const secondaryAsideClassName = 'min-w-0 space-y-4';
+  const mainColumnClassName = 'min-w-0 space-y-4 overflow-hidden';
+  const secondaryAsideClassName = 'min-w-0 space-y-4 overflow-hidden';
 
   if (loading) {
     return (
@@ -1261,8 +1261,8 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
 
   return (
     <div className={pageShellClassName}>
-      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="h-44 w-full bg-slate-100">
+      <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:rounded-3xl">
+        <div className="h-28 w-full bg-slate-100 sm:h-36 lg:h-44">
           {coverUrl ? (
             <EnterpriseImage
               src={coverUrl}
@@ -1272,14 +1272,14 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
               height={480}
               loading="eager"
               rounded="rounded-none"
-              className="h-full w-full bg-transparent"
+              className="h-full w-full object-cover object-center bg-transparent"
             />
           ) : null}
         </div>
-        <div className="p-5">
+        <div className="min-w-0 p-4 sm:p-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex min-w-0 items-start gap-4">
-              <div className="h-20 w-20 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-white sm:h-20 sm:w-20">
                 {logoUrl ? (
                   <EnterpriseImage
                     src={logoUrl}
@@ -1289,7 +1289,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                     height={256}
                     loading="eager"
                     rounded="rounded-none"
-                    className="h-full w-full bg-transparent"
+                    className="h-full w-full object-cover object-center bg-transparent"
                     placeholder="avatar"
                   />
                 ) : (
@@ -1299,8 +1299,8 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                 )}
               </div>
               <div className="min-w-0">
-                <h1 className="truncate text-2xl font-bold text-slate-900">{page.name}</h1>
-                <p className="text-sm text-slate-500">
+                <h1 className="break-words text-xl font-bold leading-tight text-slate-900 sm:text-2xl">{page.name}</h1>
+                <p className="break-words text-sm text-slate-500">
                   @{page.handle || page.slug} {page.tagline ? `· ${page.tagline}` : ''}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
@@ -1308,11 +1308,11 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                 </p>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
               <button
                 type="button"
                 onClick={() => void loadAll(true)}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 sm:flex-none"
               >
                 <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
                 Refresh
@@ -1322,7 +1322,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                   type="button"
                   disabled={followBusy}
                   onClick={handleFollowPage}
-                  className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                  className={`min-h-10 flex-1 rounded-lg px-4 py-2 text-sm font-semibold transition sm:flex-none ${
                     page.isFollowing
                       ? 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
                       : 'bg-blue-600 text-white hover:bg-blue-700'
@@ -1334,7 +1334,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                 <button
                   type="button"
                   onClick={handleBoostPage}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                  className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 sm:flex-none"
                 >
                   <Megaphone className="h-4 w-4" />
                   Boost Page
@@ -1342,8 +1342,8 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
               )}
             </div>
           </div>
-          {page.description ? <p className="mt-4 whitespace-pre-wrap text-sm text-slate-700">{page.description}</p> : null}
-          <div className="mt-5 flex flex-wrap gap-2">
+          {page.description ? <p className="mt-4 break-words whitespace-pre-wrap text-sm leading-6 text-slate-700">{page.description}</p> : null}
+          <div className="mt-5 flex flex-wrap gap-2" role="tablist" aria-label="Business page sections">
             {primaryTabs.map((tab) => {
               const Icon = tab.icon;
               const active = activeTab === tab.id;
@@ -1352,7 +1352,9 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
-                  className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                  role="tab"
+                  aria-selected={active}
+                  className={`inline-flex min-h-10 max-w-full items-center justify-center gap-2 rounded-full border px-3 py-2 text-center text-sm font-semibold transition sm:px-4 ${
                     active
                       ? 'border-blue-200 bg-blue-50 text-blue-700'
                       : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -1370,7 +1372,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
       <div className={`mt-6 grid grid-cols-1 gap-6 ${contentGridClassName}`}>
         {isOwner ? (
           <aside className={ownerAsideClassName}>
-            <section className="rounded-2xl border border-slate-200 bg-white p-3">
+            <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3">
               <h3 className="mb-3 px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Manage Page</h3>
               <div className="space-y-1">
                 {ownerTabs.map((tab) => {
@@ -1392,7 +1394,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                 })}
               </div>
             </section>
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
+            <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
               <p className="text-xs uppercase tracking-wide text-slate-500">Performance</p>
               <div className="mt-2 grid grid-cols-1 gap-2">
                 <div className="rounded-lg bg-slate-50 px-3 py-2">
@@ -1409,15 +1411,15 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
         ) : null}
         <main className={mainColumnClassName}>
           {isOwner && (activeTab === 'dashboard' || activeTab === 'posts') ? (
-            <section className="rounded-2xl border border-slate-200 bg-white p-4">
-              <h2 className="mb-3 text-sm font-semibold text-slate-900">Post as {page.name}</h2>
+            <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4">
+              <h2 className="mb-3 break-words text-sm font-semibold text-slate-900">Post as {page.name}</h2>
               <textarea
                 value={composerText}
                 onChange={(event) => setComposerText(event.target.value)}
                 rows={4}
                 maxLength={5000}
                 placeholder="Share an update with your followers..."
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                className="min-w-0 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
               />
               {attachments.length ? (
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -1445,13 +1447,13 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                   helperText="Attach business offers so visitors can open your storefront, message your team, or start a brief from this post."
                 />
               </div>
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setAttachmentPickerOpen(true)}
                     disabled={composerBusy}
-                    className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                    className="inline-flex min-h-10 max-w-full items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                   >
                     <Upload className="h-4 w-4" />
                     Add images / videos / files
@@ -1461,7 +1463,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                   type="button"
                   onClick={handleCreatePost}
                   disabled={composerBusy}
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                  className="min-h-10 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60 sm:w-auto"
                 >
                   {composerBusy ? 'Publishing...' : 'Publish'}
                 </button>
@@ -1471,19 +1473,19 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
 
           {isOwner && activeTab === 'dashboard' ? (
             <>
-              <section className="rounded-2xl border border-slate-200 bg-white p-4">
-                <h3 className="text-sm font-semibold text-slate-900">Page dashboard</h3>
+              <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4">
+                <h3 className="break-words text-sm font-semibold text-slate-900">Page dashboard</h3>
                 <p className="mt-1 text-xs text-slate-500">Quick overview of your page growth and activity.</p>
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                     <p className="text-xs text-slate-500">Total followers</p>
                     <p className="text-lg font-semibold text-slate-900">{Number(page.followersCount || 0)}</p>
                   </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                     <p className="text-xs text-slate-500">Total posts</p>
                     <p className="text-lg font-semibold text-slate-900">{Number(page.postsCount || 0)}</p>
                   </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                     <p className="text-xs text-slate-500">Following</p>
                     <p className="text-lg font-semibold text-slate-900">
                       {Number(pageFollowingUsersList.length + pageFollowingPagesList.length)}
@@ -1502,11 +1504,11 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
           {showStorefrontSection ? (
             <>
               {storefrontMerchantSummary ? (
-                <section className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-blue-50 p-5">
+                <section className="min-w-0 overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-blue-50 p-4 sm:p-5">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="max-w-2xl">
+                    <div className="min-w-0 max-w-2xl">
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Storefront</p>
-                      <h3 className="mt-2 text-xl font-bold text-slate-900">{storefrontMerchantSummary.title || page.name}</h3>
+                      <h3 className="mt-2 break-words text-xl font-bold text-slate-900">{storefrontMerchantSummary.title || page.name}</h3>
                       {storefrontMerchantSummary.subtitle ? (
                         <p className="mt-2 text-sm leading-6 text-slate-600">{storefrontMerchantSummary.subtitle}</p>
                       ) : null}
@@ -1523,16 +1525,16 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                         ) : null}
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3 lg:min-w-[320px]">
-                      <div className="rounded-xl border border-white/80 bg-white/80 p-3">
+                    <div className="grid min-w-0 grid-cols-2 gap-3 lg:min-w-[320px]">
+                      <div className="min-w-0 rounded-xl border border-white/80 bg-white/80 p-3">
                         <p className="text-[11px] uppercase tracking-wide text-slate-500">Offers</p>
                         <p className="mt-1 text-2xl font-bold text-slate-900">{storefrontMerchantSummary.serviceCount || 0}</p>
                       </div>
-                      <div className="rounded-xl border border-white/80 bg-white/80 p-3">
+                      <div className="min-w-0 rounded-xl border border-white/80 bg-white/80 p-3">
                         <p className="text-[11px] uppercase tracking-wide text-slate-500">Featured</p>
                         <p className="mt-1 text-2xl font-bold text-slate-900">{storefrontMerchantSummary.featuredCount || 0}</p>
                       </div>
-                      <div className="rounded-xl border border-white/80 bg-white/80 p-3">
+                      <div className="min-w-0 rounded-xl border border-white/80 bg-white/80 p-3">
                         <p className="text-[11px] uppercase tracking-wide text-slate-500">Price from</p>
                         <p className="mt-1 text-lg font-bold text-slate-900">
                           {storefrontMerchantSummary.priceFrom !== null && storefrontMerchantSummary.priceFrom !== undefined
@@ -1540,7 +1542,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                             : 'Not set'}
                         </p>
                       </div>
-                      <div className="rounded-xl border border-white/80 bg-white/80 p-3">
+                      <div className="min-w-0 rounded-xl border border-white/80 bg-white/80 p-3">
                         <p className="text-[11px] uppercase tracking-wide text-slate-500">Social proof</p>
                         <p className="mt-1 text-lg font-bold text-slate-900">
                           {Number(storefrontMerchantSummary.followerCount || 0)} followers
@@ -1552,17 +1554,17 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
               ) : null}
 
               {featuredPackagesPreview.length ? (
-                <section className="rounded-2xl border border-slate-200 bg-white p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-900">Featured Offers</h3>
+                <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <h3 className="break-words text-sm font-semibold text-slate-900">Featured Offers</h3>
                       <p className="mt-1 text-xs text-slate-500">Pinned service packages highlighted across the storefront surface.</p>
                     </div>
                     {!isStorefrontView && visibleServicePackages.length > featuredPackagesPreview.length ? (
                       <button
                         type="button"
                         onClick={() => setActiveTab('storefront')}
-                        className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        className="min-h-10 shrink-0 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                       >
                         View full storefront
                       </button>
@@ -1570,10 +1572,10 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                   </div>
                   <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
                     {featuredPackagesPreview.map((pkg) => (
-                      <article key={`featured_${pkg.id}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <article key={`featured_${pkg.id}`} className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-4">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <p className="truncate text-base font-semibold text-slate-900">{pkg.title}</p>
+                            <p className="break-words text-base font-semibold text-slate-900">{pkg.title}</p>
                             <p className="mt-1 text-sm font-semibold text-blue-700">{formatPackagePriceLabel(pkg)}</p>
                           </div>
                           <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700">
@@ -1596,7 +1598,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                 </section>
               ) : null}
 
-              <section className="rounded-2xl border border-slate-200 bg-white p-4">
+              <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
@@ -1622,10 +1624,10 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                 {storefrontCatalogPackages.length ? (
                   <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
                     {storefrontCatalogPackages.map((pkg) => (
-                      <article key={pkg.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <article key={pkg.id} className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-4">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <p className="truncate text-base font-semibold text-slate-900">{pkg.title}</p>
+                            <p className="break-words text-base font-semibold text-slate-900">{pkg.title}</p>
                             <p className="mt-1 text-sm font-semibold text-blue-700">{formatPackagePriceLabel(pkg)}</p>
                           </div>
                           <span
@@ -1722,7 +1724,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
 
           {(isDashboardView || isOverviewView || isPostsView) &&
             renderedPosts.map((post) => (
-            <article key={post.id} id={`company-post-${post.id}`} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <article key={post.id} id={`company-post-${post.id}`} className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
 <PostHeader
   author={{
@@ -1759,7 +1761,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                 ) : null}
               </div>
               <div className="mt-2 text-xs text-slate-500">
-                {Object.values(post.interactions?.reactions || {}).reduce((sum, count) => sum + Number(count || 0), 0)} reactions ·{' '}
+                {Object.values(post.interactions?.reactions || {}).reduce<number>((sum, count) => sum + Number(count || 0), 0)} reactions ·{' '}
                 {Number(post.interactions?.comments || 0)} comments
               </div>
               <div className="mt-3 space-y-3 text-sm text-slate-700">
@@ -1770,7 +1772,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                       onChange={(event) => setEditingPostContent(event.target.value)}
                       rows={5}
                       maxLength={5000}
-                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                      className="min-w-0 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                     />
                     <div className="flex flex-wrap items-center gap-2">
                       <button
@@ -1812,7 +1814,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                           text={post.content}
                           className="inline"
                           buttonClassName="text-slate-900"
-                          renderText={(visibleText) => <MentionText text={visibleText} className="whitespace-pre-wrap" />}
+                          renderText={(visibleText) => <MentionText text={visibleText} className="break-words whitespace-pre-wrap" />}
                         />
                       </div>
                     ) : null}
@@ -1832,7 +1834,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                                 <img
                                   src={file.url}
                                   alt={file.name || 'Post attachment'}
-                                  className="max-h-[420px] w-full rounded-xl object-cover"
+                                  className="max-h-[420px] w-full rounded-xl object-contain"
                                 />
                               </button>
                             );
@@ -1854,7 +1856,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                                   controls={false}
                                   controlsList="nodownload"
                                   onContextMenu={(event) => event.preventDefault()}
-                                  className="max-h-[420px] w-full rounded-xl bg-black object-cover"
+                                  className="max-h-[420px] w-full rounded-xl bg-black object-contain"
                                 />
                               </button>
                             );
@@ -1891,17 +1893,17 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
           ))}
 
           {(isDashboardView || isOverviewView || isPostsView) && !renderedPosts.length ? (
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500">No posts yet.</div>
+            <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500">No posts yet.</div>
           ) : null}
 
           {isOwner && activeTab === 'followers' ? (
-            <section className="rounded-2xl border border-slate-200 bg-white p-4">
-              <h3 className="text-sm font-semibold text-slate-900">Page followers</h3>
+            <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4">
+              <h3 className="break-words text-sm font-semibold text-slate-900">Page followers</h3>
               <p className="mt-1 text-xs text-slate-500">Members currently following this business page.</p>
               <div className="mt-3 space-y-2">
                 {followers.length ? (
                   followers.map((follower: any) => (
-                    <div key={follower.id} className="flex items-center justify-between gap-2 rounded-xl border border-slate-100 px-3 py-2">
+                    <div key={follower.id} className="flex min-w-0 items-center justify-between gap-2 rounded-xl border border-slate-100 px-3 py-2">
                       <Link
                         to={follower.username ? `/u/${String(follower.username).replace(/^@+/, '')}` : `/profile/${follower.id}`}
                         className="flex min-w-0 items-center gap-2"
@@ -1912,8 +1914,8 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                           className="h-9 w-9 rounded-full object-cover"
                         />
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-slate-800">{follower.name || 'Community member'}</p>
-                          <p className="truncate text-xs text-slate-500">@{(follower.username || '').replace(/^@+/, '') || 'member'}</p>
+                          <p className="break-words text-sm font-medium text-slate-800">{follower.name || 'Community member'}</p>
+                          <p className="break-words text-xs text-slate-500">@{(follower.username || '').replace(/^@+/, '') || 'member'}</p>
                         </div>
                       </Link>
                     </div>
@@ -1926,11 +1928,11 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
           ) : null}
 
           {isOwner && activeTab === 'following' ? (
-            <section className="rounded-2xl border border-slate-200 bg-white p-4">
-              <h3 className="text-sm font-semibold text-slate-900">Following</h3>
+            <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4">
+              <h3 className="break-words text-sm font-semibold text-slate-900">Following</h3>
               <p className="mt-1 text-xs text-slate-500">Users and pages followed by this business page.</p>
               <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="rounded-xl border border-slate-100 p-3">
+                <div className="min-w-0 rounded-xl border border-slate-100 p-3">
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Users</p>
                   <div className="space-y-2">
                     {pageFollowingUsersList.length ? (
@@ -1961,7 +1963,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                     )}
                   </div>
                 </div>
-                <div className="rounded-xl border border-slate-100 p-3">
+                <div className="min-w-0 rounded-xl border border-slate-100 p-3">
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Pages</p>
                   <div className="space-y-2">
                     {pageFollowingPagesList.length ? (
@@ -1994,62 +1996,62 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
           ) : null}
 
           {isOwner && activeTab === 'edit' ? (
-            <section className="rounded-2xl border border-slate-200 bg-white p-4">
-              <h3 className="text-sm font-semibold text-slate-900">Edit page profile</h3>
+            <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4">
+              <h3 className="break-words text-sm font-semibold text-slate-900">Edit page profile</h3>
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
                 <input
                   value={pageForm.name}
                   onChange={(event) => handlePageFieldChange('name', event.target.value)}
                   placeholder="Page name"
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  className="min-w-0 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
                 <input
                   value={pageForm.handle}
                   onChange={(event) => handlePageFieldChange('handle', event.target.value)}
                   placeholder="Handle"
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  className="min-w-0 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
                 <input
                   value={pageForm.slug}
                   onChange={(event) => handlePageFieldChange('slug', event.target.value)}
                   placeholder="Slug"
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  className="min-w-0 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
                 <input
                   value={pageForm.tagline}
                   onChange={(event) => handlePageFieldChange('tagline', event.target.value)}
                   placeholder="Tagline"
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  className="min-w-0 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
                 <input
                   value={pageForm.industry}
                   onChange={(event) => handlePageFieldChange('industry', event.target.value)}
                   placeholder="Industry"
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  className="min-w-0 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
                 <input
                   value={pageForm.category}
                   onChange={(event) => handlePageFieldChange('category', event.target.value)}
                   placeholder="Category"
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  className="min-w-0 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
                 <input
                   value={pageForm.orgSize}
                   onChange={(event) => handlePageFieldChange('orgSize', event.target.value)}
                   placeholder="Organization size"
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  className="min-w-0 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
                 <input
                   value={pageForm.orgType}
                   onChange={(event) => handlePageFieldChange('orgType', event.target.value)}
                   placeholder="Organization type"
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  className="min-w-0 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
                 <input
                   value={pageForm.website}
                   onChange={(event) => handlePageFieldChange('website', event.target.value)}
                   placeholder="Website"
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  className="min-w-0 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
                 <input
                   value={pageForm.email}
@@ -2123,8 +2125,8 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
         </main>
 
         <aside className={secondaryAsideClassName}>
-          <section className="rounded-2xl border border-slate-200 bg-white p-4">
-            <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
+          <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4">
+            <h3 className="mb-3 flex items-center gap-2 break-words text-sm font-semibold text-slate-900">
               <Users className="h-4 w-4" />
               Page Followers
             </h3>
@@ -2134,14 +2136,14 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                   <Link
                     key={follower.id}
                     to={follower.username ? `/u/${String(follower.username).replace(/^@+/, '')}` : `/profile/${follower.id}`}
-                    className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50"
+                    className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50"
                   >
                     <img
                       src={resolveUserAvatarUrl(follower) || BRAND_LOGO_URL}
                       alt={follower.name || 'Follower'}
                       className="h-8 w-8 rounded-full object-cover"
                     />
-                    <span className="truncate text-sm text-slate-700">{follower.name || 'Community member'}</span>
+                    <span className="break-words text-sm text-slate-700">{follower.name || 'Community member'}</span>
                   </Link>
                 ))}
               </div>
@@ -2151,8 +2153,8 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
           </section>
 
           {isOwner ? (
-            <section className="rounded-2xl border border-slate-200 bg-white p-4">
-              <h3 className="mb-3 text-sm font-semibold text-slate-900">Page Follow Controls</h3>
+            <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4">
+              <h3 className="mb-3 break-words text-sm font-semibold text-slate-900">Page Follow Controls</h3>
               <div className="space-y-4">
                 <div>
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Suggested Users</p>
@@ -2162,10 +2164,10 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                       const busyKey = `user:${id}`;
                       const following = Boolean(pageFollowingUsers[id]);
                       return (
-                        <div key={id} className="flex items-center justify-between gap-2">
+                        <div key={id} className="flex min-w-0 items-center justify-between gap-2">
                           <Link
                             to={entry?.username ? `/u/${String(entry.username).replace(/^@+/, '')}` : `/profile/${id}`}
-                            className="min-w-0 text-sm text-slate-700 hover:text-slate-900"
+                            className="min-w-0 break-words text-sm text-slate-700 hover:text-slate-900"
                           >
                             <span className="truncate">{entry?.name || entry?.displayName || 'User'}</span>
                           </Link>
@@ -2173,7 +2175,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                             type="button"
                             disabled={Boolean(followingBusy[busyKey])}
                             onClick={() => void togglePageFollowing('user', id)}
-                            className="rounded-full border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                            className="min-h-9 shrink-0 rounded-full border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                           >
                             {following ? 'Following' : 'Follow'}
                           </button>
@@ -2192,15 +2194,15 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                       const busyKey = `page:${id}`;
                       const following = Boolean(pageFollowingPages[id]);
                       return (
-                        <div key={id} className="flex items-center justify-between gap-2">
-                          <Link to={`/company/${entry?.slug || id}`} className="min-w-0 text-sm text-slate-700 hover:text-slate-900">
+                        <div key={id} className="flex min-w-0 items-center justify-between gap-2">
+                          <Link to={`/company/${entry?.slug || id}`} className="min-w-0 break-words text-sm text-slate-700 hover:text-slate-900">
                             <span className="truncate">{entry?.name || 'Business page'}</span>
                           </Link>
                           <button
                             type="button"
                             disabled={Boolean(followingBusy[busyKey])}
                             onClick={() => void togglePageFollowing('page', id)}
-                            className="rounded-full border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                            className="min-h-9 shrink-0 rounded-full border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                           >
                             {following ? 'Following' : 'Follow'}
                           </button>
