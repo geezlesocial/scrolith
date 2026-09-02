@@ -447,12 +447,16 @@ const MemberHomeSection = React.lazy(() => import('./components/sections/MemberH
 const MemberHomeDeveloperWidget = React.lazy(
   () => import('./components/member-home/MemberHomeDeveloperWidget')
 );
+const HiringRecommendationSlot = React.lazy(
+  () => import('./components/hiring/HiringRecommendationSlot')
+);
 
 const preloadAuthenticatedRouteModules = ({ mobileShell }: { mobileShell: boolean }) => {
-  // Warm only the two existing media/detail destinations most commonly opened
-  // from the home surface. Other routes remain lazy until the user requests them.
+  // Keep the mobile shell's first load focused on the home surface. The Scroll
+  // viewer is loaded on demand when a user opens it; desktop keeps the existing
+  // idle warmup for detail and media destinations.
   const priorityModules = mobileShell
-    ? [import('./features/scroll/ScrollFeed')]
+    ? []
     : [import('./pages/PostDetailView'), import('./features/scroll/ScrollFeed')];
 
   return Promise.allSettled(priorityModules);
@@ -552,6 +556,47 @@ class ErrorBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBo
     return this.props.children as React.ReactElement;
   }
 }
+
+/** Optional home enhancements must never make the signed-in shell unavailable. */
+class OptionalFeatureBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBoundaryState> {
+  public state: ErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(): ErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: unknown, info: unknown) {
+    trackRuntimeEvent(
+      'mobile_optional_feature_error',
+      {
+        message: (error as { message?: string } | null)?.message || 'optional_feature_error',
+        componentStack: (info as { componentStack?: string } | null)?.componentStack || ''
+      },
+      { dedupeMs: 15_000 }
+    );
+    console.error('Optional home feature failed:', error, info);
+  }
+
+  render() {
+    return this.state.hasError ? null : this.props.children;
+  }
+}
+
+const MemberHomeDeveloperWidgetSlot = () => (
+  <OptionalFeatureBoundary>
+    <Suspense fallback={null}>
+      <MemberHomeDeveloperWidget />
+    </Suspense>
+  </OptionalFeatureBoundary>
+);
+
+const HiringRecommendationSlotBoundary = () => (
+  <OptionalFeatureBoundary>
+    <Suspense fallback={null}>
+      <HiringRecommendationSlot />
+    </Suspense>
+  </OptionalFeatureBoundary>
+);
 
 class SignedInHomepageBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBoundaryState> {
   public props: React.PropsWithChildren<{}>;
@@ -1445,9 +1490,8 @@ const AppContent = () => {
   ) : (
     <SignedInHomepageBoundary>
       {shouldUseMobileMemberHome ? <MobileHome /> : <MemberHomeSection />}
-      <Suspense fallback={null}>
-        <MemberHomeDeveloperWidget />
-      </Suspense>
+      <MemberHomeDeveloperWidgetSlot />
+      <HiringRecommendationSlotBoundary />
     </SignedInHomepageBoundary>
   );
   const unmatchedRouteElement =
@@ -1533,9 +1577,8 @@ const AppContent = () => {
                   <ProtectedRoute>
                     <SignedInHomepageBoundary>
                       <MobileHome />
-                      <Suspense fallback={null}>
-                        <MemberHomeDeveloperWidget />
-                      </Suspense>
+                      <MemberHomeDeveloperWidgetSlot />
+                      <HiringRecommendationSlotBoundary />
                     </SignedInHomepageBoundary>
                   </ProtectedRoute>
                 }
