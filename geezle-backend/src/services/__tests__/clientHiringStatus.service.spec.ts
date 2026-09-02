@@ -27,12 +27,12 @@ describe('client hiring status', () => {
     });
   });
 
-  test('does not expose hidden, expired, or non-employer hiring status publicly', () => {
+  test('exposes active public hiring status independently of persisted role', () => {
     const status = {
       status: 'ACTIVE', hiringTypes: [], focusAreas: [], timing: 'FLEXIBLE', visibility: 'PUBLIC',
       isActive: true, expiresAt: null
     };
-    expect(serializeClientHiringStatus(status, { publicOnly: true, targetRole: 'FREELANCER' })).toBeNull();
+    expect(serializeClientHiringStatus(status, { publicOnly: true, targetRole: 'FREELANCER' })).toMatchObject({ status: 'ACTIVE', isActive: true });
     expect(serializeClientHiringStatus({ ...status, visibility: 'HIDDEN' }, { publicOnly: true, targetRole: 'CLIENT' })).toBeNull();
     expect(serializeClientHiringStatus({ ...status, expiresAt: new Date(Date.now() - 1000) }, { publicOnly: true, targetRole: 'EMPLOYER' })).toBeNull();
     expect(serializeClientHiringStatus(status, { publicOnly: true, targetRole: 'EMPLOYER' })).toMatchObject({ status: 'ACTIVE', isActive: true });

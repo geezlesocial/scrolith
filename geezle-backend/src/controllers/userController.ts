@@ -665,8 +665,7 @@ export const getUserProfile = async (req: Request, res: Response) => {
           publicOnly: !canAccessUser(req, userId)
         }),
         hiring: serializeClientHiringStatus(user.clientHiringStatus, {
-          publicOnly: !canAccessUser(req, userId),
-          targetRole: user.role
+          publicOnly: !canAccessUser(req, userId)
         })
       })
     );
@@ -928,8 +927,7 @@ export const updateUserProfile = async (req: Request, res: Response) => {
         professionalIdentity,
         userCountry: user?.country || null,
         hiring: serializeClientHiringStatus(user?.clientHiringStatus, {
-          publicOnly: !canAccessUser(req, userId),
-          targetRole: user?.role
+          publicOnly: !canAccessUser(req, userId)
         })
       })
     );

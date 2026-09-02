@@ -29,6 +29,8 @@ import {
   recencyScore
 } from './reco.policy';
 import { applyManualRules } from './reco.manual';
+import { serializeProfessionalAvailability } from '../professionalAvailability.service';
+import { serializeClientHiringStatus } from '../clientHiringStatus.service';
 
 type StringMapNumber = Map<string, number>;
 
@@ -924,7 +926,9 @@ const loadFreelancerCandidates = async (input: {
         },
         orderBy: { updatedAt: 'desc' },
         take: 8
-      }
+      },
+      professionalAvailability: true,
+      clientHiringStatus: true
     },
     take: idFilter ? input.entityIds!.length : poolSize
   });
@@ -1074,6 +1078,8 @@ const loadFreelancerCandidates = async (input: {
       },
       extra: {
         role: normalizeRole(user.role),
+        availableForHire: Boolean(serializeProfessionalAvailability(user.professionalAvailability, { publicOnly: true })),
+        weAreHiring: Boolean(serializeClientHiringStatus(user.clientHiringStatus, { publicOnly: true })),
         frequencyToday: viewerFrequencyMap.get(user.id) || 0
       }
     };
@@ -1142,7 +1148,9 @@ const loadClientCandidates = async (input: {
         },
         orderBy: { createdAt: 'desc' },
         take: 8
-      }
+      },
+      professionalAvailability: true,
+      clientHiringStatus: true
     },
     take: idFilter ? input.entityIds!.length : poolSize
   });
@@ -1280,6 +1288,8 @@ const loadClientCandidates = async (input: {
       },
       extra: {
         role: normalizeRole(user.role),
+        availableForHire: Boolean(serializeProfessionalAvailability(user.professionalAvailability, { publicOnly: true })),
+        weAreHiring: Boolean(serializeClientHiringStatus(user.clientHiringStatus, { publicOnly: true })),
         frequencyToday: viewerFrequencyMap.get(user.id) || 0
       }
     };

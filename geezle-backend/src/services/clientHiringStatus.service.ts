@@ -91,7 +91,9 @@ export const serializeClientHiringStatus = (
   status: ClientHiringStatusRecord | null | undefined,
   options: { publicOnly?: boolean; targetRole?: string | null } = {}
 ) => {
-  if (!status || (options.publicOnly && options.targetRole && !isClientOrEmployerRole(options.targetRole))) return null;
+  // Role selection is contextual in the dashboard. Public visibility is
+  // controlled by the status record, not the account's persisted role.
+  if (!status) return null;
   if (options.publicOnly && !isPubliclyHiring(status)) return null;
   return {
     status: status.status,

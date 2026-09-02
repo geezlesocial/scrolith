@@ -335,7 +335,7 @@ export const generatePeople = async (ctx: GeneratorContext): Promise<GeneratorRe
           },
           metadata: {
             availability: serializeProfessionalAvailability(u.professionalAvailability, { publicOnly: true }),
-            hiring: serializeClientHiringStatus(u.clientHiringStatus, { publicOnly: true, targetRole: u.role })
+            hiring: serializeClientHiringStatus(u.clientHiringStatus, { publicOnly: true })
           }
         };
       });

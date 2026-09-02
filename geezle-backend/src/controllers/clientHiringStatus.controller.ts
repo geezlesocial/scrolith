@@ -71,7 +71,7 @@ export const getPublicClientHiringStatus = async (req: Request, res: Response) =
       select: { role: true, clientHiringStatus: true }
     });
     if (!user) return fail(res, 404, 'User not found');
-    return ok(res, serializeClientHiringStatus(user.clientHiringStatus, { publicOnly: true, targetRole: user.role }));
+    return ok(res, serializeClientHiringStatus(user.clientHiringStatus, { publicOnly: true }));
   } catch (error: any) {
     return fail(res, 500, error?.message || 'Failed to load hiring status');
   }
