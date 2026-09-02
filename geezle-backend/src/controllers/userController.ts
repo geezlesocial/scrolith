@@ -10,6 +10,7 @@ import { getStorefrontSettings, isUserStorefrontEnabled } from '../services/stor
 import { syncFileUsages } from '../utils/fileUsage';
 import { FileVisibility } from '@prisma/client';
 import { serializeProfessionalAvailability } from '../services/professionalAvailability.service';
+import { serializeClientHiringStatus } from '../services/clientHiringStatus.service';
 
 const nowIso = () => new Date().toISOString();
 
@@ -99,7 +100,7 @@ const formatBirthMonthDay = (value?: Date | string | null) => {
 
 const toProfileResponse = (
   profile: any,
-  options?: { includePrivateDob?: boolean; professionalIdentity?: any | null; userCountry?: string | null; availability?: any | null }
+  options?: { includePrivateDob?: boolean; professionalIdentity?: any | null; userCountry?: string | null; availability?: any | null; hiring?: any | null }
 ) => ({
   user_id: profile.userId,
   title: profile.title || '',
@@ -144,7 +145,10 @@ const toProfileResponse = (
   response_time: profile.responseTime || null,
   professional_identity: options?.professionalIdentity ?? null,
   professionalIdentity: options?.professionalIdentity ?? null,
-  availability: options?.availability ?? null
+  availability: options?.availability ?? null,
+  client_hiring_status: options?.hiring ?? null,
+  clientHiringStatus: options?.hiring ?? null,
+  hiring: options?.hiring ?? null
 });
 
 const toSettingsResponse = (settings: any) => ({
@@ -645,7 +649,7 @@ export const getUserProfile = async (req: Request, res: Response) => {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      include: { professionalAvailability: true }
+      include: { professionalAvailability: true, clientHiringStatus: true }
     });
     if (!user) return fail(res, 404, 'User not found', 'ERR_NOT_FOUND');
 
@@ -659,6 +663,10 @@ export const getUserProfile = async (req: Request, res: Response) => {
         userCountry: user.country || null,
         availability: serializeProfessionalAvailability(user.professionalAvailability, {
           publicOnly: !canAccessUser(req, userId)
+        }),
+        hiring: serializeClientHiringStatus(user.clientHiringStatus, {
+          publicOnly: !canAccessUser(req, userId),
+          targetRole: user.role
         })
       })
     );
@@ -908,14 +916,21 @@ export const updateUserProfile = async (req: Request, res: Response) => {
       }
     }
 
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { clientHiringStatus: true }
+    });
     const professionalIdentity = user ? await buildProfessionalIdentity(updated, user) : null;
     return ok(
       res,
       toProfileResponse(updated, {
         includePrivateDob: canAccessUser(req, userId),
         professionalIdentity,
-        userCountry: user?.country || null
+        userCountry: user?.country || null,
+        hiring: serializeClientHiringStatus(user?.clientHiringStatus, {
+          publicOnly: !canAccessUser(req, userId),
+          targetRole: user?.role
+        })
       })
     );
   } catch (error: any) {

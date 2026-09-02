@@ -11,6 +11,7 @@ import type {
 } from './discoveryEngine.types';
 import type { ViewerInterestProfile } from './discoveryEngine.types';
 import { serializeProfessionalAvailability } from '../professionalAvailability.service';
+import { serializeClientHiringStatus } from '../clientHiringStatus.service';
 
 const truncate = (s: string, max: number) =>
   s.length <= max ? s : `${s.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
@@ -297,7 +298,8 @@ export const generatePeople = async (ctx: GeneratorContext): Promise<GeneratorRe
         updatedAt: true,
         role: true,
         profile: { select: { title: true, skills: true, bio: true, location: true } },
-        professionalAvailability: true
+        professionalAvailability: true,
+        clientHiringStatus: true
       }
     });
     return users
@@ -331,7 +333,10 @@ export const generatePeople = async (ctx: GeneratorContext): Promise<GeneratorRe
             active: true,
             discoverable: true
           },
-          metadata: { availability: serializeProfessionalAvailability(u.professionalAvailability, { publicOnly: true }) }
+          metadata: {
+            availability: serializeProfessionalAvailability(u.professionalAvailability, { publicOnly: true }),
+            hiring: serializeClientHiringStatus(u.clientHiringStatus, { publicOnly: true, targetRole: u.role })
+          }
         };
       });
   });

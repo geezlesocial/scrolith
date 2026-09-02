@@ -2,6 +2,7 @@ import prisma from '../../../utils/prismaClient';
 import type { SearchDomainAdapter } from './types';
 import { bestLexicalScore, containsFilter } from '../retrieval/normalize';
 import { serializeProfessionalAvailability } from '../../professionalAvailability.service';
+import { serializeClientHiringStatus } from '../../clientHiringStatus.service';
 
 /**
  * People — active users; excludes blocked; name/username match.
@@ -29,9 +30,11 @@ export const peopleAdapter: SearchDomainAdapter = {
         username: true,
         avatar: true,
         isVerified: true,
+        role: true,
         country: true,
         freelancerPlanActive: true,
-        professionalAvailability: true
+        professionalAvailability: true,
+        clientHiringStatus: true
       }
     });
 
@@ -53,7 +56,8 @@ export const peopleAdapter: SearchDomainAdapter = {
           verified: user.isVerified,
           country: user.country || undefined,
           freelancer: Boolean(user.freelancerPlanActive),
-          availableForHire: Boolean(serializeProfessionalAvailability(user.professionalAvailability, { publicOnly: true }))
+          availableForHire: Boolean(serializeProfessionalAvailability(user.professionalAvailability, { publicOnly: true })),
+          weAreHiring: Boolean(serializeClientHiringStatus(user.clientHiringStatus, { publicOnly: true, targetRole: user.role }))
         }
       };
     });

@@ -18,6 +18,7 @@ import {
 } from '../controllers/userController';
 import { followUser, unfollowUser, listFollowers, listFollowing } from '../controllers/social.controller';
 import { getPublicAvailability } from '../controllers/professionalAvailability.controller';
+import { getPublicClientHiringStatus } from '../controllers/clientHiringStatus.controller';
 
 const router = express.Router();
 
@@ -34,6 +35,7 @@ router.get('/:userId/profile', getUserProfile);
 router.get('/:userId/storefront', getUserStorefront);
 router.get('/:userId/trust-score', getUserTrustScore);
 router.get('/:userId/availability', getPublicAvailability);
+router.get('/:userId/hiring-status', getPublicClientHiringStatus);
 router.put('/:userId/profile', authMiddleware, updateUserProfile);
 router.post('/:userId/views', authMiddleware, logProfileView);
 router.get('/:userId/viewers', authMiddleware, listProfileViewers);

@@ -233,6 +233,7 @@ model User {
   // Insights & growth intelligence (additive layer)
   professionalScore         ProfessionalScore?
   professionalAvailability  ProfessionalAvailability?
+  clientHiringStatus        ClientHiringStatus?
   insightEvents             InsightEvent[]
   insightAchievements       UserAchievement[]
   insightStreak             UserStreak?
@@ -374,6 +375,43 @@ enum ProfessionalAvailabilityTiming {
 }
 
 enum ProfessionalAvailabilityVisibility {
+  PUBLIC
+  HIDDEN
+}
+
+model ClientHiringStatus {
+  id           String                    @id @default(cuid())
+  userId       String                    @unique
+  status       ClientHiringStatusState   @default(INACTIVE)
+  hiringTypes  String[]                  @default([])
+  focusAreas   String[]                  @default([])
+  timing       ClientHiringTiming        @default(FLEXIBLE)
+  visibility   ClientHiringVisibility    @default(PUBLIC)
+  isActive     Boolean                   @default(false)
+  expiresAt    DateTime?
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, isActive, visibility])
+  @@index([updatedAt])
+}
+
+enum ClientHiringStatusState {
+  ACTIVE
+  PAUSED
+  INACTIVE
+}
+
+enum ClientHiringTiming {
+  AVAILABLE_NOW
+  WITHIN_ONE_WEEK
+  WITHIN_ONE_MONTH
+  FLEXIBLE
+}
+
+enum ClientHiringVisibility {
   PUBLIC
   HIDDEN
 }
