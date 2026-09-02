@@ -301,6 +301,20 @@ export interface UserProfile extends StructuredLocationFields {
   avatarUrl?: string;
   professional_identity?: ProfessionalIdentitySummary | null;
   professionalIdentity?: ProfessionalIdentitySummary | null;
+  availability?: ProfessionalAvailability | null;
+  professionalAvailability?: ProfessionalAvailability | null;
+}
+
+export interface ProfessionalAvailability {
+  status: 'ACTIVE' | 'PAUSED' | 'INACTIVE';
+  availabilityTypes: string[];
+  services: string[];
+  workPreference: 'REMOTE' | 'ONSITE' | 'HYBRID' | 'FLEXIBLE';
+  timing: 'AVAILABLE_NOW' | 'WITHIN_ONE_WEEK' | 'WITHIN_ONE_MONTH' | 'FLEXIBLE';
+  availableFrom?: string | null;
+  expiresAt?: string | null;
+  visibility: 'PUBLIC' | 'HIDDEN';
+  isActive: boolean;
 }
 
 export interface ProfessionalIdentityClub {

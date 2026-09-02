@@ -4,7 +4,7 @@ import { useUser } from '../context/UserContext';
 import { useContent } from '../context/ContentContext';
 import { UserService } from '../services/user';
 import { SearchService } from '../services/search';
-import { UserProfile, PortfolioItem, Experience, Education, Certification, UploadedFile } from '../types';
+import { UserProfile, ProfessionalAvailability, PortfolioItem, Experience, Education, Certification, UploadedFile } from '../types';
 import { useNotification } from '../context/NotificationContext';
 import { 
     User, Briefcase, GraduationCap, Award, Layers, Video, Save, Plus, Trash2, 
@@ -45,7 +45,11 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
     const { showNotification } = useNotification();
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState<'basic' | 'portfolio' | 'experience' | 'education' | 'skills'>('basic');
+    const [activeTab, setActiveTab] = useState<'basic' | 'portfolio' | 'experience' | 'education' | 'skills' | 'availability'>('basic');
+    const [availabilityDraft, setAvailabilityDraft] = useState<ProfessionalAvailability>({
+        status: 'INACTIVE', availabilityTypes: [], services: [], workPreference: 'FLEXIBLE',
+        timing: 'FLEXIBLE', availableFrom: null, expiresAt: null, visibility: 'PUBLIC', isActive: false
+    });
     const [isSaving, setIsSaving] = useState(false);
     const [displayName, setDisplayName] = useState('');
     
@@ -198,7 +202,10 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
 
             try {
                 const data = await UserService.getMyProfile();
-                if (mounted) setProfile(data);
+                if (mounted) {
+                    setProfile(data);
+                    if (data.availability) setAvailabilityDraft(data.availability);
+                }
             } catch (error: any) {
                 if (mounted) {
                     showNotification('alert', 'Profile Load Failed', error?.message || 'Unable to load profile.');
@@ -296,6 +303,20 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
             showNotification('success', 'Profile Updated', 'Your changes have been saved successfully.');
         } catch (e: any) {
             showNotification('alert', 'Error', e?.message || 'Failed to save profile.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleSaveAvailability = async () => {
+        setIsSaving(true);
+        try {
+            const saved = await UserService.updateMyAvailability(availabilityDraft);
+            setAvailabilityDraft(saved || availabilityDraft);
+            setProfile((prev) => prev ? { ...prev, availability: saved, professionalAvailability: saved } : prev);
+            showNotification('success', 'Availability Updated', 'Your professional availability settings have been saved.');
+        } catch (e: any) {
+            showNotification('alert', 'Error', e?.message || 'Failed to save availability.');
         } finally {
             setIsSaving(false);
         }
@@ -772,6 +793,7 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                                     { id: 'experience', label: 'Experience', icon: Briefcase },
                                     { id: 'education', label: 'Education', icon: GraduationCap },
                                     { id: 'skills', label: 'Skills & Certs', icon: Award },
+                                    { id: 'availability', label: 'Available for Hire', icon: CheckCircle },
                                 ].map(item => (
                                     <button
                                         key={item.id}
@@ -1259,6 +1281,56 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                                             </div>
                                         </div>
                                     ))}
+                                </div>
+                            )}
+
+                            {/* AVAILABILITY */}
+                            {activeTab === 'availability' && (
+                                <div className="space-y-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm animate-fade-in">
+                                    <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-4">
+                                        <div>
+                                            <h3 className="text-lg font-bold text-gray-900">Available for Hire</h3>
+                                            <p className="mt-1 text-sm text-gray-500">Let verified visitors know when you are open to professional work.</p>
+                                        </div>
+                                        <label className="inline-flex min-h-11 cursor-pointer items-center gap-3 text-sm font-medium text-gray-700">
+                                            <input type="checkbox" className="h-5 w-5 accent-blue-600" checked={availabilityDraft.isActive} onChange={(e) => setAvailabilityDraft((prev) => ({ ...prev, isActive: e.target.checked, status: e.target.checked ? 'ACTIVE' : 'INACTIVE' }))} />
+                                            Accept new opportunities
+                                        </label>
+                                    </div>
+                                    <fieldset>
+                                        <legend className="mb-2 text-sm font-semibold text-gray-800">Work types</legend>
+                                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                            {['FREELANCE', 'FULL_TIME', 'PART_TIME', 'CONTRACT', 'CONSULTING', 'COLLABORATION'].map((type) => (
+                                                <label key={type} className="flex min-h-11 items-center gap-2 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 hover:bg-gray-50">
+                                                    <input type="checkbox" className="h-4 w-4 accent-blue-600" checked={availabilityDraft.availabilityTypes.includes(type)} onChange={(e) => setAvailabilityDraft((prev) => ({ ...prev, availabilityTypes: e.target.checked ? [...prev.availabilityTypes, type] : prev.availabilityTypes.filter((item) => item !== type) }))} />
+                                                    {type.replace('_', ' ').toLowerCase().replace(/(^| )\S/g, (letter) => letter.toUpperCase())}
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </fieldset>
+                                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                        <label className="text-sm font-medium text-gray-700">Work preference
+                                            <select className="mt-2 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3" value={availabilityDraft.workPreference} onChange={(e) => setAvailabilityDraft((prev) => ({ ...prev, workPreference: e.target.value as ProfessionalAvailability['workPreference'] }))}>
+                                                <option value="FLEXIBLE">Flexible</option><option value="REMOTE">Remote</option><option value="HYBRID">Hybrid</option><option value="ONSITE">On-site</option>
+                                            </select>
+                                        </label>
+                                        <label className="text-sm font-medium text-gray-700">Availability timing
+                                            <select className="mt-2 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3" value={availabilityDraft.timing} onChange={(e) => setAvailabilityDraft((prev) => ({ ...prev, timing: e.target.value as ProfessionalAvailability['timing'] }))}>
+                                                <option value="FLEXIBLE">Flexible</option><option value="AVAILABLE_NOW">Available now</option><option value="WITHIN_ONE_WEEK">Within one week</option><option value="WITHIN_ONE_MONTH">Within one month</option>
+                                            </select>
+                                        </label>
+                                    </div>
+                                    <label className="block text-sm font-medium text-gray-700">Services or focus areas
+                                        <input className="mt-2 min-h-11 w-full rounded-lg border border-gray-300 px-3" placeholder="Design, consulting, engineering" value={availabilityDraft.services.join(', ')} onChange={(e) => setAvailabilityDraft((prev) => ({ ...prev, services: e.target.value.split(',').map((item) => item.trim()).filter(Boolean) }))} />
+                                    </label>
+                                    <label className="flex min-h-11 items-center gap-3 text-sm text-gray-700">
+                                        <input type="checkbox" className="h-4 w-4 accent-blue-600" checked={availabilityDraft.visibility === 'PUBLIC'} onChange={(e) => setAvailabilityDraft((prev) => ({ ...prev, visibility: e.target.checked ? 'PUBLIC' : 'HIDDEN' }))} />
+                                        Show this status on my public profile
+                                    </label>
+                                    <div className="flex flex-wrap gap-3">
+                                        <button type="button" onClick={handleSaveAvailability} disabled={isSaving} className="min-h-11 rounded-lg bg-blue-600 px-5 font-semibold text-white hover:bg-blue-700 disabled:opacity-60">Save availability</button>
+                                        {availabilityDraft.isActive && <button type="button" onClick={async () => { const saved = await UserService.pauseMyAvailability(); if (saved) { setAvailabilityDraft(saved); setProfile((prev) => prev ? { ...prev, availability: saved, professionalAvailability: saved } : prev); } }} className="min-h-11 rounded-lg border border-gray-300 px-5 font-semibold text-gray-700 hover:bg-gray-50">Pause</button>}
+                                    </div>
                                 </div>
                             )}
 

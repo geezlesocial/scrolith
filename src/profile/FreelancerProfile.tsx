@@ -213,6 +213,11 @@ const FreelancerProfile = () => {
     [publicUser?.isProFreelancer, publicUser?.isVerified, publicUser?.verificationLevel]
   );
   const publicGender = String(profile?.gender || '').trim();
+  const availableForHire = Boolean(
+    profile?.availability?.status === 'ACTIVE' &&
+    profile.availability.isActive &&
+    profile.availability.visibility === 'PUBLIC'
+  );
   const publicBirthMonthDay = String((profile as any)?.birthMonthDay || (profile as any)?.birth_month_day || '').trim();
   const storefrontMerchantSummary = useMemo(
     () => storefront?.merchantSummary ?? storefront?.merchant_summary ?? null,
@@ -780,6 +785,7 @@ const FreelancerProfile = () => {
                                   if (stories.length > 0) openStory(stories[0]);
                                 }}
                                 className="relative shrink-0 self-center sm:self-auto"
+                                aria-label={publicUser?.name ? `View ${publicUser.name}'s profile photo` : 'View profile photo'}
                             >
                                 <EnterpriseAvatar
                                     className={`!h-24 !w-24 border-4 border-white shadow-md sm:!h-28 sm:!w-28 md:!h-32 md:!w-32 ${
@@ -796,6 +802,9 @@ const FreelancerProfile = () => {
                                     rounded="xl"
                                     alt={publicUser?.name || 'Profile photo'}
                                 />
+                                {availableForHire && (
+                                  <span className="absolute -right-1 -top-1 h-5 w-5 rounded-full border-2 border-white bg-emerald-500" title="Available for hire" aria-label="Available for hire" />
+                                )}
                                 {storiesLoading && (
                                   <span className="absolute inset-x-0 -bottom-6 text-xs text-gray-400">Loading story...</span>
                                 )}
@@ -816,6 +825,11 @@ const FreelancerProfile = () => {
                                       />
                                     ) : null}
                                     <ProBadge role="freelancer" isPro={publicUser?.isProFreelancer} size="md" />
+                                    {availableForHire && (
+                                      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
+                                        <CheckCircle className="h-3.5 w-3.5" aria-hidden="true" /> Available for hire
+                                      </span>
+                                    )}
                                 </div>
                                 {publicUser?.username && (
                                   <p className="max-w-full break-all text-sm font-semibold text-blue-600">{cleanBaseUrl}/u/{publicUser.username}</p>

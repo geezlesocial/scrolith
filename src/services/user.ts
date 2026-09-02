@@ -3,6 +3,7 @@ import {
   Gig,
   StorefrontMerchantSummary,
   StorefrontSettings,
+  ProfessionalAvailability,
   User,
   UserProfile,
   UserSettings
@@ -279,6 +280,7 @@ const mapProfile = (p: any): UserProfile => {
     (coverPhotoUrl ? resolveAssetUrl(String(coverPhotoUrl)) : undefined) ||
     undefined;
   const professionalIdentity = normalizeProfessionalIdentity(p.professional_identity ?? p.professionalIdentity);
+  const availability = (p.availability ?? p.professionalAvailability) as ProfessionalAvailability | null | undefined;
   return {
     user_id: p.user_id ?? p.userId,
     userId: p.user_id ?? p.userId,
@@ -722,6 +724,31 @@ export const UserService = {
   updateMyProfile: async (data: Partial<UserProfile>): Promise<UserProfile> => {
     const response = await api.put('/profile/me', toProfilePayload(data));
     return mapProfile(extractData<UserProfile>(response));
+  },
+
+  getMyAvailability: async (): Promise<ProfessionalAvailability | null> => {
+    const response = await api.get('/profile/me/availability');
+    return extractData<ProfessionalAvailability | null>(response);
+  },
+
+  updateMyAvailability: async (data: Partial<ProfessionalAvailability>): Promise<ProfessionalAvailability | null> => {
+    const response = await api.put('/profile/me/availability', data);
+    return extractData<ProfessionalAvailability | null>(response);
+  },
+
+  pauseMyAvailability: async (): Promise<ProfessionalAvailability | null> => {
+    const response = await api.post('/profile/me/availability/pause');
+    return extractData<ProfessionalAvailability | null>(response);
+  },
+
+  resumeMyAvailability: async (): Promise<ProfessionalAvailability | null> => {
+    const response = await api.post('/profile/me/availability/resume');
+    return extractData<ProfessionalAvailability | null>(response);
+  },
+
+  disableMyAvailability: async (): Promise<ProfessionalAvailability | null> => {
+    const response = await api.delete('/profile/me/availability');
+    return extractData<ProfessionalAvailability | null>(response);
   },
 
   getUserBasic: async (userId: string): Promise<User> => {
