@@ -4,13 +4,13 @@ import { useUser } from '../context/UserContext';
 import { useContent } from '../context/ContentContext';
 import { UserService } from '../services/user';
 import { SearchService } from '../services/search';
-import { UserProfile, ProfessionalAvailability, ClientHiringStatus, PortfolioItem, Experience, Education, Certification, UploadedFile } from '../types';
+import { UserProfile, ProfessionalAvailability, ClientHiringStatus, PortfolioItem, Experience, Education, Certification, UploadedFile, UserRole } from '../types';
 import { useNotification } from '../context/NotificationContext';
 import { 
     User, Briefcase, GraduationCap, Award, Layers, Video, Save, Plus, Trash2, 
     Upload, Link as LinkIcon, CheckCircle, ArrowLeft, Camera, Loader2, Building2, X
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import FilePickerModal from '../dashboard/shared/FilePickerModal';
 import { FileService } from '../services/files';
 import { Capacitor } from '@capacitor/core';
@@ -26,6 +26,7 @@ const LocationPicker = React.lazy(() => import('../components/common/LocationPic
 
 interface EditProfileProps {
     isEmbedded?: boolean;
+    activeRole?: UserRole | 'client';
 }
 
 type CompanyPageSuggestion = {
@@ -38,10 +39,11 @@ type CompanyPageSuggestion = {
     avatarUrl?: string;
 };
 
-const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
+const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false, activeRole }) => {
     const { user, updateUser } = useUser();
     const { settings } = useContent();
     const navigate = useNavigate();
+    const location = useLocation();
     const { showNotification } = useNotification();
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [loading, setLoading] = useState(true);
@@ -104,6 +106,15 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
             { key: 'female', label: 'Female' }
         ];
     }, [profileDemographics]);
+
+    // Dashboard role switches are contextual; keep the persisted user role authoritative for API access.
+    const profileViewRole = useMemo<UserRole | 'client'>(() => {
+        if (activeRole) return activeRole;
+        const asParam = new URLSearchParams(location.search).get('as')?.toLowerCase();
+        if (asParam?.startsWith('f')) return UserRole.FREELANCER;
+        if (asParam?.startsWith('e') || asParam?.startsWith('c')) return UserRole.EMPLOYER;
+        return user?.role || UserRole.GUEST;
+    }, [activeRole, location.search, user?.role]);
 
     useEffect(() => {
         const query = companyLookupQuery.trim();
@@ -223,7 +234,7 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
         return () => {
             mounted = false;
         };
-    }, [user?.id, showNotification]);
+    }, [profileViewRole, user?.id, showNotification]);
 
     useEffect(() => {
         if (!user) return;
@@ -296,6 +307,20 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
         if (!profile || !user) return;
         setIsSaving(true);
         try {
+            if (activeTab === 'availability') {
+                const savedAvailability = await UserService.updateMyAvailability(availabilityDraft);
+                setAvailabilityDraft(savedAvailability || availabilityDraft);
+                setProfile((prev) => prev ? { ...prev, availability: savedAvailability, professionalAvailability: savedAvailability } : prev);
+                showNotification('success', 'Availability Updated', 'Your professional availability settings have been saved.');
+                return;
+            }
+            if (activeTab === 'hiring' && canEditClientHiring) {
+                const savedHiring = await UserService.updateMyClientHiringStatus(hiringDraft);
+                setHiringDraft(savedHiring || hiringDraft);
+                setProfile((prev) => prev ? { ...prev, hiring: savedHiring, clientHiringStatus: savedHiring } : prev);
+                showNotification('success', 'Hiring Status Updated', 'Your We Are Hiring settings have been saved.');
+                return;
+            }
             const updated = await UserService.updateMyProfile(profile);
             setProfile(updated);
             const nextName = displayName.trim();
@@ -326,7 +351,7 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
         }
     };
 
-    const canEditClientHiring = ['employer', 'client'].includes(String(user?.role || '').toLowerCase());
+    const canEditClientHiring = profileViewRole === UserRole.EMPLOYER || profileViewRole === 'client';
 
     const handleSaveClientHiring = async () => {
         setIsSaving(true);

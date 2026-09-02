@@ -236,7 +236,7 @@ export const DashboardRouter: React.FC = () => {
         case 'affiliate-program':
           return <AffiliateDashboardModule />;
         case 'profile':
-          return <EditProfile isEmbedded={true} />;
+          return <EditProfile isEmbedded={true} activeRole={effectiveRole} />;
         case 'settings':
           return <SettingsModule />;
         case 'gcoin':
@@ -296,7 +296,7 @@ export const DashboardRouter: React.FC = () => {
         case 'affiliate-program':
           return <AffiliateDashboardModule />;
         case 'profile':
-          return <EditProfile isEmbedded={true} />;
+          return <EditProfile isEmbedded={true} activeRole={effectiveRole} />;
         case 'settings':
           return <SettingsModule />;
         case 'gcoin':
