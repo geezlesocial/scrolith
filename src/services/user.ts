@@ -4,6 +4,7 @@ import {
   StorefrontMerchantSummary,
   StorefrontSettings,
   ProfessionalAvailability,
+  ClientHiringStatus,
   User,
   UserProfile,
   UserSettings
@@ -281,6 +282,7 @@ const mapProfile = (p: any): UserProfile => {
     undefined;
   const professionalIdentity = normalizeProfessionalIdentity(p.professional_identity ?? p.professionalIdentity);
   const availability = (p.availability ?? p.professionalAvailability) as ProfessionalAvailability | null | undefined;
+  const hiring = (p.hiring ?? p.clientHiringStatus ?? p.client_hiring_status) as ClientHiringStatus | null | undefined;
   return {
     user_id: p.user_id ?? p.userId,
     userId: p.user_id ?? p.userId,
@@ -339,7 +341,9 @@ const mapProfile = (p: any): UserProfile => {
     responseRate: Number(p.response_rate ?? p.responseRate ?? 0),
     responseTime: p.response_time ?? p.responseTime ?? undefined,
     professional_identity: professionalIdentity,
-    professionalIdentity
+    professionalIdentity,
+    hiring,
+    clientHiringStatus: hiring
   };
 };
 
@@ -749,6 +753,31 @@ export const UserService = {
   disableMyAvailability: async (): Promise<ProfessionalAvailability | null> => {
     const response = await api.delete('/profile/me/availability');
     return extractData<ProfessionalAvailability | null>(response);
+  },
+
+  getMyClientHiringStatus: async (): Promise<ClientHiringStatus | null> => {
+    const response = await api.get('/profile/me/hiring-status');
+    return extractData<ClientHiringStatus | null>(response);
+  },
+
+  updateMyClientHiringStatus: async (data: Partial<ClientHiringStatus>): Promise<ClientHiringStatus | null> => {
+    const response = await api.put('/profile/me/hiring-status', data);
+    return extractData<ClientHiringStatus | null>(response);
+  },
+
+  pauseMyClientHiringStatus: async (): Promise<ClientHiringStatus | null> => {
+    const response = await api.post('/profile/me/hiring-status/pause');
+    return extractData<ClientHiringStatus | null>(response);
+  },
+
+  resumeMyClientHiringStatus: async (): Promise<ClientHiringStatus | null> => {
+    const response = await api.post('/profile/me/hiring-status/resume');
+    return extractData<ClientHiringStatus | null>(response);
+  },
+
+  disableMyClientHiringStatus: async (): Promise<ClientHiringStatus | null> => {
+    const response = await api.delete('/profile/me/hiring-status');
+    return extractData<ClientHiringStatus | null>(response);
   },
 
   getUserBasic: async (userId: string): Promise<User> => {

@@ -4,7 +4,7 @@ import { useUser } from '../context/UserContext';
 import { useContent } from '../context/ContentContext';
 import { UserService } from '../services/user';
 import { SearchService } from '../services/search';
-import { UserProfile, ProfessionalAvailability, PortfolioItem, Experience, Education, Certification, UploadedFile } from '../types';
+import { UserProfile, ProfessionalAvailability, ClientHiringStatus, PortfolioItem, Experience, Education, Certification, UploadedFile } from '../types';
 import { useNotification } from '../context/NotificationContext';
 import { 
     User, Briefcase, GraduationCap, Award, Layers, Video, Save, Plus, Trash2, 
@@ -45,10 +45,13 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
     const { showNotification } = useNotification();
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState<'basic' | 'portfolio' | 'experience' | 'education' | 'skills' | 'availability'>('basic');
+    const [activeTab, setActiveTab] = useState<'basic' | 'portfolio' | 'experience' | 'education' | 'skills' | 'availability' | 'hiring'>('basic');
     const [availabilityDraft, setAvailabilityDraft] = useState<ProfessionalAvailability>({
         status: 'INACTIVE', availabilityTypes: [], services: [], workPreference: 'FLEXIBLE',
         timing: 'FLEXIBLE', availableFrom: null, expiresAt: null, visibility: 'PUBLIC', isActive: false
+    });
+    const [hiringDraft, setHiringDraft] = useState<ClientHiringStatus>({
+        status: 'INACTIVE', hiringTypes: [], focusAreas: [], timing: 'FLEXIBLE', visibility: 'PUBLIC', isActive: false, expiresAt: null
     });
     const [isSaving, setIsSaving] = useState(false);
     const [displayName, setDisplayName] = useState('');
@@ -205,6 +208,7 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                 if (mounted) {
                     setProfile(data);
                     if (data.availability) setAvailabilityDraft(data.availability);
+                    if (data.hiring) setHiringDraft(data.hiring);
                 }
             } catch (error: any) {
                 if (mounted) {
@@ -317,6 +321,24 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
             showNotification('success', 'Availability Updated', 'Your professional availability settings have been saved.');
         } catch (e: any) {
             showNotification('alert', 'Error', e?.message || 'Failed to save availability.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const canEditClientHiring = ['employer', 'client'].includes(String(user?.role || '').toLowerCase());
+
+    const handleSaveClientHiring = async () => {
+        setIsSaving(true);
+        try {
+            const saved = await UserService.updateMyClientHiringStatus(hiringDraft);
+            if (saved) {
+                setHiringDraft(saved);
+                setProfile((prev) => prev ? { ...prev, hiring: saved, clientHiringStatus: saved } : prev);
+            }
+            showNotification('success', 'Hiring status updated', 'Your We Are Hiring settings have been saved.');
+        } catch (e: any) {
+            showNotification('alert', 'Error', e?.message || 'Failed to save hiring status.');
         } finally {
             setIsSaving(false);
         }
@@ -794,6 +816,7 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                                     { id: 'education', label: 'Education', icon: GraduationCap },
                                     { id: 'skills', label: 'Skills & Certs', icon: Award },
                                     { id: 'availability', label: 'Available for Hire', icon: CheckCircle },
+                                    ...(canEditClientHiring ? [{ id: 'hiring', label: 'We Are Hiring', icon: Briefcase }] : []),
                                 ].map(item => (
                                     <button
                                         key={item.id}
@@ -1330,6 +1353,50 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                                     <div className="flex flex-wrap gap-3">
                                         <button type="button" onClick={handleSaveAvailability} disabled={isSaving} className="min-h-11 rounded-lg bg-blue-600 px-5 font-semibold text-white hover:bg-blue-700 disabled:opacity-60">Save availability</button>
                                         {availabilityDraft.isActive && <button type="button" onClick={async () => { const saved = await UserService.pauseMyAvailability(); if (saved) { setAvailabilityDraft(saved); setProfile((prev) => prev ? { ...prev, availability: saved, professionalAvailability: saved } : prev); } }} className="min-h-11 rounded-lg border border-gray-300 px-5 font-semibold text-gray-700 hover:bg-gray-50">Pause</button>}
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'hiring' && canEditClientHiring && (
+                                <div className="space-y-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm animate-fade-in">
+                                    <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-4">
+                                        <div>
+                                            <h3 className="text-lg font-bold text-gray-900">We Are Hiring</h3>
+                                            <p className="mt-1 text-sm text-gray-500">Let qualified professionals know when your team is hiring.</p>
+                                        </div>
+                                        <label className="inline-flex min-h-11 cursor-pointer items-center gap-3 text-sm font-medium text-gray-700">
+                                            <input type="checkbox" className="h-5 w-5 accent-blue-600" checked={hiringDraft.isActive} onChange={(e) => setHiringDraft((prev) => ({ ...prev, isActive: e.target.checked, status: e.target.checked ? 'ACTIVE' : 'INACTIVE' }))} />
+                                            We are hiring
+                                        </label>
+                                    </div>
+                                    <fieldset>
+                                        <legend className="mb-2 text-sm font-semibold text-gray-800">Hiring for</legend>
+                                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                            {['FREELANCE', 'FULL_TIME', 'PART_TIME', 'CONTRACT', 'CONSULTING', 'AGENCIES'].map((type) => (
+                                                <label key={type} className="flex min-h-11 items-center gap-2 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 hover:bg-gray-50">
+                                                    <input type="checkbox" className="h-4 w-4 accent-blue-600" checked={hiringDraft.hiringTypes.includes(type)} onChange={(e) => setHiringDraft((prev) => ({ ...prev, hiringTypes: e.target.checked ? [...prev.hiringTypes, type] : prev.hiringTypes.filter((item) => item !== type) }))} />
+                                                    {type.replace('_', ' ').toLowerCase().replace(/(^| )\S/g, (letter) => letter.toUpperCase())}
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </fieldset>
+                                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                        <label className="text-sm font-medium text-gray-700">Hiring timeline
+                                            <select className="mt-2 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3" value={hiringDraft.timing} onChange={(e) => setHiringDraft((prev) => ({ ...prev, timing: e.target.value as ClientHiringStatus['timing'] }))}>
+                                                <option value="FLEXIBLE">Flexible</option><option value="AVAILABLE_NOW">Hiring now</option><option value="WITHIN_ONE_WEEK">Within one week</option><option value="WITHIN_ONE_MONTH">Within one month</option>
+                                            </select>
+                                        </label>
+                                        <label className="block text-sm font-medium text-gray-700">Focus areas
+                                            <input className="mt-2 min-h-11 w-full rounded-lg border border-gray-300 px-3" placeholder="Product, engineering, operations" value={hiringDraft.focusAreas.join(', ')} onChange={(e) => setHiringDraft((prev) => ({ ...prev, focusAreas: e.target.value.split(',').map((item) => item.trim()).filter(Boolean) }))} />
+                                        </label>
+                                    </div>
+                                    <label className="flex min-h-11 items-center gap-3 text-sm text-gray-700">
+                                        <input type="checkbox" className="h-4 w-4 accent-blue-600" checked={hiringDraft.visibility === 'PUBLIC'} onChange={(e) => setHiringDraft((prev) => ({ ...prev, visibility: e.target.checked ? 'PUBLIC' : 'HIDDEN' }))} />
+                                        Show this status on my public profile and in discovery
+                                    </label>
+                                    <div className="flex flex-wrap gap-3">
+                                        <button type="button" onClick={handleSaveClientHiring} disabled={isSaving} className="min-h-11 rounded-lg bg-blue-600 px-5 font-semibold text-white hover:bg-blue-700 disabled:opacity-60">Save hiring status</button>
+                                        {hiringDraft.isActive && <button type="button" onClick={async () => { const saved = await UserService.pauseMyClientHiringStatus(); if (saved) { setHiringDraft(saved); setProfile((prev) => prev ? { ...prev, hiring: saved, clientHiringStatus: saved } : prev); } }} className="min-h-11 rounded-lg border border-gray-300 px-5 font-semibold text-gray-700 hover:bg-gray-50">Pause</button>}
                                     </div>
                                 </div>
                             )}

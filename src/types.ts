@@ -303,6 +303,8 @@ export interface UserProfile extends StructuredLocationFields {
   professionalIdentity?: ProfessionalIdentitySummary | null;
   availability?: ProfessionalAvailability | null;
   professionalAvailability?: ProfessionalAvailability | null;
+  hiring?: ClientHiringStatus | null;
+  clientHiringStatus?: ClientHiringStatus | null;
 }
 
 export interface ProfessionalAvailability {
@@ -314,6 +316,16 @@ export interface ProfessionalAvailability {
   availableFrom?: string | null;
   expiresAt?: string | null;
   visibility: 'PUBLIC' | 'HIDDEN';
+  isActive: boolean;
+}
+
+export interface ClientHiringStatus {
+  status: 'ACTIVE' | 'PAUSED' | 'INACTIVE';
+  hiringTypes: string[];
+  focusAreas: string[];
+  timing: 'AVAILABLE_NOW' | 'WITHIN_ONE_WEEK' | 'WITHIN_ONE_MONTH' | 'FLEXIBLE';
+  visibility: 'PUBLIC' | 'HIDDEN';
+  expiresAt?: string | null;
   isActive: boolean;
 }
 

@@ -140,6 +140,7 @@ const FreelancerProfile = () => {
     isVerified?: boolean;
     verificationLevel?: string;
     username?: string;
+    role?: string;
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -214,9 +215,16 @@ const FreelancerProfile = () => {
   );
   const publicGender = String(profile?.gender || '').trim();
   const availableForHire = Boolean(
+    !['client', 'employer'].includes(String(publicUser?.role || '').toLowerCase()) &&
     profile?.availability?.status === 'ACTIVE' &&
     profile.availability.isActive &&
     profile.availability.visibility === 'PUBLIC'
+  );
+  const weAreHiring = Boolean(
+    ['client', 'employer'].includes(String(publicUser?.role || '').toLowerCase()) &&
+    profile?.hiring?.status === 'ACTIVE' &&
+    profile.hiring.isActive &&
+    profile.hiring.visibility === 'PUBLIC'
   );
   const publicBirthMonthDay = String((profile as any)?.birthMonthDay || (profile as any)?.birth_month_day || '').trim();
   const storefrontMerchantSummary = useMemo(
@@ -292,6 +300,7 @@ const FreelancerProfile = () => {
             profilePhotoFileId: profilePhotoFileId || undefined,
             profile_photo_file_id: profilePhotoFileId || undefined,
             username: (baseUser as any)?.username,
+            role: (baseUser as any)?.role,
             isProFreelancer: Boolean((baseUser as any)?.isProFreelancer ?? (baseUser as any)?.is_pro_freelancer),
             isVerified: Boolean((baseUser as any)?.isVerified ?? (baseUser as any)?.is_verified),
             verificationLevel:
@@ -828,6 +837,11 @@ const FreelancerProfile = () => {
                                     {availableForHire && (
                                       <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
                                         <CheckCircle className="h-3.5 w-3.5" aria-hidden="true" /> Available for hire
+                                      </span>
+                                    )}
+                                    {weAreHiring && (
+                                      <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">
+                                        <Briefcase className="h-3.5 w-3.5" aria-hidden="true" /> We are hiring
                                       </span>
                                     )}
                                 </div>
