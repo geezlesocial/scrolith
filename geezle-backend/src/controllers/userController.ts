@@ -9,6 +9,7 @@ import { serializeGig } from './gigs.controller';
 import { getStorefrontSettings, isUserStorefrontEnabled } from '../services/storefront.service';
 import { syncFileUsages } from '../utils/fileUsage';
 import { FileVisibility } from '@prisma/client';
+import { serializeProfessionalAvailability } from '../services/professionalAvailability.service';
 
 const nowIso = () => new Date().toISOString();
 
@@ -98,7 +99,7 @@ const formatBirthMonthDay = (value?: Date | string | null) => {
 
 const toProfileResponse = (
   profile: any,
-  options?: { includePrivateDob?: boolean; professionalIdentity?: any | null; userCountry?: string | null }
+  options?: { includePrivateDob?: boolean; professionalIdentity?: any | null; userCountry?: string | null; availability?: any | null }
 ) => ({
   user_id: profile.userId,
   title: profile.title || '',
@@ -142,7 +143,8 @@ const toProfileResponse = (
   response_rate: Number(profile.responseRate || 0),
   response_time: profile.responseTime || null,
   professional_identity: options?.professionalIdentity ?? null,
-  professionalIdentity: options?.professionalIdentity ?? null
+  professionalIdentity: options?.professionalIdentity ?? null,
+  availability: options?.availability ?? null
 });
 
 const toSettingsResponse = (settings: any) => ({
@@ -641,7 +643,10 @@ export const getUserProfile = async (req: Request, res: Response) => {
     const userId = req.params.userId;
     if (!userId) return fail(res, 400, 'Missing userId', 'ERR_BAD_REQUEST');
 
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { professionalAvailability: true }
+    });
     if (!user) return fail(res, 404, 'User not found', 'ERR_NOT_FOUND');
 
     const profile = await getOrCreateProfile(userId);
@@ -651,7 +656,10 @@ export const getUserProfile = async (req: Request, res: Response) => {
       toProfileResponse(profile, {
         includePrivateDob: canAccessUser(req, userId),
         professionalIdentity,
-        userCountry: user.country || null
+        userCountry: user.country || null,
+        availability: serializeProfessionalAvailability(user.professionalAvailability, {
+          publicOnly: !canAccessUser(req, userId)
+        })
       })
     );
   } catch (error: any) {

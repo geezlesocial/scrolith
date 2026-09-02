@@ -232,6 +232,7 @@ model User {
 
   // Insights & growth intelligence (additive layer)
   professionalScore         ProfessionalScore?
+  professionalAvailability  ProfessionalAvailability?
   insightEvents             InsightEvent[]
   insightAchievements       UserAchievement[]
   insightStreak             UserStreak?
@@ -329,6 +330,52 @@ model Profile {
   updatedAt               DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id])
+}
+
+model ProfessionalAvailability {
+  id               String                     @id @default(cuid())
+  userId           String                     @unique
+  status           ProfessionalAvailabilityStatus @default(INACTIVE)
+  availabilityTypes String[]                  @default([])
+  services         String[]                   @default([])
+  workPreference   ProfessionalWorkPreference @default(FLEXIBLE)
+  timing           ProfessionalAvailabilityTiming @default(FLEXIBLE)
+  availableFrom    DateTime?
+  expiresAt        DateTime?
+  visibility       ProfessionalAvailabilityVisibility @default(PUBLIC)
+  isActive         Boolean                    @default(false)
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, isActive, visibility])
+  @@index([updatedAt])
+}
+
+enum ProfessionalAvailabilityStatus {
+  ACTIVE
+  PAUSED
+  INACTIVE
+}
+
+enum ProfessionalWorkPreference {
+  REMOTE
+  ONSITE
+  HYBRID
+  FLEXIBLE
+}
+
+enum ProfessionalAvailabilityTiming {
+  AVAILABLE_NOW
+  WITHIN_ONE_WEEK
+  WITHIN_ONE_MONTH
+  FLEXIBLE
+}
+
+enum ProfessionalAvailabilityVisibility {
+  PUBLIC
+  HIDDEN
 }
 
 model ResumeDocument {

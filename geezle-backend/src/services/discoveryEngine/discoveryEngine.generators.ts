@@ -10,6 +10,7 @@ import type {
   RecommendationCandidate
 } from './discoveryEngine.types';
 import type { ViewerInterestProfile } from './discoveryEngine.types';
+import { serializeProfessionalAvailability } from '../professionalAvailability.service';
 
 const truncate = (s: string, max: number) =>
   s.length <= max ? s : `${s.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
@@ -295,7 +296,8 @@ export const generatePeople = async (ctx: GeneratorContext): Promise<GeneratorRe
         createdAt: true,
         updatedAt: true,
         role: true,
-        profile: { select: { title: true, skills: true, bio: true, location: true } }
+        profile: { select: { title: true, skills: true, bio: true, location: true } },
+        professionalAvailability: true
       }
     });
     return users
@@ -328,7 +330,8 @@ export const generatePeople = async (ctx: GeneratorContext): Promise<GeneratorRe
             engagement: 0.25,
             active: true,
             discoverable: true
-          }
+          },
+          metadata: { availability: serializeProfessionalAvailability(u.professionalAvailability, { publicOnly: true }) }
         };
       });
   });
@@ -354,7 +357,8 @@ export const generateFreelancers = async (ctx: GeneratorContext): Promise<Genera
         avatar: true,
         createdAt: true,
         updatedAt: true,
-        profile: { select: { title: true, skills: true, bio: true } }
+        profile: { select: { title: true, skills: true, bio: true } },
+        professionalAvailability: true
       }
     });
     // If role filter too strict, fall back to people with skills
@@ -373,7 +377,8 @@ export const generateFreelancers = async (ctx: GeneratorContext): Promise<Genera
               avatar: true,
               createdAt: true,
               updatedAt: true,
-              profile: { select: { title: true, skills: true, bio: true } }
+              profile: { select: { title: true, skills: true, bio: true } },
+              professionalAvailability: true
             }
           });
     return list
@@ -395,7 +400,8 @@ export const generateFreelancers = async (ctx: GeneratorContext): Promise<Genera
           completeness: 0.65,
           active: true,
           discoverable: true
-        }
+        },
+        metadata: { availability: serializeProfessionalAvailability(u.professionalAvailability, { publicOnly: true }) }
       }));
   });
 

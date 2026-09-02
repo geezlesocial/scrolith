@@ -1,6 +1,7 @@
 import prisma from '../../../utils/prismaClient';
 import type { SearchDomainAdapter } from './types';
 import { bestLexicalScore, containsFilter } from '../retrieval/normalize';
+import { serializeProfessionalAvailability } from '../../professionalAvailability.service';
 
 /**
  * Freelancers — active users with freelancer plan or active gigs signal.
@@ -40,7 +41,8 @@ export const freelancersAdapter: SearchDomainAdapter = {
         isVerified: true,
         freelancerPlanActive: true,
         country: true,
-        profile: { select: { title: true, bio: true } }
+        profile: { select: { title: true, bio: true } },
+        professionalAvailability: true
       }
     });
 
@@ -62,7 +64,8 @@ export const freelancersAdapter: SearchDomainAdapter = {
           username: user.username || undefined,
           verified: user.isVerified,
           freelancerPlanActive: user.freelancerPlanActive,
-          country: user.country || undefined
+          country: user.country || undefined,
+          availableForHire: Boolean(serializeProfessionalAvailability(user.professionalAvailability, { publicOnly: true }))
         }
       };
     });
