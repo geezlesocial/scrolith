@@ -1,12 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Users } from 'lucide-react';
 import { RecoService } from '../../services/reco';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
 import EnterpriseAvatar from '../common/EnterpriseAvatar';
 import FollowButton from '../../community/components/FollowButton';
-import { setFollowStatus } from '../../community/followState';
+import { setFollowStatus, useFollowStateMap } from '../../community/followState';
 import { useUser } from '../../context/UserContext';
+import { filterUnfollowedRecommendations, recommendationIsFollowing } from '../../utils/recommendationVisibility';
 
 type PeopleYouMayKnowRailProps = {
   className?: string;
@@ -20,6 +21,7 @@ type Suggestion = {
   username?: string | null;
   avatarUrl?: string | null;
   reason?: string | null;
+  isFollowing?: boolean;
 };
 
 const normalizeSuggestion = (raw: any): Suggestion | null => {
@@ -39,7 +41,7 @@ const normalizeSuggestion = (raw: any): Suggestion | null => {
     raw?.reason ||
     raw?.subtitle ||
     'Suggested for you';
-  return { id, name, username, avatarUrl, reason: String(reason) };
+  return { id, name, username, avatarUrl, reason: String(reason), isFollowing: recommendationIsFollowing(raw) };
 };
 
 /**
@@ -57,6 +59,12 @@ export default function PeopleYouMayKnowRail({
   const [retryToken, setRetryToken] = useState(0);
   const [followingIds, setFollowingIds] = useState<Record<string, boolean>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
+  const followStateMap = useFollowStateMap();
+
+  const visibleItems = useMemo(
+    () => items.filter((person) => !person.isFollowing && !followingIds[person.id] && followStateMap[person.id] !== true),
+    [followStateMap, followingIds, items]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -65,7 +73,7 @@ export default function PeopleYouMayKnowRail({
     void RecoService.getAccounts({ surface: 'who_to_follow', type: 'freelancer', limit })
       .then((rows) => {
         if (cancelled) return;
-        const next = (Array.isArray(rows) ? rows : [])
+        const next = filterUnfollowedRecommendations(Array.isArray(rows) ? rows : [])
           .map(normalizeSuggestion)
           .filter((row): row is Suggestion => Boolean(row));
         setItems(next);
@@ -88,6 +96,7 @@ export default function PeopleYouMayKnowRail({
     setFollowingIds((prev) => ({ ...prev, [person.id]: isFollowingNow }));
     setFollowStatus(person.id, isFollowingNow);
     if (!isFollowingNow) return;
+    setItems((prev) => prev.filter((row) => row.id !== person.id));
     void RecoService.submitFeedback({
       surface: 'who_to_follow',
       entityType: 'freelancer',
@@ -141,7 +150,7 @@ export default function PeopleYouMayKnowRail({
     }
   };
 
-  if (!loading && !loadError && items.length === 0) return null;
+  if (!loading && !loadError && visibleItems.length === 0) return null;
 
   return (
     <section
@@ -171,9 +180,9 @@ export default function PeopleYouMayKnowRail({
         </div>
       ) : (
         <ul className="space-y-2">
-          {items.map((person) => {
+          {visibleItems.map((person) => {
             const href = person.username ? `/u/${encodeURIComponent(person.username)}` : `/profile/${person.id}`;
-            const isFollowing = Boolean(followingIds[person.id]);
+            const isFollowing = Boolean(person.isFollowing || followingIds[person.id]);
             return (
               <li
                 key={person.id}

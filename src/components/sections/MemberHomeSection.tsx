@@ -112,6 +112,7 @@ import {
   resolvePostAttachmentPosterUrl
 } from '../../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
+import { filterUnfollowedRecommendations, recommendationIsFollowing } from '../../utils/recommendationVisibility';
 import { buildScrollVideoUrl } from '../../utils/scrollVideoRoutes';
 import { hydrateStoryAuthorAvatars } from '../../utils/storyAuthorAvatarHydration';
 import {
@@ -421,6 +422,7 @@ type ProfileCard = {
   reasons?: string[];
   whyRecommended?: string;
   badge?: string;
+  isFollowing?: boolean;
 };
 
 type RecommendedPageCard = {
@@ -3833,7 +3835,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         await Promise.allSettled(tasks);
 
       const nextProfiles = profilesRes.status === 'fulfilled' && Array.isArray(profilesRes.value)
-        ? profilesRes.value.slice(0, maxProfiles).map((p: any) => {
+        ? filterUnfollowedRecommendations(profilesRes.value).slice(0, maxProfiles).map((p: any) => {
             const intel = resolvePersonRecoPresentation(p);
             return {
               id: (p?.account?.id || p?.entityId || p?.id || p?.userId || p?.user_id || '').toString(),
@@ -3853,7 +3855,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 : 'freelancer') as 'freelancer' | 'client',
               reasons: intel.reasons,
               whyRecommended: intel.whyRecommended,
-              badge: intel.badge
+              badge: intel.badge,
+              isFollowing: recommendationIsFollowing(p)
             };
           })
         : [];
@@ -3962,7 +3965,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
       const nextPages =
         pagesRes.status === 'fulfilled' && Array.isArray(pagesRes.value)
-          ? pagesRes.value
+          ? filterUnfollowedRecommendations(pagesRes.value)
               .map((page: any) => normalizeRecommendedPage(page))
               .filter(Boolean)
               .slice(0, maxPagesRecommendations) as RecommendedPageCard[]
@@ -6513,16 +6516,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
       if (targetType === 'page') {
         setRecommendedPages((current) =>
-          current.map((entry) => {
-            if (entry.id !== targetId) return entry;
-            if (Boolean(entry.isFollowing) === isFollowing) return entry;
-            return {
-              ...entry,
-              isFollowing,
-              followersCount: Math.max(0, (entry.followersCount || 0) + (isFollowing ? 1 : -1))
-            };
-          })
+          current.filter((entry) => entry.id !== targetId || !isFollowing)
         );
+      } else if (isFollowing) {
+        setProfiles((current) => current.filter((entry) => entry.id !== targetId));
+        setEmployers((current) => current.filter((entry) => entry.id !== targetId));
+        setFreelancers((current) => current.filter((entry) => entry.id !== targetId));
       }
     };
     window.addEventListener('community:follow_updated', onFollowUpdated as EventListener);

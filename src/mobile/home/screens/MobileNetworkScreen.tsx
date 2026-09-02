@@ -21,6 +21,27 @@ const normalizeUser = (value: any) => ({
   avatar: value?.avatar || value?.avatarUrl || value?.avatar_url || null
 });
 
+const networkUserId = (row: any) =>
+  String(
+    row?.user?.id ||
+      row?.followee?.id ||
+      row?.follower?.id ||
+      row?.userId ||
+      row?.user_id ||
+      row?.id ||
+      ''
+  ).trim();
+
+const uniqueNetworkItems = (rows: any[]) => {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const id = networkUserId(row);
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+};
+
 export default function MobileNetworkScreen() {
   const { user } = useUser();
   const [tab, setTab] = useState<Tab>('following');
@@ -29,11 +50,19 @@ export default function MobileNetworkScreen() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actionBusyById, setActionBusyById] = useState<Record<string, boolean>>({});
+  const [actionErrorById, setActionErrorById] = useState<Record<string, string>>({});
+  const [followedBackIds, setFollowedBackIds] = useState<Set<string>>(new Set());
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const armedRef = useRef(false);
+  const requestIdRef = useRef(0);
+  const loadingRef = useRef(false);
 
   const load = async (mode: 'initial' | 'more') => {
     if (!user?.id) return;
+    if (mode === 'more' && loadingRef.current) return;
+    loadingRef.current = true;
+    const requestId = ++requestIdRef.current;
     try {
       setError(null);
       if (mode === 'initial') setLoading(true);
@@ -44,21 +73,115 @@ export default function MobileNetworkScreen() {
           ? await CommunityService.listMyFollowing({ cursor: mode === 'more' ? cursor || undefined : undefined, limit: 20 })
           : await CommunityService.listMyFollowers({ cursor: mode === 'more' ? cursor || undefined : undefined, limit: 20 });
 
-      const nextItems = Array.isArray(resp?.items) ? resp.items : [];
+      if (requestId !== requestIdRef.current) return;
+      const nextItems = uniqueNetworkItems(Array.isArray(resp?.items) ? resp.items : []);
       const nextCursor = resp?.nextCursor ? String(resp.nextCursor) : null;
       setCursor(nextCursor);
-      setItems((prev) => (mode === 'more' ? [...prev, ...nextItems] : nextItems));
+      setItems((prev) => uniqueNetworkItems(mode === 'more' ? [...prev, ...nextItems] : nextItems));
     } catch (e: any) {
-      setError(e?.response?.data?.error ?? e?.message ?? 'Failed to load network.');
+      if (requestId === requestIdRef.current) {
+        setError(e?.response?.data?.error ?? e?.message ?? 'Failed to load network.');
+      }
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
+      if (requestId === requestIdRef.current) {
+        loadingRef.current = false;
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    }
+  };
+
+  const setActionBusy = (id: string, busy: boolean) => {
+    setActionBusyById((prev) => {
+      const next = { ...prev };
+      if (busy) next[id] = true;
+      else delete next[id];
+      return next;
+    });
+  };
+
+  const handleUnfollow = async (followId: string, userId: string) => {
+    if (!followId || !userId || actionBusyById[userId]) return;
+    const previous = items;
+    setActionBusy(userId, true);
+    setActionErrorById((prev) => {
+      const next = { ...prev };
+      delete next[userId];
+      return next;
+    });
+    setItems((current) => current.filter((row) => networkUserId(row) !== userId));
+    try {
+      await CommunityService.unfollowTarget(followId);
+    } catch (e: any) {
+      setItems(previous);
+      setActionErrorById((prev) => ({
+        ...prev,
+        [userId]: e?.response?.data?.error ?? e?.message ?? 'Unable to update following.'
+      }));
+    } finally {
+      setActionBusy(userId, false);
+    }
+  };
+
+  const handleBlockToggle = async (userId: string, isBlocked: boolean, row: any) => {
+    if (!userId || actionBusyById[userId]) return;
+    setActionBusy(userId, true);
+    setActionErrorById((prev) => {
+      const next = { ...prev };
+      delete next[userId];
+      return next;
+    });
+    if (!isBlocked) {
+      setItems((current) => current.filter((entry) => networkUserId(entry) !== userId));
+    } else {
+      setItems((current) => current.map((entry) => (networkUserId(entry) === userId ? { ...entry, isBlocked: false } : entry)));
+    }
+    try {
+      if (isBlocked) await CommunityService.unblockUser(userId);
+      else await CommunityService.blockUser(userId);
+    } catch (e: any) {
+      setItems((current) => {
+        if (isBlocked) return current.map((entry) => (networkUserId(entry) === userId ? row : entry));
+        return uniqueNetworkItems([...current, row]);
+      });
+      setActionErrorById((prev) => ({
+        ...prev,
+        [userId]: e?.response?.data?.error ?? e?.message ?? 'Unable to update block status.'
+      }));
+    } finally {
+      setActionBusy(userId, false);
+    }
+  };
+
+  const handleFollowBack = async (userId: string) => {
+    if (!userId || actionBusyById[userId] || followedBackIds.has(userId)) return;
+    setActionBusy(userId, true);
+    setActionErrorById((prev) => {
+      const next = { ...prev };
+      delete next[userId];
+      return next;
+    });
+    try {
+      await CommunityService.followTarget({ targetType: 'user', targetId: userId });
+      setFollowedBackIds((prev) => new Set(prev).add(userId));
+      window.dispatchEvent(new CustomEvent('community:follow_updated', {
+        detail: { actorUserId: user.id, targetUserId: userId, targetType: 'user', targetId: userId, isFollowing: true, action: 'follow' }
+      }));
+    } catch (e: any) {
+      setActionErrorById((prev) => ({
+        ...prev,
+        [userId]: e?.response?.data?.error ?? e?.message ?? 'Unable to follow back.'
+      }));
+    } finally {
+      setActionBusy(userId, false);
     }
   };
 
   useEffect(() => {
     setCursor(null);
     setItems([]);
+    setFollowedBackIds(new Set());
+    requestIdRef.current += 1;
     void load('initial');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, user?.id]);
@@ -165,9 +288,12 @@ export default function MobileNetworkScreen() {
           const u = normalizeUser(row?.user || row?.followee || row?.follower || row);
           const canUnfollow = tab === 'following' && followId;
           const canBlock = tab === 'followers' && u.id;
+          const busy = Boolean(actionBusyById[u.id]);
+          const followBackDone = followedBackIds.has(u.id);
 
           return (
-            <div key={followId || u.id} className="flex items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+            <React.Fragment key={followId || u.id}>
+            <div className="flex items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
               <Link to={`/u/${encodeURIComponent(u.username || u.id)}`} className="flex min-w-0 items-center gap-3 touch-manipulation">
                 <div className="h-12 w-12 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
                   {u.avatar ? <img src={u.avatar} alt="" className="h-full w-full object-cover" /> : null}
@@ -183,7 +309,8 @@ export default function MobileNetworkScreen() {
                   <button
                     type="button"
                     className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                    onClick={() => void CommunityService.unfollowTarget(followId).then(() => load('initial')).catch(() => {})}
+                    onClick={() => void handleUnfollow(followId, u.id)}
+                    disabled={busy}
                     aria-label={`Unfollow ${u.name}`}
                   >
                     <UserMinus className="h-4 w-4" aria-hidden="true" />
@@ -198,10 +325,8 @@ export default function MobileNetworkScreen() {
                       'inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold',
                       isBlocked ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                     ].join(' ')}
-                    onClick={() => {
-                      const op = isBlocked ? CommunityService.unblockUser(u.id) : CommunityService.blockUser(u.id);
-                      void op.then(() => load('initial')).catch(() => {});
-                    }}
+                    onClick={() => void handleBlockToggle(u.id, isBlocked, row)}
+                    disabled={busy}
                     aria-label={isBlocked ? `Unblock ${u.name}` : `Block ${u.name}`}
                   >
                     <Shield className="h-4 w-4" aria-hidden="true" />
@@ -212,16 +337,26 @@ export default function MobileNetworkScreen() {
                 {tab === 'followers' && u.id ? (
                   <button
                     type="button"
-                    className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
-                    onClick={() => void CommunityService.followTarget({ targetType: 'user', targetId: u.id }).catch(() => {})}
-                    aria-label={`Follow ${u.name} back`}
+                    className={[
+                      'inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold',
+                      followBackDone ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'bg-slate-900 text-white'
+                    ].join(' ')}
+                    onClick={() => void handleFollowBack(u.id)}
+                    disabled={busy || followBackDone}
+                    aria-label={followBackDone ? `${u.name} followed` : `Follow ${u.name} back`}
                   >
                     <UserPlus className="h-4 w-4" aria-hidden="true" />
-                    Follow back
+                    {followBackDone ? 'Following' : 'Follow back'}
                   </button>
                 ) : null}
               </div>
             </div>
+            {actionErrorById[u.id] ? (
+              <div className="mt-2 text-right text-xs font-medium text-red-600" role="alert">
+                {actionErrorById[u.id]}
+              </div>
+            ) : null}
+            </React.Fragment>
           );
         })}
 

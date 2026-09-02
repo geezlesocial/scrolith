@@ -73,6 +73,7 @@ import {
   resolvePageRecoPresentation,
   resolvePersonRecoPresentation
 } from '../../../utils/feedIntelligence';
+import { filterUnfollowedRecommendations, recommendationIsFollowing } from '../../../utils/recommendationVisibility';
 import { MemberFeedService } from '../../../services/memberFeed';
 import {
   buildNormalizedViewerFeedPreference,
@@ -2567,7 +2568,7 @@ export default function MobileFeed({
           results.forEach((r) => {
             if (r.status === 'fulfilled' && Array.isArray(r.value)) merged.push(...r.value);
           });
-          const mapped = merged
+          const mapped = filterUnfollowedRecommendations(merged)
             .map((p: any) => {
               const account = p?.account || p;
               const id = String(account?.id || p?.entityId || p?.id || p?.userId || '').trim();
@@ -2584,7 +2585,8 @@ export default function MobileFeed({
                 targetType: 'user' as const,
                 reasons: intel.reasons,
                 whyRecommended: intel.whyRecommended,
-                badge: intel.badge
+                badge: intel.badge,
+                isFollowing: recommendationIsFollowing(p)
               };
             })
             .filter(Boolean);
@@ -2612,7 +2614,7 @@ export default function MobileFeed({
       RecoService.getAccounts({ surface: 'member_home', type: 'page', limit: requestLimit })
         .then((items) => {
           if (cancelled) return;
-          const mapped = (Array.isArray(items) ? items : [])
+          const mapped = filterUnfollowedRecommendations(Array.isArray(items) ? items : [])
             .map((p: any) => {
               const account = p?.account || p;
               const id = String(account?.id || p?.entityId || p?.id || p?.pageId || '').trim();
@@ -2629,7 +2631,8 @@ export default function MobileFeed({
                 targetType: 'page' as const,
                 reasons: intel.reasons,
                 whyRecommended: intel.whyRecommended,
-                badge: intel.badge
+                badge: intel.badge,
+                isFollowing: recommendationIsFollowing(p)
               };
             })
             .filter(Boolean);

@@ -82,6 +82,7 @@ import {
   resolvePostAttachmentPosterUrl
 } from '../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../utils/userAvatar';
+import { filterUnfollowedRecommendations } from '../utils/recommendationVisibility';
 import { hydrateStoryAuthorAvatars } from '../utils/storyAuthorAvatarHydration';
 import {
   filterExistingActiveStories,
@@ -1629,10 +1630,12 @@ const CommunityHome = () => {
               }, {});
             });
             if (orchestrated.people.length) {
-              setRecommendedCommunityPeople((prev) => (prev.length ? prev : orchestrated.people.slice(0, 6)));
+              const people = filterUnfollowedRecommendations(orchestrated.people).slice(0, 6);
+              setRecommendedCommunityPeople((prev) => (prev.length ? prev : people));
             }
             if (orchestrated.pages.length) {
-              setRecommendedCommunityPages((prev) => (prev.length ? prev : orchestrated.pages.slice(0, 4)));
+              const pages = filterUnfollowedRecommendations(orchestrated.pages).slice(0, 4);
+              setRecommendedCommunityPages((prev) => (prev.length ? prev : pages));
             }
             const followSeed: Record<string, boolean> = {};
             const authorIds = new Set<string>();
@@ -1767,7 +1770,7 @@ const CommunityHome = () => {
 
         if (pagesResult.status === 'fulfilled') {
           const pages = Array.isArray(pagesResult.value) ? pagesResult.value : [];
-          const mappedPages = pages
+          const mappedPages = filterUnfollowedRecommendations(pages)
             .map((page: any) => {
               const source = page?.account || page || {};
               const id = String(source?.id || page?.entityId || page?.pageId || page?.id || '').trim();
@@ -1793,7 +1796,7 @@ const CommunityHome = () => {
 
         if (peopleResult.status === 'fulfilled') {
           const people = Array.isArray(peopleResult.value) ? peopleResult.value : [];
-          const mappedPeople = people
+          const mappedPeople = filterUnfollowedRecommendations(people)
             .map((account: any) => {
               const source = account?.user || account?.account || account || {};
               const id = String(
@@ -2125,26 +2128,11 @@ const CommunityHome = () => {
       const targetType = String(payload?.targetType || 'user').toLowerCase();
       if (targetType === 'page') {
         setRecommendedCommunityPages((prev) =>
-          prev.map((item) => {
-            if (String(item?.id || '') !== targetId) return item;
-            if (Boolean(item?.isFollowing) === isFollowing) return item;
-            return {
-              ...item,
-              isFollowing,
-              followersCount: Math.max(
-                0,
-                Number(item?.followersCount || 0) + (isFollowing ? 1 : -1)
-              )
-            };
-          })
+          prev.filter((item) => String(item?.id || '') !== targetId || !isFollowing)
         );
       } else {
         setRecommendedCommunityPeople((prev) =>
-          prev.map((item) =>
-            String(item?.id || '') === targetId
-              ? { ...item, isFollowing }
-              : item
-          )
+          prev.filter((item) => String(item?.id || '') !== targetId || !isFollowing)
         );
       }
     };

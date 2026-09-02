@@ -1,10 +1,12 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { RecoSignalChips } from '../../../components/feed/FeedIntelligenceSignals';
 import FollowButton from '../../../community/components/FollowButton';
 import { useUser } from '../../../context/UserContext';
 import { resolveUserAvatarUrl } from '../../../utils/userAvatar';
 import EnterpriseAvatar from '../../../components/common/EnterpriseAvatar';
+import { filterUnfollowedRecommendations } from '../../../utils/recommendationVisibility';
+import { useFollowStateMap } from '../../../community/followState';
 
 type SuggestedPersonOrPage = {
   id: string;
@@ -78,12 +80,38 @@ function FollowList({
   kind: 'people' | 'pages';
 }) {
   const { user } = useUser();
+  const followStateMap = useFollowStateMap();
   const [statusById, setStatusById] = useState<Record<string, 'idle' | 'ok' | 'error'>>({});
   const [errorById, setErrorById] = useState<Record<string, string>>({});
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const onFollowUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail || {};
+      const targetType = detail.targetType === 'page' ? 'page' : 'user';
+      if (targetType !== (kind === 'pages' ? 'page' : 'user')) return;
+      if (detail.actorUserId && user?.id && String(detail.actorUserId) !== String(user.id)) return;
+      if (detail.isFollowing !== true) return;
+      const targetId = String(detail.targetUserId || detail.targetId || '').trim();
+      if (!targetId) return;
+      setHiddenIds((prev) => new Set(prev).add(targetId));
+    };
+    window.addEventListener('community:follow_updated', onFollowUpdated as EventListener);
+    return () => window.removeEventListener('community:follow_updated', onFollowUpdated as EventListener);
+  }, [kind, user?.id]);
+
+  const visibleItems = useMemo(
+    () =>
+      filterUnfollowedRecommendations(
+        items.filter((item) => !hiddenIds.has(item.id)),
+        (item) => Boolean(item.isFollowing || followStateMap[item.id] === true)
+      ).slice(0, 4),
+    [followStateMap, hiddenIds, items]
+  );
 
   return (
     <div className="space-y-3">
-      {items.slice(0, 4).map((item) => {
+      {visibleItems.map((item) => {
         const avatarUrl =
           resolveUserAvatarUrl({
             id: item.id,
@@ -133,6 +161,9 @@ function FollowList({
                   window.location.href = '/auth/login';
                 }}
                 onSuccess={(isFollowing) => {
+                  if (isFollowing) {
+                    setHiddenIds((prev) => new Set(prev).add(item.id));
+                  }
                   setStatusById((prev) => ({ ...prev, [item.id]: isFollowing ? 'ok' : 'idle' }));
                   setErrorById((prev) => {
                     const next = { ...prev };
