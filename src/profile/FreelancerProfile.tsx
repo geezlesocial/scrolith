@@ -215,13 +215,11 @@ const FreelancerProfile = () => {
   );
   const publicGender = String(profile?.gender || '').trim();
   const availableForHire = Boolean(
-    !['client', 'employer'].includes(String(publicUser?.role || '').toLowerCase()) &&
     profile?.availability?.status === 'ACTIVE' &&
     profile.availability.isActive &&
     profile.availability.visibility === 'PUBLIC'
   );
   const weAreHiring = Boolean(
-    ['client', 'employer'].includes(String(publicUser?.role || '').toLowerCase()) &&
     profile?.hiring?.status === 'ACTIVE' &&
     profile.hiring.isActive &&
     profile.hiring.visibility === 'PUBLIC'

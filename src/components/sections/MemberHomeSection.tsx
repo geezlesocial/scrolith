@@ -423,6 +423,8 @@ type ProfileCard = {
   whyRecommended?: string;
   badge?: string;
   isFollowing?: boolean;
+  availableForHire?: boolean;
+  weAreHiring?: boolean;
 };
 
 type RecommendedPageCard = {
@@ -3856,7 +3858,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               reasons: intel.reasons,
               whyRecommended: intel.whyRecommended,
               badge: intel.badge,
-              isFollowing: recommendationIsFollowing(p)
+              isFollowing: recommendationIsFollowing(p),
+              availableForHire: Boolean(p?.account?.availableForHire ?? p?.availableForHire),
+              weAreHiring: Boolean(p?.account?.weAreHiring ?? p?.weAreHiring)
             };
           })
         : [];
@@ -10655,6 +10659,20 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                 ) : null}
                               </div>
                               <p className="truncate text-sm text-slate-500">{profile.subtitle}</p>
+                              {(profile.availableForHire || profile.weAreHiring) && (
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  {profile.availableForHire ? (
+                                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                      Available for hire
+                                    </span>
+                                  ) : null}
+                                  {profile.weAreHiring ? (
+                                    <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                                      We are hiring
+                                    </span>
+                                  ) : null}
+                                </div>
+                              )}
                             </div>
                           </Link>
                           <div className="flex gap-2">
