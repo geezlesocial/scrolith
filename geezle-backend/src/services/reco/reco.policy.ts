@@ -93,7 +93,7 @@ export const evaluateEligibilityGate = (input: {
   if (input.gating.excludeBlocked && input.blocked) {
     reasons.push('Viewer block relationship');
   }
-  if (input.surface === 'who_to_follow' && input.alreadyFollowing) {
+  if ((input.surface === 'who_to_follow' || input.surface === 'member_home') && input.alreadyFollowing) {
     reasons.push('Already followed by viewer');
   }
   if (input.accountAgeDays < input.gating.minAccountAgeDays) {
@@ -178,4 +178,3 @@ export const evaluateSafetyGate = (input: {
     }
   };
 };
-

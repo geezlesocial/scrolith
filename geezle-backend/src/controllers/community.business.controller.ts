@@ -1111,7 +1111,12 @@ export const getRecommendedBusinessPages = async (req: Request, res: Response) =
     const pages = await prisma.communityBusinessPage.findMany({
       where: {
         status: 'active',
-        ...(viewerId ? { ownerId: { not: viewerId } } : {})
+        ...(viewerId
+          ? {
+              ownerId: { not: viewerId },
+              followers: { none: { userId: viewerId } }
+            }
+          : {})
       },
       include: {
         owner: { select: { id: true, name: true, username: true, avatar: true } },
@@ -1704,6 +1709,5 @@ export const adminDeleteBusinessPage = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, error: error.message || 'Failed to delete page' });
   }
 };
-
 
 

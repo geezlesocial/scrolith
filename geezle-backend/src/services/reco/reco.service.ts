@@ -1686,6 +1686,7 @@ const hydrateAccountPayload = (candidate: CandidateRecord) => ({
   languages: candidate.languages,
   isVerified: candidate.isVerified,
   kycVerified: candidate.kycVerified,
+  isFollowing: candidate.alreadyFollowing,
   isActive: candidate.isActive,
   profileCompleteness: candidate.profileCompleteness,
   accountAgeDays: candidate.accountAgeDays,
