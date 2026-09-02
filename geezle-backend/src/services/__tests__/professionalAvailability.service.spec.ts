@@ -39,4 +39,13 @@ describe('professional availability', () => {
     const expired = { ...hidden, visibility: 'PUBLIC', expiresAt: new Date(Date.now() - 1000) };
     expect(serializeProfessionalAvailability(expired, { publicOnly: true })).toBeNull();
   });
+
+  test('preserves the owner state when visibility is hidden', () => {
+    const hidden = {
+      status: 'ACTIVE', availabilityTypes: [], services: [], workPreference: 'REMOTE', timing: 'FLEXIBLE',
+      availableFrom: null, expiresAt: null, visibility: 'HIDDEN', isActive: true
+    };
+    expect(serializeProfessionalAvailability(hidden)).toMatchObject({ status: 'ACTIVE', isActive: true });
+    expect(serializeProfessionalAvailability(hidden, { publicOnly: true })).toBeNull();
+  });
 });

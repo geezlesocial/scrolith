@@ -2,7 +2,6 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import {
   getOrCreateClientHiringStatus,
-  isClientOrEmployerRole,
   serializeClientHiringStatus,
   setClientHiringState,
   updateClientHiringStatus
@@ -12,21 +11,19 @@ const ok = (res: Response, data: unknown) => res.json({ success: true, data });
 const fail = (res: Response, status: number, message: string) => res.status(status).json({ success: false, error: message });
 const authUser = (req: Request) => req.user;
 
-const requireClientOrEmployer = (req: Request, res: Response) => {
+const requireAuthenticatedOwner = (req: Request, res: Response) => {
   const user = authUser(req);
   if (!user?.id) {
     fail(res, 401, 'Unauthorized');
     return null;
   }
-  if (!isClientOrEmployerRole(user.role)) {
-    fail(res, 403, 'We Are Hiring is available for client and employer accounts');
-    return null;
-  }
+  // Dashboard role switching is contextual because the platform stores one user
+  // identity. This self-scoped endpoint never accepts a target user or role.
   return user;
 };
 
 export const getMyClientHiringStatus = async (req: Request, res: Response) => {
-  const user = requireClientOrEmployer(req, res);
+  const user = requireAuthenticatedOwner(req, res);
   if (!user) return undefined;
   try {
     const status = await getOrCreateClientHiringStatus(user.id);
@@ -38,7 +35,7 @@ export const getMyClientHiringStatus = async (req: Request, res: Response) => {
 };
 
 export const updateMyClientHiringStatus = async (req: Request, res: Response) => {
-  const user = requireClientOrEmployer(req, res);
+  const user = requireAuthenticatedOwner(req, res);
   if (!user) return undefined;
   try {
     const status = await updateClientHiringStatus(user.id, req.body || {});
@@ -50,7 +47,7 @@ export const updateMyClientHiringStatus = async (req: Request, res: Response) =>
 };
 
 const updateState = async (req: Request, res: Response, state: 'ACTIVE' | 'PAUSED' | 'INACTIVE') => {
-  const user = requireClientOrEmployer(req, res);
+  const user = requireAuthenticatedOwner(req, res);
   if (!user) return undefined;
   try {
     const status = await setClientHiringState(user.id, state);

@@ -106,7 +106,7 @@ export const serializeProfessionalAvailability = (
     availableFrom: availability.availableFrom?.toISOString() ?? null,
     expiresAt: availability.expiresAt?.toISOString() ?? null,
     visibility: availability.visibility,
-    isActive: availability.isActive && isPubliclyAvailable(availability)
+    isActive: options.publicOnly ? isPubliclyAvailable(availability) : availability.isActive
   };
 };
 

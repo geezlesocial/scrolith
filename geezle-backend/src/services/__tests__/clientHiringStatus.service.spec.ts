@@ -37,4 +37,12 @@ describe('client hiring status', () => {
     expect(serializeClientHiringStatus({ ...status, expiresAt: new Date(Date.now() - 1000) }, { publicOnly: true, targetRole: 'EMPLOYER' })).toBeNull();
     expect(serializeClientHiringStatus(status, { publicOnly: true, targetRole: 'EMPLOYER' })).toMatchObject({ status: 'ACTIVE', isActive: true });
   });
+
+  test('returns the owner state without applying public role filtering', () => {
+    const status = {
+      status: 'ACTIVE', hiringTypes: [], focusAreas: [], timing: 'FLEXIBLE', visibility: 'PUBLIC',
+      isActive: true, expiresAt: null
+    };
+    expect(serializeClientHiringStatus(status, { targetRole: 'FREELANCER' })).toMatchObject({ status: 'ACTIVE', isActive: true });
+  });
 });
