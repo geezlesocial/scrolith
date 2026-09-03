@@ -128,7 +128,7 @@ const ScrolithaCopilotPanel: React.FC<ScrolithaCopilotPanelProps> = ({
           <div>
             <h2 className="text-sm font-semibold text-slate-900">Scrolitha Copilot</h2>
             <p className="text-[11px] text-slate-500">
-              {surface} · suggestions only · Ollama qwen3:14b
+              {surface} · suggestions only · Ollama llama3.2:3b
             </p>
           </div>
         </div>
