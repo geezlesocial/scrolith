@@ -14,6 +14,7 @@ import {
   FOUNDATION_CAPABILITIES,
   type AIFeatureFlags
 } from '../services/scrolithaAi';
+import { isScrolithaLocalOnly, SCROLITHA_LOCAL_MODEL } from '../services/scrolithaAi/config';
 import { listAIAudit, writeAIAudit } from '../services/scrolithaAi/audit';
 import prisma from '../utils/prismaClient';
 
@@ -66,6 +67,9 @@ export async function adminAIPutProvider(req: Request, res: Response) {
     const provider = String(req.params.provider || '').toUpperCase();
     if (!['OLLAMA', 'GEMINI', 'OPENAI', 'MOCK', 'GLOBAL'].includes(provider)) {
       return res.status(400).json({ success: false, error: 'Invalid provider' });
+    }
+    if (isScrolithaLocalOnly() && !['OLLAMA', 'GLOBAL'].includes(provider)) {
+      return res.status(400).json({ success: false, error: 'Only the local Scrolitha Core runtime is enabled by policy' });
     }
     const body = req.body || {};
     // Never accept raw API keys into DB via this endpoint
@@ -130,13 +134,18 @@ export async function adminAIModels(_req: Request, res: Response) {
     } catch {
       rows = [];
     }
+    if (isScrolithaLocalOnly()) {
+      rows = rows.filter((row) => String(row.provider || '').toUpperCase() === 'OLLAMA');
+    }
     if (!rows.length) {
-      rows = [
-        { provider: 'OLLAMA', modelId: process.env.SCROLITHA_OLLAMA_MODEL || 'qwen3:14b', enabled: true },
-        { provider: 'GEMINI', modelId: process.env.SCROLITHA_GEMINI_MODEL || 'gemini-pro', enabled: false },
-        { provider: 'OPENAI', modelId: process.env.OPENAI_MODEL || 'gpt-4o-mini', enabled: false },
-        { provider: 'MOCK', modelId: 'mock-foundation', enabled: true }
-      ];
+      rows = isScrolithaLocalOnly()
+        ? [{ provider: 'OLLAMA', modelId: SCROLITHA_LOCAL_MODEL, enabled: true }]
+        : [
+            { provider: 'OLLAMA', modelId: SCROLITHA_LOCAL_MODEL, enabled: true },
+            { provider: 'GEMINI', modelId: process.env.SCROLITHA_GEMINI_MODEL || 'gemini-pro', enabled: false },
+            { provider: 'OPENAI', modelId: process.env.OPENAI_MODEL || 'gpt-4o-mini', enabled: false },
+            { provider: 'MOCK', modelId: 'mock-foundation', enabled: false }
+          ];
     }
     return res.json({ success: true, data: rows });
   } catch (err: any) {
@@ -148,6 +157,11 @@ export async function adminAIPutModel(req: Request, res: Response) {
   try {
     const modelId = String(req.params.modelId || '');
     const body = req.body || {};
+    const provider = String(body.provider || 'OLLAMA').toUpperCase();
+    const model = String(body.modelId || modelId).trim();
+    if (isScrolithaLocalOnly() && (provider !== 'OLLAMA' || model !== SCROLITHA_LOCAL_MODEL)) {
+      return res.status(400).json({ success: false, error: `Only ${SCROLITHA_LOCAL_MODEL} on Ollama is enabled by policy` });
+    }
     try {
       const row = await (prisma as any).aIModelConfiguration?.upsert?.({
         where: { id: modelId },

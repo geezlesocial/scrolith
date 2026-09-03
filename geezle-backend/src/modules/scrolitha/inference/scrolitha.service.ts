@@ -10,6 +10,7 @@ import {
   ensureScrolithaConfig
 } from '../../../services/scrolitha/scrolitha.policy';
 import { assertScrolithaAccess } from '../../../services/scrolitha/scrolitha.rollout';
+import { isScrolithaLocalOnly } from '../../../services/scrolithaAi/config';
 import type { ScrolithaActor, ScrolithaScope } from '../../../services/scrolitha/scrolitha.types';
 import { incrementMinuteCounter, scrolithaCache } from '../../../services/scrolitha/scrolitha.cache';
 import { writeScrolithaAuditLog } from '../../../services/scrolitha/scrolitha.audit';
@@ -289,6 +290,12 @@ export const ScrolithaService = {
       warningCode = response.warningCode || undefined;
       runtimeStatus = usedFallback ? 'fallback' : 'ok';
     } catch (error: any) {
+      if (isScrolithaLocalOnly()) {
+        const unavailable = new Error('Scrolitha Core is unavailable. Local processing is required by policy.');
+        (unavailable as any).statusCode = 503;
+        (unavailable as any).code = 'SCROLITHA_CORE_UNAVAILABLE';
+        throw unavailable;
+      }
       usedFallback = true;
       warning = SCROLITHA_BACKUP_WARNING_MESSAGE;
       warningCode = SCROLITHA_BACKUP_WARNING_CODE;
@@ -299,7 +306,7 @@ export const ScrolithaService = {
       });
     }
 
-    if (!text) {
+    if (!text && !isScrolithaLocalOnly()) {
       usedFallback = true;
       warning = warning || SCROLITHA_BACKUP_WARNING_MESSAGE;
       warningCode = warningCode || SCROLITHA_BACKUP_WARNING_CODE;

@@ -10,6 +10,7 @@ import {
 
 const FLAG_KEY = 'scrolitha_ai_feature_flags';
 const PROVIDER_KEY = 'scrolitha_ai_provider_config';
+export const SCROLITHA_LOCAL_MODEL = 'llama3.2:3b';
 
 let flagsCache: AIFeatureFlags = { ...DEFAULT_AI_FEATURE_FLAGS };
 let flagsLoadedAt = 0;
@@ -31,10 +32,10 @@ export type ProviderConfigState = {
 
 const DEFAULT_PROVIDER_CONFIG: ProviderConfigState = {
   NATIVE: { enabled: true, model: 'scrolitha-native-33.3' },
-  OLLAMA: { enabled: true, model: process.env.SCROLITHA_OLLAMA_MODEL || 'qwen3:14b', timeoutMs: 30_000 },
+  OLLAMA: { enabled: true, model: process.env.SCROLITHA_OLLAMA_MODEL || SCROLITHA_LOCAL_MODEL, timeoutMs: 30_000 },
   GEMINI: { enabled: false, model: process.env.SCROLITHA_GEMINI_MODEL || 'gemini-pro', timeoutMs: 30_000 },
   OPENAI: { enabled: false, model: process.env.OPENAI_MODEL || 'gpt-4o-mini', timeoutMs: 30_000 },
-  MOCK: { enabled: process.env.NODE_ENV !== 'production' },
+  MOCK: { enabled: false },
   allowedProviders: ['OLLAMA'],
   emergencyShutdown: false
 };
@@ -97,6 +98,11 @@ export async function loadAIFeatureFlags(force = false): Promise<AIFeatureFlags>
   if (envFlagSet('SCROLITHA_AI_BETA_ALLOWLIST_ONLY')) {
     flagsCache.betaAllowlistOnly = envFlag('SCROLITHA_AI_BETA_ALLOWLIST_ONLY');
   }
+  if (envFlag('SCROLITHA_AI_ENABLE_ALL_CAPABILITIES')) {
+    for (const key of Object.keys(DEFAULT_AI_FEATURE_FLAGS) as Array<keyof AIFeatureFlags>) {
+      if (key !== 'killSwitch' && key !== 'betaAllowlistOnly') flagsCache[key] = true;
+    }
+  }
   if (flagsCache.platformCopilotEnabled) flagsCache.COPILOT_CONTEXT = true;
   if (flagsCache.nativeIntelligenceEnabled) {
     flagsCache.INTENT_DETECTION = true;
@@ -144,12 +150,12 @@ export async function loadProviderConfig(force = false): Promise<ProviderConfigS
       where: { provider: 'GLOBAL' }
     });
     if (row?.config) {
-      providerCache = { ...DEFAULT_PROVIDER_CONFIG, ...(row.config as object) } as ProviderConfigState;
+      providerCache = normalizeProviderConfig({ ...DEFAULT_PROVIDER_CONFIG, ...(row.config as object) } as ProviderConfigState);
     } else {
-      providerCache = { ...DEFAULT_PROVIDER_CONFIG };
+      providerCache = normalizeProviderConfig({ ...DEFAULT_PROVIDER_CONFIG });
     }
   } catch {
-    providerCache = { ...DEFAULT_PROVIDER_CONFIG };
+    providerCache = normalizeProviderConfig({ ...DEFAULT_PROVIDER_CONFIG });
   }
   providerLoadedAt = Date.now();
   return providerCache;
@@ -160,7 +166,7 @@ export async function setProviderConfig(
   updatedBy?: string
 ): Promise<ProviderConfigState> {
   const current = await loadProviderConfig(true);
-  const next = { ...current, ...partial };
+  const next = normalizeProviderConfig({ ...current, ...partial });
   providerCache = next;
   providerLoadedAt = Date.now();
   try {
@@ -185,6 +191,12 @@ export async function setProviderConfig(
 }
 
 export function isProviderEnabled(id: AIProviderId, cfg: ProviderConfigState): boolean {
+  if (id === 'DISABLED') return false;
+  if (isScrolithaLocalOnly()) {
+    if (id !== 'OLLAMA') return false;
+    if (String(process.env.SCROLITHA_AI_OLLAMA_ENABLED || 'true').toLowerCase() === 'false') return false;
+    return cfg.OLLAMA?.enabled !== false;
+  }
   if (process.env.NODE_ENV === 'production') {
     const allowed = String(process.env.SCROLITHA_AI_ALLOWED_PROVIDERS || 'OLLAMA')
       .split(',')
@@ -196,13 +208,31 @@ export function isProviderEnabled(id: AIProviderId, cfg: ProviderConfigState): b
     return cfg.OLLAMA?.enabled !== false;
   }
   if (cfg.emergencyShutdown && id !== 'MOCK' && id !== 'NATIVE') return false;
-  if (id === 'DISABLED') return false;
   if (id === 'NATIVE') return cfg.NATIVE?.enabled !== false;
   if (id === 'MOCK') return cfg.MOCK?.enabled !== false;
   if (id === 'OLLAMA') return cfg.OLLAMA?.enabled !== false;
   if (id === 'GEMINI') return Boolean(cfg.GEMINI?.enabled);
   if (id === 'OPENAI') return Boolean(cfg.OPENAI?.enabled);
   return false;
+}
+
+export function isScrolithaLocalOnly(): boolean {
+  return ['1', 'true', 'yes', 'on'].includes(
+    String(process.env.SCROLITHA_AI_LOCAL_ONLY || '').trim().toLowerCase()
+  );
+}
+
+function normalizeProviderConfig(config: ProviderConfigState): ProviderConfigState {
+  if (!isScrolithaLocalOnly()) return config;
+  return {
+    ...config,
+    NATIVE: { ...config.NATIVE, enabled: false },
+    OLLAMA: { ...config.OLLAMA, enabled: true, model: SCROLITHA_LOCAL_MODEL },
+    GEMINI: { ...config.GEMINI, enabled: false },
+    OPENAI: { ...config.OPENAI, enabled: false },
+    MOCK: { enabled: false },
+    allowedProviders: ['OLLAMA']
+  };
 }
 
 export default {

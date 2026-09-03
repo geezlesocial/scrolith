@@ -36,7 +36,7 @@ export const SCROLITHA_UNAVAILABLE_MESSAGE =
   'Scrolitha is temporarily unavailable. Please try again shortly.';
 export const SCROLITHA_PRODUCTION_ENDPOINT_WARNING =
   'Scrolitha Core endpoint is not configured for production.';
-const DEFAULT_SCROLITHA_MODEL = 'qwen3:14b';
+const DEFAULT_SCROLITHA_MODEL = 'llama3.2:3b';
 
 const OLLAMA_MODEL_PULL_TIMEOUT_MS = 240_000;
 const ollamaPullsInFlight = new Map<string, Promise<void>>();
@@ -65,6 +65,9 @@ const asBool = (value: unknown, fallback: boolean) => {
   if (['0', 'false', 'no', 'n', 'off'].includes(v)) return false;
   return fallback;
 };
+
+const isLocalOnlyRuntime = () =>
+  asBool(process.env.SCROLITHA_AI_LOCAL_ONLY, false);
 
 const shouldSkipSelfHostedAuth = () =>
   asBool(
@@ -543,8 +546,9 @@ const mergeRuntime = (base: ScrolithaLlmRuntime, override: Record<string, any>):
         : base.sidecarMode;
 
   return {
-    provider:
-      provider === 'disabled'
+    provider: isLocalOnlyRuntime()
+      ? 'core'
+      : provider === 'disabled'
         ? 'disabled'
         : provider === 'ollama'
           ? 'ollama'
@@ -557,15 +561,16 @@ const mergeRuntime = (base: ScrolithaLlmRuntime, override: Record<string, any>):
     acceleratorActive: base.acceleratorActive,
     status: base.status,
     host: normalizeHost(host),
-    model: String(model || '').trim(),
+    model: isLocalOnlyRuntime() ? DEFAULT_SCROLITHA_MODEL : String(model || '').trim(),
     maxTokens: Math.max(32, Math.min(8192, Math.floor(asNumber(override.maxTokens, base.maxTokens)))),
     temperature: Math.max(0, Math.min(2, asNumber(override.temperature, base.temperature))),
     topP: Math.max(0, Math.min(1, asNumber(override.topP, base.topP))),
     timeoutMs: Math.max(1000, Math.min(240_000, Math.floor(asNumber(override.timeoutMs, base.timeoutMs)))),
     enableStreaming:
       typeof override.enableStreaming === 'boolean' ? override.enableStreaming : base.enableStreaming,
-    allowGeminiFallback:
-      typeof override.allowGeminiFallback === 'boolean'
+    allowGeminiFallback: isLocalOnlyRuntime()
+      ? false
+      : typeof override.allowGeminiFallback === 'boolean'
         ? override.allowGeminiFallback || base.allowGeminiFallback
         : base.allowGeminiFallback
   };
@@ -576,7 +581,9 @@ export const resolveScrolithaLlmRuntime = async (scope: ScrolithaScope): Promise
   const envHost = normalizeHost(
     pickString(process.env.SCROLITHA_CORE_ENDPOINT, process.env.SCROLITHA_OLLAMA_HOST)
   );
-  const envModel = pickString(process.env.SCROLITHA_CORE_MODEL, process.env.SCROLITHA_OLLAMA_MODEL);
+  const envModel = isLocalOnlyRuntime()
+    ? DEFAULT_SCROLITHA_MODEL
+    : pickString(process.env.SCROLITHA_CORE_MODEL, process.env.SCROLITHA_OLLAMA_MODEL);
   const envSidecarMode = asBool(
     pickString(process.env.SCROLITHA_CORE_SIDECAR_MODE, process.env.SCROLITHA_OLLAMA_SIDECAR_MODE),
     false

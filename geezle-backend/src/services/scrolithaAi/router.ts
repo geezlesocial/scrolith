@@ -3,6 +3,7 @@
  * Priority: NATIVE → OLLAMA → GEMINI → OPENAI → MOCK
  */
 import type { AICapabilityId, AIProviderId, ModelRouteDecision, PrivacyLevel } from './types';
+import { SCROLITHA_LOCAL_MODEL } from './config';
 
 export type RouteInput = {
   capability: AICapabilityId;
@@ -24,7 +25,7 @@ export type RouteInput = {
 
 const DEFAULT_MODELS: Record<AIProviderId, string> = {
   NATIVE: 'scrolitha-native-33.3',
-  OLLAMA: process.env.SCROLITHA_OLLAMA_MODEL || process.env.SCROLITHA_CORE_MODEL || 'qwen3:14b',
+  OLLAMA: process.env.SCROLITHA_OLLAMA_MODEL || process.env.SCROLITHA_CORE_MODEL || SCROLITHA_LOCAL_MODEL,
   GEMINI: process.env.SCROLITHA_GEMINI_MODEL || 'gemini-pro',
   OPENAI: process.env.OPENAI_MODEL || 'gpt-4o-mini',
   MOCK: 'mock-foundation',
@@ -74,7 +75,7 @@ export function routeModel(input: RouteInput): ModelRouteDecision {
   if (input.requireOllama) {
     return {
       provider: 'OLLAMA',
-      model: 'qwen3:14b',
+      model: SCROLITHA_LOCAL_MODEL,
       reason: 'production_ollama_only',
       fallbackChain: [],
       maximumTokens: maxTokens,

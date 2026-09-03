@@ -8,6 +8,7 @@ import {
   getScrolithaRuntimeHealth,
   resolveScrolithaLlmRuntime
 } from '../../scrolitha/scrolitha.ollama';
+import { SCROLITHA_LOCAL_MODEL } from '../config';
 import type {
   AIProvider,
   AIProviderHealth,
@@ -35,12 +36,12 @@ export class OllamaAIProvider implements AIProvider {
       temperature: request.temperature
     });
     const text = String((result as any)?.text || '');
-    // Prefer configured runtime model (qwen3:14b) over transport alias "scrolitha-core".
+    // Prefer the configured runtime model over the transport alias "scrolitha-core".
     const configuredModel =
       process.env.SCROLITHA_CORE_MODEL ||
       process.env.SCROLITHA_OLLAMA_MODEL ||
       process.env.SCROLITHA_AI_DEFAULT_MODEL ||
-      'qwen3:14b';
+      SCROLITHA_LOCAL_MODEL;
     const reported = String((result as any)?.model || '').trim();
     const model =
       !reported || reported === 'scrolitha-core' || reported === 'core'
@@ -86,7 +87,7 @@ export class OllamaAIProvider implements AIProvider {
       data,
       rawText: lastRaw,
       provider: 'OLLAMA',
-      model: request.model || 'qwen3:14b',
+      model: request.model || SCROLITHA_LOCAL_MODEL,
       latencyMs: latency,
       parseAttempts: maxAttempts
     };

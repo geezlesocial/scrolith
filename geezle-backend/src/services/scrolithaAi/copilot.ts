@@ -178,7 +178,7 @@ export async function runCopilot(input: CopilotRequest): Promise<CopilotResponse
       disclosure: {
         generatedByAI: true,
         provider: 'OLLAMA',
-        model: 'qwen3:14b',
+        model: process.env.SCROLITHA_CORE_MODEL || process.env.SCROLITHA_OLLAMA_MODEL || 'llama3.2:3b',
         nativeFirst: true,
         autonomous: false,
         generatedAt: new Date().toISOString()
@@ -230,7 +230,7 @@ export async function runCopilot(input: CopilotRequest): Promise<CopilotResponse
           ? process.env.SCROLITHA_CORE_MODEL ||
             process.env.SCROLITHA_OLLAMA_MODEL ||
             process.env.SCROLITHA_AI_DEFAULT_MODEL ||
-            'qwen3:14b'
+            'llama3.2:3b'
           : exec.disclosure?.model || 'scrolitha-native-33.3',
       nativeFirst: true,
       autonomous: false,
@@ -260,7 +260,7 @@ export async function copilotStatus(userId: string, isAdmin?: boolean) {
         ? ['OLLAMA']
         : ['NATIVE', 'OLLAMA', 'GEMINI', 'OPENAI', 'MOCK'],
     productionProvider: 'OLLAMA',
-    productionModel: 'qwen3:14b',
+    productionModel: process.env.SCROLITHA_CORE_MODEL || process.env.SCROLITHA_OLLAMA_MODEL || 'llama3.2:3b',
     externalProvidersEnabled: false,
     mockEnabledForProduction: false,
     autonomous: false,

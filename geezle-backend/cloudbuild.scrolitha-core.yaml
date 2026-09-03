@@ -5,7 +5,7 @@ steps:
       - -f
       - infra/scrolitha-core/Dockerfile
       - --build-arg
-      - SCROLITHA_OLLAMA_MODEL=qwen3:14b
+      - SCROLITHA_OLLAMA_MODEL=llama3.2:3b
       - -t
       - asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolitha-core:prod
       - .

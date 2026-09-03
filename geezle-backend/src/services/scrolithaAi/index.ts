@@ -80,7 +80,9 @@ export {
   loadAIFeatureFlags,
   setAIFeatureFlags,
   loadProviderConfig,
-  setProviderConfig
+  setProviderConfig,
+  isScrolithaLocalOnly,
+  SCROLITHA_LOCAL_MODEL
 } from './config';
 export { getUsageSummary, checkQuota } from './usage';
 export { getAIMetricsSnapshot } from './observability';

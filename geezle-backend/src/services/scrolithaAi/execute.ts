@@ -14,7 +14,7 @@ import {
   type ScrolithaAIExecuteInput,
   type ScrolithaAIExecuteResult
 } from './types';
-import { loadAIFeatureFlags, loadProviderConfig, isProviderEnabled } from './config';
+import { loadAIFeatureFlags, loadProviderConfig, isProviderEnabled, isScrolithaLocalOnly, SCROLITHA_LOCAL_MODEL } from './config';
 import { assertConsentForRequest } from './consent';
 import {
   classifyPrivacy,
@@ -283,10 +283,10 @@ export class ScrolithaAI {
           OLLAMA: isProviderEnabled('OLLAMA', providerCfg) ? 'operational' : 'disabled',
           GEMINI: isProviderEnabled('GEMINI', providerCfg) && externalOk ? 'operational' : 'disabled',
           OPENAI: isProviderEnabled('OPENAI', providerCfg) && externalOk ? 'operational' : 'disabled',
-          MOCK: process.env.NODE_ENV === 'production' ? 'disabled' : 'operational',
+          MOCK: isScrolithaLocalOnly() || process.env.NODE_ENV === 'production' ? 'disabled' : 'operational',
           DISABLED: 'disabled'
         },
-        requireOllama: Boolean(input.policy?.requireOllama)
+        requireOllama: Boolean(input.policy?.requireOllama) || isScrolithaLocalOnly()
       });
 
       // --- CACHE ---
@@ -356,20 +356,20 @@ export class ScrolithaAI {
       ];
 
       if (!useNetworkProviders) {
-        if (input.policy?.requireOllama) {
-          chain = ollamaEnabled ? [{ provider: 'OLLAMA', model: 'qwen3:14b' }] : [];
+        if (input.policy?.requireOllama || isScrolithaLocalOnly()) {
+          chain = ollamaEnabled ? [{ provider: 'OLLAMA', model: SCROLITHA_LOCAL_MODEL }] : [];
         } else {
           // Deterministic native intelligence remains available without network provider calls.
-        chain = chain.filter((c) => c.provider === 'NATIVE' || c.provider === 'MOCK');
+          chain = chain.filter((c) => c.provider === 'NATIVE' || c.provider === 'MOCK');
         if (!chain.some((c) => c.provider === 'NATIVE') && isProviderEnabled('NATIVE', providerCfg)) {
           chain.unshift({ provider: 'NATIVE', model: 'scrolitha-native-33.3' });
         }
-        if (!chain.some((c) => c.provider === 'MOCK')) {
+          if (!chain.some((c) => c.provider === 'MOCK')) {
           chain.push({ provider: 'MOCK', model: 'mock-foundation' });
         }
-        if (!chain.length) {
+          if (!chain.length) {
           chain.push({ provider: 'NATIVE', model: 'scrolitha-native-33.3' });
-        }
+          }
         }
       }
 
@@ -502,7 +502,7 @@ export class ScrolithaAI {
               correlationId,
               error: lastError
             });
-            if (i === chain.length - 1 && step.provider !== 'MOCK' && !input.policy?.requireOllama && process.env.NODE_ENV !== 'production') {
+            if (i === chain.length - 1 && step.provider !== 'MOCK' && !input.policy?.requireOllama && !isScrolithaLocalOnly() && process.env.NODE_ENV !== 'production') {
               // final fallback to mock
               try {
                 const mock = getProvider('MOCK')!;
