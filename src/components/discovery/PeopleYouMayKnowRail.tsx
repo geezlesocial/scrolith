@@ -4,6 +4,7 @@ import { Users } from 'lucide-react';
 import { RecoService } from '../../services/reco';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
 import EnterpriseAvatar from '../common/EnterpriseAvatar';
+import AvailabilityAvatarBadge from '../common/AvailabilityAvatarBadge';
 import FollowButton from '../../community/components/FollowButton';
 import { setFollowStatus, useFollowStateMap } from '../../community/followState';
 import { useUser } from '../../context/UserContext';
@@ -22,6 +23,9 @@ type Suggestion = {
   avatarUrl?: string | null;
   reason?: string | null;
   isFollowing?: boolean;
+  availableForHire?: boolean;
+  weAreHiring?: boolean;
+  accountType?: string | null;
 };
 
 const normalizeSuggestion = (raw: any): Suggestion | null => {
@@ -41,7 +45,17 @@ const normalizeSuggestion = (raw: any): Suggestion | null => {
     raw?.reason ||
     raw?.subtitle ||
     'Suggested for you';
-  return { id, name, username, avatarUrl, reason: String(reason), isFollowing: recommendationIsFollowing(raw) };
+  return {
+    id,
+    name,
+    username,
+    avatarUrl,
+    reason: String(reason),
+    isFollowing: recommendationIsFollowing(raw),
+    availableForHire: Boolean(entity?.availableForHire ?? raw?.availableForHire),
+    weAreHiring: Boolean(entity?.weAreHiring ?? raw?.weAreHiring),
+    accountType: entity?.entityType || raw?.entityType || 'freelancer'
+  };
 };
 
 /**
@@ -189,13 +203,20 @@ export default function PeopleYouMayKnowRail({
                 className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2"
               >
                 <Link to={href} className="flex min-w-0 items-center gap-2.5">
-                  <EnterpriseAvatar
-                    src={person.avatarUrl}
-                    name={person.name}
-                    user={{ id: person.id, username: person.username }}
+                  <AvailabilityAvatarBadge
+                    availableForHire={person.availableForHire}
+                    weAreHiring={person.weAreHiring}
+                    accountType={person.accountType}
                     size="sm"
-                    className="border border-slate-200"
-                  />
+                  >
+                    <EnterpriseAvatar
+                      src={person.avatarUrl}
+                      name={person.name}
+                      user={{ id: person.id, username: person.username }}
+                      size="sm"
+                      className="border border-slate-200"
+                    />
+                  </AvailabilityAvatarBadge>
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-slate-900">{person.name}</div>
                     <div className="truncate text-[11px] text-slate-500">{person.reason}</div>

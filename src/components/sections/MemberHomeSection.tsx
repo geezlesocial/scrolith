@@ -132,6 +132,8 @@ import { downloadToDevice } from '../../utils/deviceDownload';
 import GraphicWarningGate from '../media/GraphicWarningGate';
 import InlineAutoplayVideo from '../media/InlineAutoplayVideo';
 import OptimizedImage from '../media/OptimizedImage';
+import EnterpriseAvatar from '../common/EnterpriseAvatar';
+import AvailabilityAvatarBadge from '../common/AvailabilityAvatarBadge';
 import JobCardMedia from '../media/JobCardMedia';
 import VideoCaptionOverlay from '../media/VideoCaptionOverlay';
 import AdVideoPlayer from '../ads/AdVideoPlayer';
@@ -10633,22 +10635,21 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                       <div key={profile.id} className="rounded-xl border border-slate-200/80 p-3">
                         <div className="flex items-center justify-between gap-3">
                           <Link to={buildProfileUrl(profile)} className="flex min-w-0 items-center gap-3">
-                            <div className="h-12 w-12 overflow-hidden rounded-full bg-slate-100">
-                              {profile.avatar ? (
-                                <OptimizedImage
-                                  src={resolveAssetUrl(profile.avatar)}
-                                  alt={profile.name}
-                                  width={96}
-                                  height={96}
-                                  sizes="48px"
-                                  className="h-full w-full object-cover"
-                                  loading="lazy"
-                                  decoding="async"
-                                />
-                              ) : (
-                                <Users className="mx-auto mt-3 h-5 w-5 text-slate-400" />
-                              )}
-                            </div>
+                            <AvailabilityAvatarBadge
+                              availableForHire={profile.availableForHire}
+                              weAreHiring={profile.weAreHiring}
+                              accountType={profile.entityType}
+                              size="sm"
+                            >
+                              <EnterpriseAvatar
+                                src={profile.avatar ? resolveAssetUrl(profile.avatar) : undefined}
+                                name={profile.name}
+                                user={{ id: profile.id, username: profile.username, avatar: profile.avatar }}
+                                size="sm"
+                                className="border border-slate-200"
+                                loading="lazy"
+                              />
+                            </AvailabilityAvatarBadge>
                             <div className="min-w-0">
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <p className="truncate text-[15px] font-semibold text-slate-900">{profile.name}</p>
