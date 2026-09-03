@@ -805,7 +805,7 @@ const FreelancerProfile = () => {
                                       name={publicUser?.name || publicUser?.username || 'Profile'}
                                       user={publicUser}
                                       size="xl"
-                                      rounded="xl"
+                                      rounded="full"
                                       alt={publicUser?.name || 'Profile photo'}
                                   />
                                 </AvailabilityAvatarBadge>

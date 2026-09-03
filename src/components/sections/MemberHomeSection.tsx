@@ -113,6 +113,7 @@ import {
 } from '../../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
 import { filterUnfollowedRecommendations, recommendationIsFollowing } from '../../utils/recommendationVisibility';
+import { isPubliclyActiveAvailability } from '../../utils/publicAvailability';
 import { buildScrollVideoUrl } from '../../utils/scrollVideoRoutes';
 import { hydrateStoryAuthorAvatars } from '../../utils/storyAuthorAvatarHydration';
 import {
@@ -1838,6 +1839,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const storyAutoAdvanceTimerRef = useRef<number | null>(null);
   const storyLastTapAtRef = useRef(0);
   const [selfProfileCover, setSelfProfileCover] = useState('');
+  const [selfAvailability, setSelfAvailability] = useState<any>(null);
+  const [selfHiring, setSelfHiring] = useState<any>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
@@ -2242,6 +2245,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const userHeadline = user?.title || (user as any)?.headline || (user as any)?.tagline || user?.role || 'Member';
   const userLocation = user?.location || (user as any)?.country || '';
   const resolvedUserAvatar = resolveUserAvatarUrl(user);
+  const selfAvailableForHire = isPubliclyActiveAvailability(selfAvailability);
+  const selfWeAreHiring = isPubliclyActiveAvailability(selfHiring);
   const composerTitle = content?.composerTitle || 'Share a quick update or idea with your network.';
   const userPostAuthorOption = useMemo<PostAuthorOption>(
     () => ({
@@ -4522,6 +4527,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   useEffect(() => {
     if (!currentUserId) {
       setSelfProfileCover('');
+      setSelfAvailability(null);
+      setSelfHiring(null);
       return;
     }
     let active = true;
@@ -4553,6 +4560,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       );
     };
     const fallbackCover = resolveCoverCandidate(user);
+    setSelfAvailability((user as any)?.availability || (user as any)?.professionalAvailability || null);
+    setSelfHiring((user as any)?.hiring || (user as any)?.clientHiringStatus || null);
     const loadSelfCover = async () => {
       try {
         // Prefer /profile/me for the signed-in owner (same source as dashboard profile).
@@ -4565,6 +4574,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         if (!active) return;
         const resolved = resolveCoverCandidate(profile) || fallbackCover;
         setSelfProfileCover(resolved);
+        setSelfAvailability(profile?.availability || profile?.professionalAvailability || (user as any)?.availability || null);
+        setSelfHiring(profile?.hiring || profile?.clientHiringStatus || (user as any)?.hiring || null);
       } catch {
         if (active) setSelfProfileCover(fallbackCover);
       }
@@ -8650,28 +8661,34 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   top-full + -translate-y-[40%] pins the avatar to the cover bottom edge
                   with ~40% of the avatar over the cover (proportional on all breakpoints).
                 */}
-                <div
-                  className="absolute left-1/2 top-full z-20 h-[4.5rem] w-[4.5rem] -translate-x-1/2 -translate-y-[40%] overflow-hidden rounded-full bg-slate-100 shadow-[0_4px_14px_rgba(15,23,42,0.18)] ring-[5px] ring-white sm:h-20 sm:w-20"
+                <AvailabilityAvatarBadge
+                  availableForHire={selfAvailableForHire}
+                  weAreHiring={selfWeAreHiring}
+                  accountType={(user as any)?.role}
+                  size="lg"
+                  className="absolute left-1/2 top-full z-20 h-[4.5rem] w-[4.5rem] -translate-x-1/2 -translate-y-[40%] rounded-full bg-slate-100 shadow-[0_4px_14px_rgba(15,23,42,0.18)] ring-[5px] ring-white sm:h-20 sm:w-20"
                   data-testid="scrolith-member-home-profile-avatar"
                   aria-hidden={!resolvedUserAvatar}
                 >
-                  {resolvedUserAvatar ? (
-                    <OptimizedImage
-                      src={resolvedUserAvatar}
-                      alt={user.name || 'User'}
-                      width={160}
-                      height={160}
-                      sizes="80px"
-                      className="h-full w-full object-cover"
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center bg-slate-100">
-                      <Users className="h-7 w-7 text-slate-400" />
-                    </div>
-                  )}
-                </div>
+                  <div className="h-full w-full overflow-hidden rounded-full bg-slate-100">
+                    {resolvedUserAvatar ? (
+                      <OptimizedImage
+                        src={resolvedUserAvatar}
+                        alt={user.name || 'User'}
+                        width={160}
+                        height={160}
+                        sizes="80px"
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-slate-100">
+                        <Users className="h-7 w-7 text-slate-400" />
+                      </div>
+                    )}
+                  </div>
+                </AvailabilityAvatarBadge>
               </div>
               {/*
                 Reserve space for the avatar portion that hangs below the cover (~60% of

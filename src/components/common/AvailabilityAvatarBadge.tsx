@@ -16,15 +16,17 @@ const BADGE_ASSETS = {
   }
 } as const;
 
-const BADGE_SIZE: Record<EnterpriseAvatarSize, string> = {
-  xs: '-inset-[22%]',
-  sm: '-inset-[20%]',
-  md: '-inset-[18%]',
-  lg: '-inset-[16%]',
-  xl: '-inset-[14%]'
+// Keep the ring slightly larger than the photo while avoiding oversized
+// intrinsic-image sizing on small screens and recommendation cards.
+const BADGE_SCALE: Record<EnterpriseAvatarSize, number> = {
+  xs: 1.25,
+  sm: 1.28,
+  md: 1.32,
+  lg: 1.34,
+  xl: 1.36
 };
 
-type AvailabilityAvatarBadgeProps = {
+type AvailabilityAvatarBadgeProps = Omit<React.HTMLAttributes<HTMLSpanElement>, 'children' | 'className'> & {
   children: React.ReactNode;
   availableForHire?: boolean;
   weAreHiring?: boolean;
@@ -40,13 +42,15 @@ const AvailabilityAvatarBadge: React.FC<AvailabilityAvatarBadgeProps> = ({
   weAreHiring = false,
   accountType,
   size = 'md',
-  className = ''
+  className = '',
+  ...rest
 }) => {
   const badge = resolvePublicAvailabilityBadge({ availableForHire, weAreHiring, accountType });
   const asset = badge ? BADGE_ASSETS[badge] : null;
+  const badgeScale = BADGE_SCALE[size] || BADGE_SCALE.md;
 
   return (
-    <span className={`relative inline-flex shrink-0 items-center justify-center overflow-visible ${className}`.trim()}>
+    <span {...rest} className={`relative inline-flex shrink-0 items-center justify-center overflow-visible ${className}`.trim()}>
       {children}
       {asset ? (
         <>
@@ -54,7 +58,8 @@ const AvailabilityAvatarBadge: React.FC<AvailabilityAvatarBadgeProps> = ({
             src={asset.src}
             alt=""
             aria-hidden="true"
-            className={`pointer-events-none absolute z-10 h-auto w-auto max-w-none object-contain select-none ${BADGE_SIZE[size]}`}
+            className="pointer-events-none absolute left-1/2 top-1/2 z-10 aspect-square max-w-none -translate-x-1/2 -translate-y-1/2 object-contain select-none"
+            style={{ width: `${badgeScale * 100}%`, height: `${badgeScale * 100}%` }}
             draggable={false}
           />
           <span className="sr-only">{asset.label}</span>
