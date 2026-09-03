@@ -5,6 +5,8 @@ WORKDIR /app
 COPY package*.json ./
 ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org
 ENV CYPRESS_INSTALL_BINARY=0
+ENV CI=true
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 RUN npm ci --include=dev --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
 
 COPY . .
