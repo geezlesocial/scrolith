@@ -5,6 +5,7 @@ import { CMSService } from '../services/cms';
 import { AuthPagesConfig } from '../types';
 import api from '../services/api';
 import { useNotification } from '../context/NotificationContext';
+import { resolveOptimizedStaticImageUrl, resolveResponsiveAssetUrl } from '../utils/assetUrl';
 import ScrolithHumanVerification from '../components/human-verification/ScrolithHumanVerification';
 
 const ResetPassword = () => {
@@ -61,6 +62,10 @@ const ResetPassword = () => {
 
   const resetContent = (authConfig as any)?.reset_password ?? defaultContent;
   const branding = authConfig?.branding ?? defaultBranding;
+  const logoSrc = resolveResponsiveAssetUrl(
+    resolveOptimizedStaticImageUrl(branding.logo_url),
+    { width: 160, height: 48, fit: 'inside', quality: 72 }
+  );
 
   const validatePassword = (value: string) => {
     if (value.length < 8) return 'Password must be at least 8 characters.';
@@ -118,7 +123,7 @@ const ResetPassword = () => {
           {branding.show_logo && branding.logo_url && (
             <div className="flex justify-center">
               <a href={branding.logo_link_url || '/'}>
-                <img src={branding.logo_url} alt="Logo" className="h-10" />
+                <img src={logoSrc} alt="Logo" width="160" height="48" loading="eager" decoding="async" className="h-10 w-auto" />
               </a>
             </div>
           )}

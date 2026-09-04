@@ -8,9 +8,10 @@ import { CMSService } from '../services/cms';
 import AuthSocialButtons from './AuthSocialButtons';
 import { executeRecaptcha } from '../services/recaptcha';
 import { useT } from '../i18n/useT';
+import { resolveOptimizedStaticImageUrl, resolveResponsiveAssetUrl } from '../utils/assetUrl';
 import ScrolithHumanVerification from '../components/human-verification/ScrolithHumanVerification';
 
-const BRAND_LOGO_FALLBACK = '/logo.png';
+const BRAND_LOGO_FALLBACK = '/logo-64.png';
 
 const handleBrandLogoError = (event: React.SyntheticEvent<HTMLImageElement>) => {
   const image = event.currentTarget;
@@ -87,6 +88,10 @@ const Signup = () => {
     logo_url: brandingSource.logo_url || defaultBranding.logo_url,
     logo_link_url: brandingSource.logo_link_url || defaultBranding.logo_link_url
   };
+  const logoSrc = resolveResponsiveAssetUrl(
+    resolveOptimizedStaticImageUrl(branding.logo_url),
+    { width: 96, height: 96, fit: 'inside', quality: 72 }
+  );
   const socialConfig = authConfig?.social_auth ?? (authConfig as any)?.socialAuth;
 
   const validateForm = () => {
@@ -186,7 +191,7 @@ const Signup = () => {
             <Link to="/" className="inline-flex items-center gap-3">
               {branding.show_logo && branding.logo_url ? (
                 <img
-                  src={branding.logo_url}
+                  src={logoSrc}
                   alt="Scrolith"
                   className="h-10 w-10 rounded-xl object-contain"
                   onError={handleBrandLogoError}
@@ -220,7 +225,7 @@ const Signup = () => {
           {branding.show_logo && branding.logo_url ? (
             <a href={branding.logo_link_url || '/'} className="inline-flex">
               <img
-                src={branding.logo_url}
+                src={logoSrc}
                 alt="Scrolith"
                 className="h-12 w-12 rounded-xl object-contain"
                 onError={handleBrandLogoError}

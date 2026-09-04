@@ -303,6 +303,13 @@ export const resolveOptimizedStaticImageUrl = (value?: string | null) => {
   const resolved = resolveAssetUrl(value);
   if (!resolved) return resolved ?? '';
 
+  // Keep the built-in relative logo fallback on the small immutable asset too.
+  // Auth pages commonly receive `/logo.png` from their default config before
+  // the asynchronous branding payload is available.
+  if (resolved === '/logo.png' || resolved === '/logo-64.png') {
+    return '/logo-64.png';
+  }
+
   // Keep legacy CMS brand settings on the small immutable logo asset. This is
   // intentionally limited to the platform logo path; uploaded media and
   // external assets must retain their original URLs.
