@@ -247,6 +247,8 @@ model User {
   creatorChallengeEntries   CreatorChallengeEntry[]
   creatorChallengeVotes     CreatorChallengeVote[]
   opportunityMatches        OpportunityMatch[]
+  matchInteractionsGiven    ScrolithMatchInteraction[] @relation("ScrolithMatchActors")
+  matchInteractionsReceived ScrolithMatchInteraction[] @relation("ScrolithMatchTargets")
   postPredictionsAuthored   PostPrediction[]        @relation("PostPredictionAuthor")
   aiCopilotLogs             AICopilotLog[]
   skillGapReports           SkillGapReport[]
@@ -1532,6 +1534,24 @@ model OpportunityMatch {
   @@index([userId, score])
   @@index([targetType, targetId])
   @@index([createdAt])
+}
+
+/// Additive mutual opportunity matching state. This is intentionally separate
+/// from OpportunityMatch, which stores one-way job/gig recommendations.
+model ScrolithMatchInteraction {
+  id        String   @id @default(cuid())
+  actorId   String
+  targetId  String
+  action    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  actor  User @relation("ScrolithMatchActors", fields: [actorId], references: [id], onDelete: Cascade)
+  target User @relation("ScrolithMatchTargets", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@unique([actorId, targetId])
+  @@index([actorId, action, updatedAt])
+  @@index([targetId, action, updatedAt])
 }
 
 model WeeklyLeaderboard {
