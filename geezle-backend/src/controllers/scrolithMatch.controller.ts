@@ -6,19 +6,40 @@ import {
   normalizeMatchAccountType,
   recordMatchAction,
   assertMutualMatch,
+  getMatchPreferences,
+  updateMatchPreferences,
   updateScrolithMatchConfig
 } from '../services/scrolithMatch.service';
 import { createConversation } from './messages.controller';
 
 const userId = (req: Request) => String(req.user?.id || '').trim();
 const queryString = (value: unknown) => typeof value === 'string' ? value : Array.isArray(value) && typeof value[0] === 'string' ? value[0] : undefined;
+const queryList = (value: unknown) => (Array.isArray(value) ? value : String(value || '').split(',')).flatMap((item) => String(item || '').split(',')).map((item) => item.trim()).filter(Boolean).slice(0, 20);
+const queryBoolean = (value: unknown) => ['1', 'true', 'yes', 'on'].includes(String(value || '').toLowerCase());
+const queryNumber = (value: unknown) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : undefined;
+};
 const fail = (res: Response, status: number, message: string) => res.status(status).json({ success: false, error: message });
 
 export const getMatchController = async (req: Request, res: Response) => {
   const id = userId(req);
   if (!id) return fail(res, 401, 'Unauthorized');
   try {
-    const data = await getMatchFeed({ userId: id, accountTypeInput: queryString(req.query.accountType || req.query.role), mutualOnly: String(req.query.tab || '').toLowerCase() === 'mutual' });
+    const minimumScore = queryNumber(req.query.minimumScore ?? req.query.minScore);
+    const data = await getMatchFeed({
+      userId: id,
+      accountTypeInput: queryString(req.query.accountType || req.query.role),
+      mutualOnly: String(req.query.tab || '').toLowerCase() === 'mutual',
+      filters: {
+        skills: queryList(req.query.skills),
+        location: queryString(req.query.location),
+        remoteOnly: queryBoolean(req.query.remoteOnly),
+        experience: queryString(req.query.experience),
+        availability: queryString(req.query.availability),
+        minimumScore
+      }
+    });
     return res.json({ success: true, data });
   } catch (error: any) {
     console.warn('[scrolith-match] feed unavailable', error);
@@ -62,6 +83,19 @@ export const getMutualMatchController = async (req: Request, res: Response) => {
   } catch (error: any) {
     return res.json({ success: true, data: { enabled: false, items: [], mutual: [] } });
   }
+};
+
+export const getMatchPreferencesController = async (req: Request, res: Response) => {
+  const id = userId(req);
+  if (!id) return fail(res, 401, 'Unauthorized');
+  return res.json({ success: true, data: await getMatchPreferences(id) });
+};
+
+export const putMatchPreferencesController = async (req: Request, res: Response) => {
+  const id = userId(req);
+  if (!id) return fail(res, 401, 'Unauthorized');
+  try { return res.json({ success: true, data: await updateMatchPreferences(id, req.body) }); }
+  catch (error: any) { return fail(res, 400, String(error?.message || 'Unable to update Match preferences')); }
 };
 
 export const postMutualConversationController = async (req: Request, res: Response) => {

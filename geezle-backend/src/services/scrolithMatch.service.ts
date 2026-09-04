@@ -4,6 +4,34 @@ import { NotificationService } from './notificationCenter';
 
 export type MatchAccountType = 'FREELANCER' | 'CLIENT';
 type MatchAction = 'INTERESTED' | 'DISMISSED';
+export type MatchFilters = {
+  skills?: string[];
+  location?: string;
+  remoteOnly?: boolean;
+  experience?: string;
+  availability?: string;
+  minimumScore?: number;
+};
+
+export type MatchPreferences = {
+  freelancer: {
+    skills: string[];
+    locations: string[];
+    remoteOnly: boolean;
+    minRate: number | null;
+    maxRate: number | null;
+    workTypes: string[];
+  };
+  client: {
+    skills: string[];
+    locations: string[];
+    remoteOnly: boolean;
+    minBudget: number | null;
+    maxBudget: number | null;
+    experience: string;
+    workTypes: string[];
+  };
+};
 
 const MATCH_CONFIG_SCOPE = 'scrolith_match';
 const MATCH_EVENT_PREFIX = 'scrolith_match_';
@@ -11,6 +39,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type ScrolithMatchConfig = {
   enabled: boolean;
+  filtersEnabled: boolean;
+  insightsEnabled: boolean;
   minimumScore: number;
   maxCandidates: number;
   dailyInterestLimit: number;
@@ -26,6 +56,8 @@ export type ScrolithMatchConfig = {
 
 export const DEFAULT_SCROLITH_MATCH_CONFIG: ScrolithMatchConfig = {
   enabled: true,
+  filtersEnabled: true,
+  insightsEnabled: true,
   minimumScore: 0.2,
   maxCandidates: 30,
   dailyInterestLimit: 30,
@@ -58,6 +90,8 @@ export const normalizeMatchConfig = (value: unknown): ScrolithMatchConfig => {
   const total = Object.values(rawWeights).reduce((sum, item) => sum + item, 0) || 1;
   return {
     enabled: bool(source.enabled, DEFAULT_SCROLITH_MATCH_CONFIG.enabled),
+    filtersEnabled: bool(source.filtersEnabled, DEFAULT_SCROLITH_MATCH_CONFIG.filtersEnabled),
+    insightsEnabled: bool(source.insightsEnabled, DEFAULT_SCROLITH_MATCH_CONFIG.insightsEnabled),
     minimumScore: number(source.minimumScore, DEFAULT_SCROLITH_MATCH_CONFIG.minimumScore, 0, 1),
     maxCandidates: Math.floor(number(source.maxCandidates, DEFAULT_SCROLITH_MATCH_CONFIG.maxCandidates, 1, 100)),
     dailyInterestLimit: Math.floor(number(source.dailyInterestLimit, DEFAULT_SCROLITH_MATCH_CONFIG.dailyInterestLimit, 1, 1000)),
@@ -68,6 +102,48 @@ export const normalizeMatchConfig = (value: unknown): ScrolithMatchConfig => {
       location: rawWeights.location / total,
       completeness: rawWeights.completeness / total,
       activity: rawWeights.activity / total
+    }
+  };
+};
+
+const cleanList = (value: unknown, max = 20) => Array.from(new Set(
+  (Array.isArray(value) ? value : String(value || '').split(','))
+    .map((item) => String(item || '').trim().slice(0, 80))
+    .filter(Boolean)
+)).slice(0, max);
+
+const nullableNumber = (value: unknown, min = 0, max = 1000000) => {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? clamp(parsed, min, max) : null;
+};
+
+export const DEFAULT_MATCH_PREFERENCES: MatchPreferences = {
+  freelancer: { skills: [], locations: [], remoteOnly: false, minRate: null, maxRate: null, workTypes: [] },
+  client: { skills: [], locations: [], remoteOnly: false, minBudget: null, maxBudget: null, experience: '', workTypes: [] }
+};
+
+export const normalizeMatchPreferences = (value: unknown): MatchPreferences => {
+  const source = value && typeof value === 'object' ? value as any : {};
+  const freelancer = source.freelancer && typeof source.freelancer === 'object' ? source.freelancer : {};
+  const client = source.client && typeof source.client === 'object' ? source.client : {};
+  return {
+    freelancer: {
+      skills: cleanList(freelancer.skills),
+      locations: cleanList(freelancer.locations),
+      remoteOnly: bool(freelancer.remoteOnly, false),
+      minRate: nullableNumber(freelancer.minRate),
+      maxRate: nullableNumber(freelancer.maxRate),
+      workTypes: cleanList(freelancer.workTypes, 10)
+    },
+    client: {
+      skills: cleanList(client.skills),
+      locations: cleanList(client.locations),
+      remoteOnly: bool(client.remoteOnly, false),
+      minBudget: nullableNumber(client.minBudget),
+      maxBudget: nullableNumber(client.maxBudget),
+      experience: String(client.experience || '').trim().slice(0, 40),
+      workTypes: cleanList(client.workTypes, 10)
     }
   };
 };
@@ -86,6 +162,26 @@ export const getScrolithMatchConfig = async (): Promise<ScrolithMatchConfig> => 
   } catch {
     return DEFAULT_SCROLITH_MATCH_CONFIG;
   }
+};
+
+export const getMatchPreferences = async (userId: string): Promise<MatchPreferences> => {
+  try {
+    const record = await prisma.scrolithMatchPreference.findUnique({ where: { userId } });
+    return normalizeMatchPreferences(record?.data);
+  } catch {
+    return normalizeMatchPreferences(DEFAULT_MATCH_PREFERENCES);
+  }
+};
+
+export const updateMatchPreferences = async (userId: string, value: unknown) => {
+  const preferences = normalizeMatchPreferences(value);
+  const record = await prisma.scrolithMatchPreference.upsert({
+    where: { userId },
+    create: { userId, data: preferences as any },
+    update: { data: preferences as any }
+  });
+  emitMatchUpdate(userId, { preferencesUpdated: true });
+  return { ...preferences, updatedAt: record.updatedAt };
 };
 
 export const updateScrolithMatchConfig = async (value: unknown, updatedBy?: string) => {
@@ -167,7 +263,38 @@ const targetSelect = {
   clientHiringStatus: true
 };
 
-const scoreCandidate = (viewer: any, target: any, accountType: MatchAccountType, config: ScrolithMatchConfig) => {
+const isRemotePreference = (value: unknown) => ['REMOTE', 'FLEXIBLE', 'REMOTE_ONLY'].includes(String(value || '').toUpperCase());
+
+const preferenceFit = (target: any, accountType: MatchAccountType, preferences: MatchPreferences) => {
+  const preference = accountType === 'FREELANCER' ? preferences.freelancer : preferences.client;
+  const targetStatus = accountType === 'FREELANCER' ? target.clientHiringStatus : target.professionalAvailability;
+  const targetProfile = target.profile || {};
+  const targetTerms = tokens([
+    ...(targetProfile.skills || []), targetProfile.title, targetProfile.bio,
+    ...(targetStatus?.services || []), ...(targetStatus?.focusAreas || [])
+  ].join(' '));
+  const preferredTerms = tokens((preference.skills || []).join(' '));
+  const skillFit = preferredTerms.length ? overlap(preferredTerms, targetTerms) : 0.5;
+  const preferredLocations = tokens((preference.locations || []).join(' '));
+  const targetLocation = tokens(`${targetProfile.location || ''} ${targetProfile.country || target.country || ''}`);
+  const locationFit = preference.remoteOnly && isRemotePreference(targetStatus?.workPreference)
+    ? 1
+    : preferredLocations.length ? overlap(preferredLocations, targetLocation) : 0.5;
+  const preferredTypes = tokens((preference.workTypes || []).join(' '));
+  const targetTypes = tokens([...(targetStatus?.availabilityTypes || []), ...(targetStatus?.hiringTypes || [])].join(' '));
+  const workTypeFit = preferredTypes.length ? overlap(preferredTypes, targetTypes) : 0.5;
+  const rate = Number(targetProfile.hourlyRate);
+  const minRate = accountType === 'FREELANCER' ? preferences.freelancer.minRate : preferences.client.minBudget;
+  const maxRate = accountType === 'FREELANCER' ? preferences.freelancer.maxRate : preferences.client.maxBudget;
+  const budgetFit = Number.isFinite(rate) && (minRate !== null || maxRate !== null)
+    ? (minRate !== null && rate < minRate ? 0 : maxRate !== null && rate > maxRate ? 0 : 1)
+    : 0.5;
+  const experiencePreference = accountType === 'CLIENT' ? preferences.client.experience : '';
+  const experienceFit = experiencePreference ? overlap(tokens(experiencePreference), tokens(`${targetProfile.experience || ''} ${targetProfile.experienceItems || ''}`)) || 0.35 : 0.5;
+  return { score: skillFit * 0.45 + locationFit * 0.2 + workTypeFit * 0.15 + budgetFit * 0.1 + experienceFit * 0.1, skillFit, locationFit, workTypeFit, budgetFit, experienceFit };
+};
+
+const scoreCandidate = (viewer: any, target: any, accountType: MatchAccountType, config: ScrolithMatchConfig, preferences: MatchPreferences) => {
   const viewerProfile = viewer.profile || {};
   const targetProfile = target.profile || {};
   const viewerStatus = accountType === 'FREELANCER' ? viewer.professionalAvailability : viewer.clientHiringStatus;
@@ -190,18 +317,25 @@ const scoreCandidate = (viewer: any, target: any, accountType: MatchAccountType,
   const completeness = profileCompleteness(target, targetStatus);
   const lastActivity = target.lastLoginAt ? new Date(target.lastLoginAt).getTime() : 0;
   const activity = lastActivity && Date.now() - lastActivity <= 30 * DAY_MS ? 1 : 0.35;
-  const score = clamp(
+  const baseScore = clamp(
     skills * config.weights.skills + experience * config.weights.experience + location * config.weights.location +
       completeness * config.weights.completeness + activity * config.weights.activity,
     0,
     1
   );
+  const preference = preferenceFit(target, accountType, preferences);
+  const score = clamp(baseScore * 0.9 + preference.score * 0.1, 0, 1);
   const reasons = [
     skills >= 0.35 ? 'Strong focus and skill overlap' : skills > 0 ? 'Partial focus and skill overlap' : 'Professional interests are compatible',
     location >= 0.8 ? 'Location or remote preference aligns' : 'Location alignment is limited',
     completeness >= 0.8 ? 'Complete professional profile' : 'Professional profile signals available',
     activity >= 0.8 ? 'Recently active on Scrolith' : 'Recent activity signal is limited'
   ];
+  if (preference.skillFit >= 0.35 && preference.skillFit > skills) reasons[0] = 'Matches your selected skills';
+  if (preference.locationFit >= 0.8 && preference.locationFit > location) reasons[1] = 'Matches your location or remote preference';
+  if (preference.workTypeFit >= 0.8) reasons.push('Matches your preferred work type');
+  if (preference.budgetFit >= 0.8 && preference.budgetFit !== 0.5) reasons.push('Rate or budget fits your range');
+  if (preference.experienceFit >= 0.8 && preference.experienceFit !== 0.5) reasons.push('Experience level matches your preference');
   return { score: Number(score.toFixed(4)), reasons };
 };
 
@@ -224,6 +358,38 @@ const viewerQuery = (userId: string) => prisma.user.findUnique({
   select: { id: true, role: true, country: true, lastLoginAt: true, profile: true, professionalAvailability: true, clientHiringStatus: true }
 });
 
+const parseExperienceFilter = (value: string, target: any) => {
+  const requested = String(value || '').toLowerCase().trim();
+  if (!requested) return true;
+  const raw = `${target.profile?.experience || ''} ${target.profile?.experienceItems || ''}`.toLowerCase();
+  if (raw.includes(requested)) return true;
+  const score = experienceScore(raw);
+  if (requested.includes('senior') || requested.includes('expert') || requested.includes('lead')) return score >= 0.85;
+  if (requested.includes('mid') || requested.includes('intermediate')) return score >= 0.65 && score < 0.85;
+  if (requested.includes('junior') || requested.includes('entry')) return score < 0.65;
+  return false;
+};
+
+const matchesFilters = (target: any, accountType: MatchAccountType, scored: { score: number }, filters: MatchFilters) => {
+  const status = accountType === 'FREELANCER' ? target.clientHiringStatus : target.professionalAvailability;
+  const profile = target.profile || {};
+  const targetTerms = tokens([
+    ...(profile.skills || []), profile.title, profile.bio,
+    ...(status?.services || []), ...(status?.focusAreas || [])
+  ].join(' '));
+  if (filters.skills?.length && !filters.skills.some((skill) => overlap(tokens(skill), targetTerms) > 0)) return false;
+  const targetLocation = tokens(`${profile.location || ''} ${profile.country || target.country || ''}`);
+  if (filters.location && !overlap(tokens(filters.location), targetLocation) && !isRemotePreference(status?.workPreference)) return false;
+  if (filters.remoteOnly && !isRemotePreference(status?.workPreference)) return false;
+  if (filters.experience && !parseExperienceFilter(filters.experience, target)) return false;
+  if (filters.availability) {
+    const timing = String(status?.timing || '').toLowerCase();
+    if (!timing.includes(String(filters.availability).toLowerCase())) return false;
+  }
+  if (filters.minimumScore !== undefined && scored.score < filters.minimumScore) return false;
+  return true;
+};
+
 const serializeTarget = (target: any, accountType: MatchAccountType, scored: { score: number; reasons: string[] }, interaction?: any, mutual = false) => ({
   id: target.id,
   name: target.name || target.username || 'Scrolith member',
@@ -242,7 +408,7 @@ const serializeTarget = (target: any, accountType: MatchAccountType, scored: { s
   href: target.username ? `/u/${encodeURIComponent(target.username)}` : `/profile/${encodeURIComponent(target.id)}`
 });
 
-export const getMatchFeed = async (input: { userId: string; accountTypeInput?: unknown; mutualOnly?: boolean }) => {
+export const getMatchFeed = async (input: { userId: string; accountTypeInput?: unknown; mutualOnly?: boolean; filters?: MatchFilters }) => {
   const config = await getScrolithMatchConfig();
   const viewer = await viewerQuery(input.userId);
   if (!viewer) throw new Error('User not found');
@@ -255,6 +421,8 @@ export const getMatchFeed = async (input: { userId: string; accountTypeInput?: u
     return { enabled: true, accountType, items: [], mutual: [], reason: 'activate_status', limits: { dailyInterestLimit: config.dailyInterestLimit, interestsUsed: 0 } };
   }
   const now = new Date();
+  const filters = config.filtersEnabled ? input.filters || {} : {};
+  const preferences = await getMatchPreferences(input.userId);
   const [follows, blocks, interactions] = await Promise.all([
     prisma.userFollow.findMany({ where: { followerId: input.userId }, select: { followeeId: true } }),
     prisma.userBlock.findMany({ where: { OR: [{ blockerId: input.userId }, { blockedId: input.userId }] }, select: { blockerId: true, blockedId: true } }),
@@ -280,8 +448,9 @@ export const getMatchFeed = async (input: { userId: string; accountTypeInput?: u
       const state = interactionMap.get(candidate.id);
       return !state || state.action !== 'DISMISSED' || new Date(state.updatedAt).getTime() + config.dismissCooldownDays * DAY_MS <= now.getTime();
     })
-    .map((candidate) => ({ candidate, scored: scoreCandidate(viewer, candidate, accountType, config) }))
-    .filter((entry) => entry.scored.score >= config.minimumScore)
+    .map((candidate) => ({ candidate, scored: scoreCandidate(viewer, candidate, accountType, config, preferences) }))
+    .filter((entry) => entry.scored.score >= Math.max(config.minimumScore, filters.minimumScore || 0))
+    .filter((entry) => matchesFilters(entry.candidate, accountType, entry.scored, filters))
     .sort((left, right) => right.scored.score - left.scored.score)
     .slice(0, config.maxCandidates);
   const reciprocal = items.length
@@ -292,12 +461,22 @@ export const getMatchFeed = async (input: { userId: string; accountTypeInput?: u
     : [];
   const reciprocalIds = new Set(reciprocal.map((item) => item.actorId));
   const serialized = items
-    .map(({ candidate, scored }) => serializeTarget(candidate, accountType, scored, interactionMap.get(candidate.id), reciprocalIds.has(candidate.id) && interactionMap.get(candidate.id)?.action === 'INTERESTED'))
+    .map(({ candidate, scored }) => serializeTarget(candidate, accountType, config.insightsEnabled ? scored : { ...scored, reasons: [] }, interactionMap.get(candidate.id), reciprocalIds.has(candidate.id) && interactionMap.get(candidate.id)?.action === 'INTERESTED'))
     .filter((item) => !input.mutualOnly || item.mutual);
   void logEvent(input.userId, 'shown');
+  if (Object.keys(filters).length) void logEvent(input.userId, 'filter_used');
+  if (config.insightsEnabled) void logEvent(input.userId, 'insight_shown');
   const startOfDay = new Date(now); startOfDay.setUTCHours(0, 0, 0, 0);
   const interestsUsed = await prisma.scrolithMatchInteraction.count({ where: { actorId: input.userId, action: 'INTERESTED', updatedAt: { gte: startOfDay } } });
-  return { enabled: true, accountType, items: serialized, mutual: serialized.filter((item) => item.mutual), limits: { dailyInterestLimit: config.dailyInterestLimit, interestsUsed } };
+  return {
+    enabled: true,
+    accountType,
+    items: serialized,
+    mutual: serialized.filter((item) => item.mutual),
+    filters: { enabled: config.filtersEnabled, applied: filters, resultCount: serialized.length },
+    insights: { enabled: config.insightsEnabled },
+    limits: { dailyInterestLimit: config.dailyInterestLimit, interestsUsed }
+  };
 };
 
 const validateTarget = async (userId: string, targetId: string, accountType: MatchAccountType) => {
@@ -389,7 +568,21 @@ export const getScrolithMatchAnalytics = async (daysInput: unknown = 30) => {
   const count = (name: string) => events.filter((event) => event.type === `${MATCH_EVENT_PREFIX}${name}`).length;
   const interests = count('interest');
   const mutual = count('mutual');
-  return { days, shown: count('shown'), interests, dismissals: count('dismiss'), mutualConnections: mutual, conversionRate: interests ? Number((mutual / interests).toFixed(4)) : 0 };
+  const shown = count('shown');
+  const filtersUsed = count('filter_used');
+  const insightsShown = count('insight_shown');
+  return {
+    days,
+    shown,
+    interests,
+    dismissals: count('dismiss'),
+    mutualConnections: mutual,
+    conversionRate: interests ? Number((mutual / interests).toFixed(4)) : 0,
+    filtersUsed,
+    insightsShown,
+    filterUsageRate: shown ? Number((filtersUsed / shown).toFixed(4)) : 0,
+    insightEngagementRate: shown ? Number((insightsShown / shown).toFixed(4)) : 0
+  };
 };
 
 export default { getMatchFeed, recordMatchAction, assertMutualMatch, getScrolithMatchConfig, updateScrolithMatchConfig, getScrolithMatchAnalytics };

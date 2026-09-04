@@ -249,6 +249,7 @@ model User {
   opportunityMatches        OpportunityMatch[]
   matchInteractionsGiven    ScrolithMatchInteraction[] @relation("ScrolithMatchActors")
   matchInteractionsReceived ScrolithMatchInteraction[] @relation("ScrolithMatchTargets")
+  scrolithMatchPreference   ScrolithMatchPreference?
   postPredictionsAuthored   PostPrediction[]        @relation("PostPredictionAuthor")
   aiCopilotLogs             AICopilotLog[]
   skillGapReports           SkillGapReport[]
@@ -1552,6 +1553,20 @@ model ScrolithMatchInteraction {
   @@unique([actorId, targetId])
   @@index([actorId, action, updatedAt])
   @@index([targetId, action, updatedAt])
+}
+
+/// Additive per-user Match preferences. Stored separately so existing profile
+/// and hiring-status records remain the source of truth for eligibility.
+model ScrolithMatchPreference {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  data      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
 }
 
 model WeeklyLeaderboard {

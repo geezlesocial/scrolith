@@ -1,4 +1,4 @@
-import { DEFAULT_SCROLITH_MATCH_CONFIG, normalizeMatchAccountType, normalizeMatchConfig } from '../scrolithMatch.service';
+import { DEFAULT_MATCH_PREFERENCES, DEFAULT_SCROLITH_MATCH_CONFIG, normalizeMatchAccountType, normalizeMatchConfig, normalizeMatchPreferences } from '../scrolithMatch.service';
 
 describe('Scrolith Match configuration contracts', () => {
   test('normalizes supported role aliases without trusting arbitrary values', () => {
@@ -19,5 +19,19 @@ describe('Scrolith Match configuration contracts', () => {
     expect(Object.values(config.weights).reduce((sum, value) => sum + value, 0)).toBeCloseTo(1);
     expect(normalizeMatchConfig(null)).toEqual(DEFAULT_SCROLITH_MATCH_CONFIG);
   });
-});
 
+  test('normalizes per-context preferences without accepting unbounded input', () => {
+    const preferences = normalizeMatchPreferences({
+      freelancer: { skills: 'React, React, TypeScript', minRate: '25', maxRate: '999999999', remoteOnly: 'true', workTypes: ['Contract', 'Contract'] },
+      client: { locations: ['Singapore'], experience: ' senior ', minBudget: 'invalid' }
+    });
+    expect(preferences.freelancer.skills).toEqual(['React', 'TypeScript']);
+    expect(preferences.freelancer.minRate).toBe(25);
+    expect(preferences.freelancer.maxRate).toBe(1000000);
+    expect(preferences.freelancer.remoteOnly).toBe(true);
+    expect(preferences.freelancer.workTypes).toEqual(['Contract']);
+    expect(preferences.client.experience).toBe('senior');
+    expect(preferences.client.minBudget).toBeNull();
+    expect(DEFAULT_MATCH_PREFERENCES.client.skills).toEqual([]);
+  });
+});
