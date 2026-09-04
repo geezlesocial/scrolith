@@ -70,6 +70,7 @@ const GoogleSettings = React.lazy(() => import('./admin/GoogleSettings'));
 const MonetizationManagement = React.lazy(() => import('./admin/MonetizationManagement'));
 const RecommendationManagement = React.lazy(() => import('./admin/RecommendationManagement'));
 const HiringRecommendationsManagement = React.lazy(() => import('./admin/HiringRecommendationsManagement'));
+const ScrolithMatchManagement = React.lazy(() => import('./admin/ScrolithMatchManagement'));
 const ScrolithaManagement = React.lazy(() => import('./admin/ScrolithaManagement'));
 const ScrolithaAIFoundation = React.lazy(() => import('./admin/ScrolithaAIFoundation'));
 const AppManagement = React.lazy(() => import('./admin/AppManagement'));
@@ -80,7 +81,7 @@ const AdminLivePlatform = React.lazy(() => import('../pages/AdminLivePlatform'))
 const ScrollAdminPanel = React.lazy(() => import('../features/scroll/ScrollAdminPanel'));
 
 // Define valid tab types
-type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'insights-growth' | 'listings' | 'marketplace' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'scroll' | 'live' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'access-control' | 'role-management' | 'policy-center' | 'approval-policies' | 'audit-logs' | 'security-alerts' | 'device-login-security' | 'procurement' | 'compliance' | 'private-talent-cloud' | 'integrations' | 'scrolitha-controls' | 'managed-delivery' | 'feature-control' | 'discovery-studio' | 'journey-center' | 'notification-ops' | 'moderation-trust' | 'config-rollback' | 'realtime-ops' | 'moderator-console' | 'message-records' | 'messaging-groups' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'groups' | 'recommendations' | 'hiring-recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'scrolitha-ai' | 'apps' | 'developer-platform' | 'system-backup';
+type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'insights-growth' | 'listings' | 'marketplace' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'scroll' | 'live' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'access-control' | 'role-management' | 'policy-center' | 'approval-policies' | 'audit-logs' | 'security-alerts' | 'device-login-security' | 'procurement' | 'compliance' | 'private-talent-cloud' | 'integrations' | 'scrolitha-controls' | 'managed-delivery' | 'feature-control' | 'discovery-studio' | 'journey-center' | 'notification-ops' | 'moderation-trust' | 'config-rollback' | 'realtime-ops' | 'moderator-console' | 'message-records' | 'messaging-groups' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'groups' | 'recommendations' | 'hiring-recommendations' | 'scrolith-match' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'scrolitha-ai' | 'apps' | 'developer-platform' | 'system-backup';
 
 // Define navigation item interface
 interface NavItem {
@@ -169,7 +170,7 @@ const AdminDashboard: React.FC = () => {
             'overview', 'analytics', 'listings', 'marketplace', 'engagement', 'finance', 'gateways', 'cms', 
             'homepage', 'mobile-homepage', 'blog', 'scroll', 'live', 'marketing', 'users', 'monetization', 'files', 'staff', 'access-control', 'role-management', 'policy-center', 'approval-policies', 'audit-logs', 'security-alerts', 'device-login-security', 'feature-control', 'discovery-studio', 'journey-center', 'moderation-trust', 'config-rollback', 'realtime-ops', 'moderator-console', 'message-records', 'messaging-groups', 'kyc',
             'procurement', 'compliance', 'private-talent-cloud', 'integrations', 'scrolitha-controls', 'managed-delivery',
-            'support', 'system', 'profile', 'messages', 'ai', 'atm', 'insights-growth', 'community', 'groups', 'recommendations', 'hiring-recommendations', 'navigation', 'reviews', 'languages', 'forms', 'google-settings', 'scrolitha', 'apps', 'developer-platform', 'system-backup'
+            'support', 'system', 'profile', 'messages', 'ai', 'atm', 'insights-growth', 'community', 'groups', 'recommendations', 'hiring-recommendations', 'scrolith-match', 'navigation', 'reviews', 'languages', 'forms', 'google-settings', 'scrolitha', 'apps', 'developer-platform', 'system-backup'
         ];
         return validTabs.includes(tab as Tab);
     };
@@ -367,6 +368,7 @@ const AdminDashboard: React.FC = () => {
                 { id: 'discovery-studio', label: 'Discovery Studio', icon: Compass },
                 { id: 'recommendations', label: 'Recommendations', icon: Sparkles },
                 { id: 'hiring-recommendations', label: 'Hiring Recommendations', icon: Briefcase },
+                { id: 'scrolith-match', label: 'Scrolith Match', icon: Users },
                 { id: 'reviews', label: 'Reviews', icon: FileText }
             ] 
         },
@@ -462,6 +464,7 @@ const AdminDashboard: React.FC = () => {
             case 'groups': return <CommunityManagement initialTab="groups" />;
             case 'recommendations': return <RecommendationManagement />;
             case 'hiring-recommendations': return <HiringRecommendationsManagement />;
+            case 'scrolith-match': return <ScrolithMatchManagement />;
             case 'reviews': return <AdminReviews />;
             case 'marketing': return <MarketingTab />;
             case 'users': return <UsersManagementTab />;
@@ -521,6 +524,7 @@ const AdminDashboard: React.FC = () => {
         if (tab === 'journey-center') return 'Notification & Journey Center';
         if (tab === 'notification-ops') return 'Notification Operations';
         if (tab === 'scrolitha-ai') return 'Scrolitha AI';
+        if (tab === 'scrolith-match') return 'Scrolith Match';
         if (tab === 'moderation-trust') return 'Moderation & Trust';
         if (tab === 'config-rollback') return 'Config & Rollback';
         if (tab === 'realtime-ops') return 'Realtime Ops';

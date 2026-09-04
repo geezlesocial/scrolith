@@ -227,6 +227,8 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'insights:copilot_tip', fn: forward('insights:copilot_tip') }
       ,{ ev: 'insights:post_prediction_ready', fn: forward('insights:post_prediction_ready') }
       ,{ ev: 'insights:opportunity_match_ready', fn: forward('insights:opportunity_match_ready') }
+      ,{ ev: 'match:updated', fn: forward('match:updated') }
+      ,{ ev: 'match:mutual', fn: forward('match:mutual') }
       ,{ ev: 'insights:toxicity_flagged', fn: forward('insights:toxicity_flagged') }
       ,{ ev: 'dev:link_status_updated', fn: forward('dev:link_status_updated') }
       ,{ ev: 'dev:app_updated', fn: forward('dev:app_updated') }
