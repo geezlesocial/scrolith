@@ -1,134 +1,52 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowRight, BriefcaseBusiness, Check, ExternalLink, MapPin, RefreshCw, Sparkles, Users, X } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowRight, BriefcaseBusiness, Check, ExternalLink, MapPin, RefreshCw, Settings2, Sparkles, Users, X } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { useSocket } from '../context/SocketContext';
-import { ScrolithMatchService, type MatchAccountType, type MatchTab, type ScrolithMatchFeed, type ScrolithMatchItem } from '../services/scrolithMatch';
+import { ScrolithMatchService, type MatchAccountType, type MatchFilters, type MatchPreferences, type MatchTab, type ScrolithMatchFeed, type ScrolithMatchItem } from '../services/scrolithMatch';
 
-const resolveAccountType = (value: string | null, role: unknown): MatchAccountType => {
-  const requested = String(value || '').toUpperCase();
-  if (requested === 'CLIENT' || requested === 'EMPLOYER') return 'CLIENT';
-  if (requested === 'FREELANCER' || requested === 'SELLER') return 'FREELANCER';
-  const currentRole = String(role || '').toUpperCase();
-  return currentRole === 'CLIENT' || currentRole === 'EMPLOYER' ? 'CLIENT' : 'FREELANCER';
-};
+const DEFAULT_PREFERENCES: MatchPreferences = { freelancer: { skills: [], locations: [], remoteOnly: false, minRate: null, maxRate: null, workTypes: [] }, client: { skills: [], locations: [], remoteOnly: false, minBudget: null, maxBudget: null, experience: '', workTypes: [] } };
+const resolveAccountType = (value: string | null, role: unknown): MatchAccountType => { const requested = String(value || '').toUpperCase(); if (requested === 'CLIENT' || requested === 'EMPLOYER') return 'CLIENT'; if (requested === 'FREELANCER' || requested === 'SELLER') return 'FREELANCER'; return ['CLIENT', 'EMPLOYER'].includes(String(role || '').toUpperCase()) ? 'CLIENT' : 'FREELANCER'; };
+const emptyFeed = (accountType: MatchAccountType): ScrolithMatchFeed => ({ enabled: false, accountType, items: [], mutual: [], limits: { dailyInterestLimit: 0, interestsUsed: 0 } });
+const readFilters = (key: string): MatchFilters => { try { return JSON.parse(window.sessionStorage.getItem(key) || '{}'); } catch { return {}; } };
 
-const emptyFeed = (accountType: MatchAccountType): ScrolithMatchFeed => ({
-  enabled: false, accountType, items: [], mutual: [], limits: { dailyInterestLimit: 0, interestsUsed: 0 }
-});
-
-const MatchCard: React.FC<{
-  item: ScrolithMatchItem;
-  busy: boolean;
-  onInterest: () => void;
-  onDismiss: () => void;
-  onChat: () => void;
-}> = ({ item, busy, onInterest, onDismiss, onChat }) => (
-  <article className="border border-slate-200 bg-white rounded-lg p-4 shadow-sm">
-    <div className="flex items-start gap-3">
-      {item.avatar ? (
-        <img src={item.avatar} alt="" className="h-14 w-14 shrink-0 rounded-full object-cover border border-slate-200" />
-      ) : (
-        <div className="h-14 w-14 shrink-0 rounded-full bg-slate-900 text-white flex items-center justify-center font-semibold" aria-hidden="true">
-          {item.name.trim().slice(0, 2).toUpperCase()}
-        </div>
-      )}
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="font-semibold text-slate-900 truncate">{item.name}</h2>
-          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-            <Sparkles className="h-3 w-3" /> {item.matchScore}% match
-          </span>
-          {item.mutual && <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">Mutual</span>}
-        </div>
-        <p className="mt-1 text-sm text-slate-700">{item.title || 'Scrolith professional'}</p>
-        {item.location && <p className="mt-1 flex items-center gap-1 text-xs text-slate-500"><MapPin className="h-3 w-3" />{item.location}</p>}
-      </div>
-    </div>
-    {item.bio && <p className="mt-3 line-clamp-2 text-sm leading-5 text-slate-600">{item.bio}</p>}
-    {item.skills.length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{item.skills.slice(0, 6).map((skill) => <span key={skill} className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">{skill}</span>)}</div>}
-    <div className="mt-3 border-t border-slate-100 pt-3">
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Why this match</p>
-      <ul className="mt-1 grid gap-1 text-xs text-slate-600 sm:grid-cols-2">{item.reasons.slice(0, 4).map((reason) => <li key={reason} className="flex gap-1.5"><Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />{reason}</li>)}</ul>
-    </div>
-    <div className="mt-4 flex flex-wrap gap-2">
-      {item.mutual ? (
-        <button type="button" onClick={onChat} disabled={busy} className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"><Users className="h-4 w-4" /> Start chat</button>
-      ) : (
-        <button type="button" onClick={onInterest} disabled={busy || item.interaction === 'INTERESTED'} className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"><Check className="h-4 w-4" />{item.interaction === 'INTERESTED' ? 'Interested' : 'Interested'}</button>
-      )}
-      <button type="button" onClick={onDismiss} disabled={busy} className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"><X className="h-4 w-4" /> Not now</button>
-      <a href={item.href} className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"><ExternalLink className="h-4 w-4" /> Profile</a>
-    </div>
+const MatchCard: React.FC<{ item: ScrolithMatchItem; insights: boolean; busy: boolean; onInterest: () => void; onDismiss: () => void; onChat: () => void }> = ({ item, insights, busy, onInterest, onDismiss, onChat }) => (
+  <article className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="flex items-start gap-3">{item.avatar ? <img src={item.avatar} alt="" className="h-14 w-14 shrink-0 rounded-full border border-slate-200 object-cover" /> : <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-slate-900 font-semibold text-white" aria-hidden="true">{item.name.trim().slice(0, 2).toUpperCase()}</div>}<div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="truncate font-semibold text-slate-900">{item.name}</h2><span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700"><Sparkles className="h-3 w-3" /> {item.matchScore}% match</span>{item.mutual && <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">Mutual</span>}</div><p className="mt-1 text-sm text-slate-700">{item.title || 'Scrolith professional'}</p>{item.location && <p className="mt-1 flex items-center gap-1 text-xs text-slate-500"><MapPin className="h-3 w-3" />{item.location}</p>}</div></div>
+    {item.bio && <p className="mt-3 line-clamp-2 text-sm leading-5 text-slate-600">{item.bio}</p>}{item.skills.length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{item.skills.slice(0, 6).map((skill) => <span key={skill} className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">{skill}</span>)}</div>}
+    {insights && item.reasons.length > 0 && <div className="mt-3 border-t border-slate-100 pt-3"><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Why this match</p><ul className="mt-1 grid gap-1 text-xs text-slate-600 sm:grid-cols-2">{item.reasons.slice(0, 5).map((reason) => <li key={reason} className="flex gap-1.5"><Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />{reason}</li>)}</ul></div>}
+    <div className="mt-4 flex flex-wrap gap-2">{item.mutual ? <button type="button" onClick={onChat} disabled={busy} className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"><Users className="h-4 w-4" /> Start chat</button> : <button type="button" onClick={onInterest} disabled={busy || item.interaction === 'INTERESTED'} className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"><Check className="h-4 w-4" /> Interested</button>}<button type="button" onClick={onDismiss} disabled={busy} className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"><X className="h-4 w-4" /> Not now</button><a href={item.href} className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"><ExternalLink className="h-4 w-4" /> Profile</a></div>
   </article>
 );
 
 const MatchPage: React.FC = () => {
-  const { user } = useUser();
-  const { socket } = useSocket();
-  const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const accountType = resolveAccountType(searchParams.get('as'), user?.role);
-  const tab: MatchTab = searchParams.get('tab') === 'mutual' ? 'mutual' : 'matches';
-  const [feed, setFeed] = useState<ScrolithMatchFeed>(() => emptyFeed(accountType));
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [busyId, setBusyId] = useState('');
-
-  const load = useCallback(async () => {
-    setLoading(true); setError('');
-    try { setFeed(await ScrolithMatchService.getFeed(accountType, tab)); }
-    catch (cause: any) { setError(cause?.response?.data?.error || cause?.message || 'Match is temporarily unavailable.'); setFeed(emptyFeed(accountType)); }
-    finally { setLoading(false); }
-  }, [accountType, tab]);
-
-  useEffect(() => { void load(); }, [load]);
+  const { user } = useUser(); const { socket } = useSocket(); const navigate = useNavigate(); const [searchParams, setSearchParams] = useSearchParams();
+  const accountType = resolveAccountType(searchParams.get('as'), user?.role); const tab: MatchTab = searchParams.get('tab') === 'mutual' ? 'mutual' : 'matches'; const storageKey = `scrolith:match-filters:${user?.id || 'session'}:${accountType}`;
+  const [filters, setFilters] = useState<MatchFilters>(() => readFilters(storageKey)); const [feed, setFeed] = useState<ScrolithMatchFeed>(() => emptyFeed(accountType)); const [preferences, setPreferences] = useState<MatchPreferences>(DEFAULT_PREFERENCES); const [preferenceDraft, setPreferenceDraft] = useState<MatchPreferences>(DEFAULT_PREFERENCES); const [showFilters, setShowFilters] = useState(false); const [showPreferences, setShowPreferences] = useState(false); const [loading, setLoading] = useState(true); const [savingPreferences, setSavingPreferences] = useState(false); const [error, setError] = useState(''); const [busyId, setBusyId] = useState('');
+  const load = useCallback(async () => { setLoading(true); setError(''); try { setFeed(await ScrolithMatchService.getFeed(accountType, tab, filters)); } catch (cause: any) { setError(cause?.response?.data?.error || cause?.message || 'Match is temporarily unavailable.'); setFeed(emptyFeed(accountType)); } finally { setLoading(false); } }, [accountType, filters, tab]);
+  const previousStorageKey = useRef(storageKey);
   useEffect(() => {
-    if (!socket) return;
-    const refresh = () => { void load(); };
-    socket.on('match:updated', refresh);
-    socket.on('match:mutual', refresh);
-    return () => { socket.off('match:updated', refresh); socket.off('match:mutual', refresh); };
-  }, [load, socket]);
-  useEffect(() => {
-    const onFocus = () => { if (document.visibilityState === 'visible') void load(); };
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onFocus);
-    return () => { window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus); };
-  }, [load]);
+    if (previousStorageKey.current !== storageKey) {
+      previousStorageKey.current = storageKey;
+      setFilters(readFilters(storageKey));
+      return;
+    }
+    try { window.sessionStorage.setItem(storageKey, JSON.stringify(filters)); } catch { /* best effort */ }
+  }, [filters, storageKey]);
+  useEffect(() => { const timer = window.setTimeout(() => void load(), 250); return () => window.clearTimeout(timer); }, [load]);
+  useEffect(() => { void ScrolithMatchService.getPreferences().then((value) => { setPreferences(value); setPreferenceDraft(value); }).catch(() => undefined); }, [user?.id]);
+  useEffect(() => { if (!socket) return; const refresh = () => void load(); socket.on('match:updated', refresh); socket.on('match:mutual', refresh); return () => { socket.off('match:updated', refresh); socket.off('match:mutual', refresh); }; }, [load, socket]);
+  useEffect(() => { const refresh = () => { if (document.visibilityState === 'visible') void load(); }; window.addEventListener('focus', refresh); document.addEventListener('visibilitychange', refresh); return () => { window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); }; }, [load]);
+  const setContext = (next: MatchAccountType, nextTab: MatchTab = tab) => setSearchParams({ as: next.toLowerCase(), ...(nextTab === 'mutual' ? { tab: 'mutual' } : {}) }); const setFilter = <K extends keyof MatchFilters>(key: K, value: MatchFilters[K]) => setFilters((current) => ({ ...current, [key]: value })); const clearFilters = () => setFilters({}); const items = useMemo(() => tab === 'mutual' ? feed.mutual : feed.items, [feed, tab]); const activePreference = accountType === 'FREELANCER' ? preferenceDraft.freelancer : preferenceDraft.client;
+  const updatePreference = (context: 'freelancer' | 'client', patch: Record<string, unknown>) => setPreferenceDraft((current) => ({ ...current, [context]: { ...current[context], ...patch } }));
+  const savePreferences = async () => { setSavingPreferences(true); setError(''); try { const saved = await ScrolithMatchService.updatePreferences(preferenceDraft); setPreferences(saved); setPreferenceDraft(saved); setShowPreferences(false); await load(); } catch (cause: any) { setError(cause?.response?.data?.error || cause?.message || 'Unable to save Match preferences.'); } finally { setSavingPreferences(false); } };
+  const act = async (item: ScrolithMatchItem, action: 'interest' | 'dismiss') => { setBusyId(item.id); try { await ScrolithMatchService.postAction(action, item.id, accountType); await load(); } catch (cause: any) { setError(cause?.response?.data?.error || cause?.message || 'Unable to update this Match.'); } finally { setBusyId(''); } }; const openChat = async (item: ScrolithMatchItem) => { if (!item.mutual) return; setBusyId(item.id); try { const conversation = await ScrolithMatchService.createMutualConversation(item.id); navigate(`/messages/${conversation.id}`); } catch (cause: any) { setError(cause?.message || 'Unable to open the conversation.'); } finally { setBusyId(''); } };
 
-  const setContext = (next: MatchAccountType, nextTab: MatchTab = tab) => setSearchParams({ as: next.toLowerCase(), ...(nextTab === 'mutual' ? { tab: 'mutual' } : {}) });
-  const items = useMemo(() => tab === 'mutual' ? feed.mutual : feed.items, [feed, tab]);
-  const act = async (item: ScrolithMatchItem, action: 'interest' | 'dismiss') => {
-    setBusyId(item.id);
-    try { await ScrolithMatchService.postAction(action, item.id, accountType); await load(); }
-    catch (cause: any) { setError(cause?.response?.data?.error || cause?.message || 'Unable to update this Match.'); }
-    finally { setBusyId(''); }
-  };
-  const openChat = async (item: ScrolithMatchItem) => {
-    if (!user?.id || !item.mutual) return;
-    setBusyId(item.id);
-    try { const conversation = await ScrolithMatchService.createMutualConversation(item.id); navigate(`/messages/${conversation.id}`); }
-    catch (cause: any) { setError(cause?.message || 'Unable to open the conversation.'); }
-    finally { setBusyId(''); }
-  };
-
-  return <div className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 lg:px-8">
-    <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5">
-      <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-600">Scrolith Match</p><h1 className="mt-1 text-2xl font-bold text-slate-900">Mutual professional opportunities</h1><p className="mt-1 max-w-2xl text-sm text-slate-600">Connect with people whose active hiring intent and professional signals align with yours.</p></div>
-      <button type="button" onClick={() => void load()} disabled={loading} aria-label="Refresh matches" className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh</button>
-    </div>
-    <div className="mt-5 flex flex-wrap gap-2" role="tablist" aria-label="Match context">
-      <button type="button" onClick={() => setContext('FREELANCER')} className={`rounded-md px-3 py-2 text-sm font-semibold ${accountType === 'FREELANCER' ? 'bg-slate-900 text-white' : 'border border-slate-300 text-slate-700'}`}><BriefcaseBusiness className="mr-1 inline h-4 w-4" /> As freelancer</button>
-      <button type="button" onClick={() => setContext('CLIENT')} className={`rounded-md px-3 py-2 text-sm font-semibold ${accountType === 'CLIENT' ? 'bg-slate-900 text-white' : 'border border-slate-300 text-slate-700'}`}><Users className="mr-1 inline h-4 w-4" /> As client</button>
-      <span className="mx-1 hidden h-8 w-px bg-slate-200 sm:block" />
-      <button type="button" onClick={() => setContext(accountType, 'matches')} className={`rounded-md px-3 py-2 text-sm font-semibold ${tab === 'matches' ? 'bg-blue-50 text-blue-700' : 'text-slate-600'}`}>Matches</button>
-      <button type="button" onClick={() => setContext(accountType, 'mutual')} className={`rounded-md px-3 py-2 text-sm font-semibold ${tab === 'mutual' ? 'bg-blue-50 text-blue-700' : 'text-slate-600'}`}>Mutual connections</button>
-    </div>
-    {feed.limits.dailyInterestLimit > 0 && <p className="mt-3 text-xs text-slate-500">Daily interest usage: {feed.limits.interestsUsed} / {feed.limits.dailyInterestLimit}</p>}
-    {error && <div role="alert" className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>}
-    {loading ? <div className="mt-6 grid gap-4 md:grid-cols-2" aria-busy="true">{[1, 2].map((id) => <div key={id} className="h-64 animate-pulse rounded-lg bg-slate-100" />)}</div> : !feed.enabled ? <div className="mt-6 rounded-lg border border-slate-200 bg-white px-5 py-10 text-center"><h2 className="font-semibold text-slate-900">Match is not active for this profile</h2><p className="mt-2 text-sm text-slate-600">Activate the relevant Available for Hire or We Are Hiring status to participate.</p></div> : feed.reason === 'activate_status' ? <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 px-5 py-10 text-center"><h2 className="font-semibold text-amber-950">Activate your hiring status</h2><p className="mt-2 text-sm text-amber-900">Match requires an active, public status for the selected account context.</p></div> : items.length === 0 ? <div className="mt-6 rounded-lg border border-slate-200 bg-white px-5 py-10 text-center"><h2 className="font-semibold text-slate-900">No matches right now</h2><p className="mt-2 text-sm text-slate-600">We will refresh this list as eligible opportunities change.</p></div> : <div className="mt-6 grid gap-4 md:grid-cols-2">{items.map((item) => <MatchCard key={item.id} item={item} busy={busyId === item.id} onInterest={() => void act(item, 'interest')} onDismiss={() => void act(item, 'dismiss')} onChat={() => void openChat(item)} />)}</div>}
-    <div className="mt-6 flex items-center gap-2 text-xs text-slate-500"><ArrowRight className="h-3.5 w-3.5" /> Matching is deterministic first; optional intelligence never blocks the platform.</div>
+  return <div className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 lg:px-8"><div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-600">Scrolith Match</p><h1 className="mt-1 text-2xl font-bold text-slate-900">Mutual professional opportunities</h1><p className="mt-1 max-w-2xl text-sm text-slate-600">Connect with people whose active hiring intent and professional signals align with yours.</p></div><div className="flex gap-2"><button type="button" onClick={() => setShowPreferences((value) => !value)} className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700"><Settings2 className="h-4 w-4" /> Preferences</button><button type="button" onClick={() => void load()} disabled={loading} aria-label="Refresh matches" className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh</button></div></div>
+    <div className="mt-5 flex flex-wrap gap-2" role="tablist" aria-label="Match context"><button type="button" onClick={() => setContext('FREELANCER')} className={`rounded-md px-3 py-2 text-sm font-semibold ${accountType === 'FREELANCER' ? 'bg-slate-900 text-white' : 'border border-slate-300 text-slate-700'}`}><BriefcaseBusiness className="mr-1 inline h-4 w-4" /> As freelancer</button><button type="button" onClick={() => setContext('CLIENT')} className={`rounded-md px-3 py-2 text-sm font-semibold ${accountType === 'CLIENT' ? 'bg-slate-900 text-white' : 'border border-slate-300 text-slate-700'}`}><Users className="mr-1 inline h-4 w-4" /> As client</button><span className="mx-1 hidden h-8 w-px bg-slate-200 sm:block" /><button type="button" onClick={() => setContext(accountType, 'matches')} className={`rounded-md px-3 py-2 text-sm font-semibold ${tab === 'matches' ? 'bg-blue-50 text-blue-700' : 'text-slate-600'}`}>Matches</button><button type="button" onClick={() => setContext(accountType, 'mutual')} className={`rounded-md px-3 py-2 text-sm font-semibold ${tab === 'mutual' ? 'bg-blue-50 text-blue-700' : 'text-slate-600'}`}>Mutual connections</button></div>
+    {showPreferences && <section className="mt-4 rounded-lg border border-blue-100 bg-blue-50/50 p-4"><div className="flex items-start justify-between gap-3"><div><h2 className="font-semibold text-slate-900">Match preferences</h2><p className="mt-1 text-xs text-slate-600">Preferences improve ranking; filters control the current list.</p></div><button type="button" onClick={() => setShowPreferences(false)} aria-label="Close preferences" className="rounded-md p-1 text-slate-500 hover:bg-white"><X className="h-4 w-4" /></button></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium text-slate-700">Skills or roles<input value={(activePreference.skills || []).join(', ')} onChange={(event) => updatePreference(accountType === 'FREELANCER' ? 'freelancer' : 'client', { skills: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} placeholder="React, design, finance" className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm" /></label><label className="text-sm font-medium text-slate-700">Preferred locations<input value={(activePreference.locations || []).join(', ')} onChange={(event) => updatePreference(accountType === 'FREELANCER' ? 'freelancer' : 'client', { locations: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} placeholder="Singapore, Philippines" className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm" /></label><label className="text-sm font-medium text-slate-700">Work types<input value={(activePreference.workTypes || []).join(', ')} onChange={(event) => updatePreference(accountType === 'FREELANCER' ? 'freelancer' : 'client', { workTypes: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} placeholder="Freelance, contract" className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm" /></label><label className="flex items-center gap-2 text-sm font-medium text-slate-700"><input type="checkbox" checked={activePreference.remoteOnly} onChange={(event) => updatePreference(accountType === 'FREELANCER' ? 'freelancer' : 'client', { remoteOnly: event.target.checked })} /> Remote opportunities only</label>{accountType === 'CLIENT' && <label className="text-sm font-medium text-slate-700">Experience level<input value={activePreference.experience || ''} onChange={(event) => updatePreference('client', { experience: event.target.value })} placeholder="Senior, mid-level" className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm" /></label>}<label className="text-sm font-medium text-slate-700">Minimum {accountType === 'CLIENT' ? 'budget' : 'rate'}<input type="number" value={(accountType === 'CLIENT' ? activePreference.minBudget : activePreference.minRate) ?? ''} onChange={(event) => updatePreference(accountType === 'CLIENT' ? 'client' : 'freelancer', accountType === 'CLIENT' ? { minBudget: event.target.value } : { minRate: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm" /></label><label className="text-sm font-medium text-slate-700">Maximum {accountType === 'CLIENT' ? 'budget' : 'rate'}<input type="number" value={(accountType === 'CLIENT' ? activePreference.maxBudget : activePreference.maxRate) ?? ''} onChange={(event) => updatePreference(accountType === 'CLIENT' ? 'client' : 'freelancer', accountType === 'CLIENT' ? { maxBudget: event.target.value } : { maxRate: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm" /></label></div><button type="button" onClick={() => void savePreferences()} disabled={savingPreferences} className="mt-4 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{savingPreferences ? 'Saving...' : 'Save preferences'}</button></section>}
+    {feed.filters?.enabled !== false && <section className="mt-4 rounded-lg border border-slate-200 bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold text-slate-900">Smart filters</h2><p className="text-xs text-slate-500">{feed.filters?.resultCount ?? items.length} result{(feed.filters?.resultCount ?? items.length) === 1 ? '' : 's'}</p></div><div className="flex gap-2"><button type="button" onClick={() => setShowFilters((value) => !value)} className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700"><Settings2 className="h-4 w-4" /> {showFilters ? 'Hide filters' : 'Filter'}</button>{Object.keys(filters).length > 0 && <button type="button" onClick={clearFilters} className="rounded-md px-3 py-2 text-sm font-semibold text-blue-700">Clear all</button>}</div></div>{showFilters && <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><label className="text-sm font-medium text-slate-700">Skills or keywords<input value={(filters.skills || []).join(', ')} onChange={(event) => setFilter('skills', event.target.value.split(',').map((item) => item.trim()).filter(Boolean))} placeholder="React, marketing" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" /></label><label className="text-sm font-medium text-slate-700">Location<input value={filters.location || ''} onChange={(event) => setFilter('location', event.target.value || undefined)} placeholder="Location" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" /></label><label className="flex items-center gap-2 pt-6 text-sm font-medium text-slate-700"><input type="checkbox" checked={Boolean(filters.remoteOnly)} onChange={(event) => setFilter('remoteOnly', event.target.checked || undefined)} /> Remote or flexible only</label><label className="text-sm font-medium text-slate-700">Experience<select value={filters.experience || ''} onChange={(event) => setFilter('experience', event.target.value || undefined)} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"><option value="">Any level</option><option value="entry">Entry level</option><option value="mid">Mid-level</option><option value="senior">Senior or lead</option></select></label><label className="text-sm font-medium text-slate-700">Availability<select value={filters.availability || ''} onChange={(event) => setFilter('availability', event.target.value || undefined)} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"><option value="">Any timing</option><option value="AVAILABLE_NOW">Available now</option><option value="WITHIN_ONE_WEEK">Within one week</option><option value="WITHIN_ONE_MONTH">Within one month</option></select></label><label className="text-sm font-medium text-slate-700">Match strength<select value={filters.minimumScore ?? ''} onChange={(event) => setFilter('minimumScore', event.target.value ? Number(event.target.value) : undefined)} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"><option value="">Any score</option><option value="0.7">70% or higher</option><option value="0.8">80% or higher</option><option value="0.9">90% or higher</option></select></label></div>}</section>}
+    {feed.limits.dailyInterestLimit > 0 && <p className="mt-3 text-xs text-slate-500">Daily interest usage: {feed.limits.interestsUsed} / {feed.limits.dailyInterestLimit}</p>}{error && <div role="alert" className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>}{loading ? <div className="mt-6 grid gap-4 md:grid-cols-2" aria-busy="true">{[1, 2].map((id) => <div key={id} className="h-64 animate-pulse rounded-lg bg-slate-100" />)}</div> : !feed.enabled ? <div className="mt-6 rounded-lg border border-slate-200 bg-white px-5 py-10 text-center"><h2 className="font-semibold text-slate-900">Match is not active for this profile</h2><p className="mt-2 text-sm text-slate-600">Activate the relevant Available for Hire or We Are Hiring status to participate.</p></div> : feed.reason === 'activate_status' ? <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 px-5 py-10 text-center"><h2 className="font-semibold text-amber-950">Activate your hiring status</h2><p className="mt-2 text-sm text-amber-900">Match requires an active, public status for the selected account context.</p></div> : items.length === 0 ? <div className="mt-6 rounded-lg border border-slate-200 bg-white px-5 py-10 text-center"><h2 className="font-semibold text-slate-900">No matches right now</h2><p className="mt-2 text-sm text-slate-600">Try clearing filters or adding more profile details and preferences.</p><a href="/profile/edit" className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-blue-700 hover:underline">Complete your profile <ArrowRight className="h-4 w-4" /></a></div> : <div className="mt-6 grid gap-4 md:grid-cols-2">{items.map((item) => <MatchCard key={item.id} item={item} insights={feed.insights?.enabled !== false} busy={busyId === item.id} onInterest={() => void act(item, 'interest')} onDismiss={() => void act(item, 'dismiss')} onChat={() => void openChat(item)} />)}</div>}<div className="mt-6 flex items-center gap-2 text-xs text-slate-500"><ArrowRight className="h-3.5 w-3.5" /> Deterministic matching keeps the list responsive.</div>
   </div>;
 };
 
