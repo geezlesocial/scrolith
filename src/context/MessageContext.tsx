@@ -881,6 +881,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       sendingIdsRef.current.add(id);
       setSendingConversationIds((prev) => ({ ...prev, [id]: true }));
+      const clientSendId = buildClientSendId(id, Date.now());
       const optimisticId = safeId(options?.optimisticId) || buildClientSendId(id, Date.now());
       const replyToMessageId = options?.replyToMessageId || replyToByConversation[id]?.id || null;
       const optimistic: Message = {
@@ -1154,7 +1155,8 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
         const message = await MessagingService.sendVoiceNote(id, {
           fileId,
-          durationMs: Math.max(1, Math.trunc(payload.durationMs || 0))
+          durationMs: Math.max(1, Math.trunc(payload.durationMs || 0)),
+          clientMessageId: clientSendId
         });
         seenMessageIdsRef.current.add(safeId(message.id));
         updateThreadMessages(id, (messages) => dedupeMessagesById([...messages, message]));

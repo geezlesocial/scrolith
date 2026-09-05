@@ -3473,7 +3473,8 @@ const Messages = () => {
           });
           const message = await MessagingService.sendVoiceNote(activeConvoId, {
               fileId,
-              durationMs: Math.max(1, Math.trunc(durationMs))
+              durationMs: Math.max(1, Math.trunc(durationMs)),
+              clientMessageId: clientSendId
           });
           const reconciled = {
               ...message,

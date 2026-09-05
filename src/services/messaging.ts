@@ -647,18 +647,33 @@ export const MessagingService = {
 
   sendVoiceNote: async (
     conversationId: string,
-    payload: { fileId: string; durationMs: number; text?: string }
+    payload: { fileId: string; durationMs: number; text?: string; clientMessageId?: string }
   ): Promise<Message> => {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       throw createOfflineRecoveryError('Voice note is paused while you are offline. Retry when your connection returns.');
     }
-    const request = beginManagedIdempotentRequest(`voice-note:${conversationId}:${payload.fileId}`);
+    const clientMessageId = String(payload.clientMessageId || '').trim();
+    const request = beginManagedIdempotentRequest(
+      `voice-note:${conversationId}:${clientMessageId || payload.fileId}`
+    );
     let lastError: any = null;
     for (let attempt = 0; attempt <= WRITE_RETRY_ATTEMPTS; attempt += 1) {
       try {
-        const response = await api.post(`/messages/conversations/${conversationId}/voice-notes`, payload, {
-          headers: request.headers
-        });
+        const response = await api.post(
+          `/messages/conversations/${conversationId}/voice-notes`,
+          {
+            ...payload,
+            ...(clientMessageId
+              ? { clientMessageId, client_message_id: clientMessageId, clientSendId: clientMessageId }
+              : {})
+          },
+          {
+            headers: {
+              ...request.headers,
+              ...(clientMessageId ? { 'X-Client-Message-Id': clientMessageId } : {})
+            }
+          }
+        );
         request.complete();
         return normalizeMessage(extractData<any>(response));
       } catch (error) {
