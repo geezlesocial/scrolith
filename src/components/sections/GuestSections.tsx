@@ -43,6 +43,8 @@ import {
 
 const ensureArray = <T = any,>(value: any): T[] => (Array.isArray(value) ? value : []);
 const SCROLITH_LOGO = "/logo-64.png";
+const GUEST_NETWORKING_IMAGE = "/images/guest-diverse-networking.webp";
+const GUEST_NETWORKING_IMAGE_FALLBACK = "/images/guest-diverse-networking.jpg";
 
 const resolveUrl = (item: any) => item?.url ?? item?.href ?? item?.link ?? "";
 
@@ -772,6 +774,21 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
                 </div>
               </div>
             ) : null}
+            <figure className="mt-5 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/90 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.38)]">
+              <picture>
+                <source srcSet={GUEST_NETWORKING_IMAGE} type="image/webp" />
+                <img
+                  src={GUEST_NETWORKING_IMAGE_FALLBACK}
+                  alt="Diverse professionals connecting on Scrolith - social and professional networking platform"
+                  width={1280}
+                  height={720}
+                  loading="lazy"
+                  decoding="async"
+                  sizes="(min-width: 1024px) 50vw, 100vw"
+                  className="block h-auto w-full object-cover"
+                />
+              </picture>
+            </figure>
           </div>
           {backgroundImageUrl ? <div className="absolute inset-0 bg-gradient-to-t from-white/55 via-white/20 to-transparent" /> : null}
         </div>
