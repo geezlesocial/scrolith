@@ -343,6 +343,20 @@
   max-width: min(var(--scrolith-header-search-max), 28vw);
 }
 
+/* Compact popovers belong to the viewport, not the narrow activity-icon wrapper. */
+@media (max-width: 1023px) {
+  .scrolith-header-popover--compact {
+    position: fixed !important;
+    top: var(--scrolith-header-popover-top, 4.5rem) !important;
+    right: max(0.75rem, env(safe-area-inset-right, 0px)) !important;
+    left: max(0.75rem, env(safe-area-inset-left, 0px)) !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: min(calc(100dvh - var(--scrolith-header-popover-top, 4.5rem) - 1rem), 720px) !important;
+    margin-top: 0 !important;
+  }
+}
+
 @media (min-width: 1280px) {
   .scrolith-header-search-shell {
     max-width: min(var(--scrolith-header-search-max-lg), 30vw);

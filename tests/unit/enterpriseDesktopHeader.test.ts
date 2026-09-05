@@ -127,6 +127,15 @@ test('notifications control keeps popup + mark-read wiring', () => {
   assert.match(navbar, /actionType === "notifications"/);
 });
 
+test('compact header popovers use viewport-safe positioning and measured trigger offsets', () => {
+  assert.match(navbar, /syncCompactNotificationPosition/);
+  assert.match(navbar, /data-testid="header-notifications-popover"/);
+  assert.match(headerCss, /\.scrolith-header-popover--compact/);
+  assert.match(headerCss, /position: fixed !important/);
+  assert.match(headerCss, /left: max\(0\.75rem, env\(safe-area-inset-left/);
+  assert.match(headerCss, /right: max\(0\.75rem, env\(safe-area-inset-right/);
+});
+
 // ── Create ─────────────────────────────────────────────────────────────────
 
 test('create menu only exposes existing platform routes with role filters', () => {

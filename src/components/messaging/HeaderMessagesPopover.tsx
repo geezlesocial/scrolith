@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Expand, X } from 'lucide-react';
 import { useMessages } from '../../context/MessageContext';
@@ -58,6 +58,7 @@ const HeaderMessagesPopover: React.FC<HeaderMessagesPopoverProps> = ({
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== 'undefined' ? isDesktopMessagingViewport(window.innerWidth) : true
   );
+  const [compactPopoverTop, setCompactPopoverTop] = useState<number | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const autoId = useId();
   const panelId = id || autoId;
@@ -74,6 +75,33 @@ const HeaderMessagesPopover: React.FC<HeaderMessagesPopoverProps> = ({
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+
+  const syncCompactPopoverPosition = useCallback(() => {
+    if (isDesktop || !triggerRef?.current) return;
+    const triggerBounds = triggerRef.current.getBoundingClientRect();
+    setCompactPopoverTop(Math.max(8, Math.ceil(triggerBounds.bottom + 8)));
+  }, [isDesktop, triggerRef]);
+
+  useEffect(() => {
+    if (!open || isDesktop) {
+      setCompactPopoverTop(null);
+      return;
+    }
+
+    syncCompactPopoverPosition();
+    const handleViewportChange = () => syncCompactPopoverPosition();
+    window.addEventListener('resize', handleViewportChange, { passive: true });
+    window.addEventListener('scroll', handleViewportChange, { passive: true, capture: true });
+    window.visualViewport?.addEventListener('resize', handleViewportChange, { passive: true });
+    window.visualViewport?.addEventListener('scroll', handleViewportChange, { passive: true });
+
+    return () => {
+      window.removeEventListener('resize', handleViewportChange);
+      window.removeEventListener('scroll', handleViewportChange, true);
+      window.visualViewport?.removeEventListener('resize', handleViewportChange);
+      window.visualViewport?.removeEventListener('scroll', handleViewportChange);
+    };
+  }, [open, isDesktop, syncCompactPopoverPosition]);
 
   useEffect(() => {
     if (!open) return;
@@ -133,11 +161,16 @@ const HeaderMessagesPopover: React.FC<HeaderMessagesPopoverProps> = ({
       aria-label="Messages"
       aria-modal="false"
       className={[
-        'absolute right-0 z-[70] mt-2 flex w-[min(420px,calc(100vw-1.5rem))] max-h-[min(680px,calc(100vh-5rem))]',
+        'scrolith-header-popover absolute right-0 z-[70] mt-2 flex w-[min(420px,calc(100vw-1.5rem))] max-h-[min(680px,calc(100vh-5rem))]',
         'flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl',
-        // Mobile: wider, taller sheet so name/avatar list is fully usable.
-        !isDesktop ? 'left-2 right-2 w-auto max-h-[min(78vh,720px)]' : ''
+        // Compact screens use viewport-safe positioning so the panel is not constrained by the icon wrapper.
+        !isDesktop ? 'scrolith-header-popover--compact left-2 right-2 w-auto max-h-[min(78vh,720px)]' : ''
       ].join(' ')}
+      style={
+        !isDesktop && compactPopoverTop !== null
+          ? ({ '--scrolith-header-popover-top': `${compactPopoverTop}px` } as React.CSSProperties)
+          : undefined
+      }
       data-testid="header-messages-popover"
     >
       <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3">

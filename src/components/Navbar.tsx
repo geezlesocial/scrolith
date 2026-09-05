@@ -231,6 +231,7 @@ const Navbar = () => {
   const mountedRef = useRef(true);
   const [notificationScrollTop, setNotificationScrollTop] = useState(0);
   const [notificationViewportHeight, setNotificationViewportHeight] = useState(0);
+  const [compactPopoverTop, setCompactPopoverTop] = useState<number | null>(null);
 
   const _asRecord = (v: unknown) => (v && typeof v === 'object' ? (v as Record<string, unknown>) : null);
   const hc = _asRecord(headerConfig);
@@ -477,6 +478,33 @@ const Navbar = () => {
     media.addListener(sync);
     return () => media.removeListener(sync);
   }, []);
+
+  const syncCompactNotificationPosition = useCallback(() => {
+    if (isDesktopNav || !showNotifications || !notifRef.current) return;
+    const triggerBounds = notifRef.current.getBoundingClientRect();
+    setCompactPopoverTop(Math.max(8, Math.ceil(triggerBounds.bottom + 8)));
+  }, [isDesktopNav, showNotifications]);
+
+  useEffect(() => {
+    if (!showNotifications || isDesktopNav) {
+      setCompactPopoverTop(null);
+      return;
+    }
+
+    syncCompactNotificationPosition();
+    const handleViewportChange = () => syncCompactNotificationPosition();
+    window.addEventListener("resize", handleViewportChange, { passive: true });
+    window.addEventListener("scroll", handleViewportChange, { passive: true, capture: true });
+    window.visualViewport?.addEventListener("resize", handleViewportChange, { passive: true });
+    window.visualViewport?.addEventListener("scroll", handleViewportChange, { passive: true });
+
+    return () => {
+      window.removeEventListener("resize", handleViewportChange);
+      window.removeEventListener("scroll", handleViewportChange, true);
+      window.visualViewport?.removeEventListener("resize", handleViewportChange);
+      window.visualViewport?.removeEventListener("scroll", handleViewportChange);
+    };
+  }, [showNotifications, isDesktopNav, syncCompactNotificationPosition]);
 
   const handleLogout = () => {
     logout();
@@ -1195,7 +1223,18 @@ const Navbar = () => {
 
   const renderNotificationsDropdown = () =>
     showNotifications ? (
-      <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50 animate-fade-in-up">
+      <div
+        className={[
+          "scrolith-header-popover absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50 animate-fade-in-up",
+          !isDesktopNav ? "scrolith-header-popover--compact" : ""
+        ].join(" ")}
+        style={
+          !isDesktopNav && compactPopoverTop !== null
+            ? ({ '--scrolith-header-popover-top': `${compactPopoverTop}px` } as React.CSSProperties)
+            : undefined
+        }
+        data-testid="header-notifications-popover"
+      >
         <div className="px-4 py-3 border-b border-gray-50 bg-gray-50">
           <div className="flex justify-between items-center">
             <h3 className="font-bold text-sm text-gray-700">Notifications</h3>
