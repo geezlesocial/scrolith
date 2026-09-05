@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 1.1.80 - country-scoped promotion targeting; preserves call and messaging continuity.
-        versionCode 90
-        versionName "1.1.80"
+        // 1.1.97 - native shell stability and controlled WebView recovery.
+        versionCode 107
+        versionName "1.1.97"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]

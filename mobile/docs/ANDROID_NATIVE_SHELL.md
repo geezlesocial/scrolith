@@ -1,0 +1,43 @@
+# Scrolith Android Native Shell
+
+The Android app remains a Capacitor WebView application. The native shell adds
+controlled lifecycle, recovery, and device capability boundaries without
+replacing the web application or its authentication/session model.
+
+## Native bridge
+
+The app-owned bridge is exposed as `window.ScrolithNative` only by the Android
+shell. The bridge is versioned and all methods reject calls unless the current
+top-level page is a trusted Scrolith origin.
+
+| Method | Result | Purpose |
+| --- | --- | --- |
+| `getBridgeVersion()` | string | Returns the bridge contract version (`1`). |
+| `getAppVersion()` | string | Returns the installed Android app version. |
+| `getConnectionState()` | `online`, `offline`, or `unknown` | Reads the Android connectivity state. |
+| `showToast(message)` | void | Displays a short, bounded native toast. |
+| `triggerHaptic(style)` | void | Provides a short haptic pulse. Use `strong` for a slightly longer pulse. |
+| `openNativeFilePicker(accept, allowMultiple)` | void | Opens Android's document picker. |
+
+The file picker publishes a `scrolith:native-file-selected` browser event with
+`detail: { cancelled, accept, multiple, uris }`. `uris` contains content URI
+strings and may be empty when the user cancels. Existing HTML file inputs keep
+using Capacitor's file chooser path.
+
+## Existing events preserved
+
+- `scrolith:native-network` reports connectivity changes.
+- `mobile:incoming-call` hands an incoming call from FCM to the web call
+  provider.
+- `mobile:push-notification-received` handles foreground push notifications.
+
+The bridge does not expose tokens, cookies, database values, arbitrary URL
+execution, or filesystem paths. Production releases keep cleartext traffic
+disabled and only grant camera/microphone capture to trusted Scrolith origins.
+
+## Recovery behavior
+
+Main-frame load failures show a native Retry state. Network recovery retries a
+failed initial load when connectivity returns. A WebView renderer crash is
+handled by recreating the activity once, preserving the existing Capacitor
+startup path and session storage.

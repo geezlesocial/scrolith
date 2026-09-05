@@ -1,4 +1,4 @@
-# Phase 21.1 - production Android App Bundle builder
+# Production Android App Bundle builder
 # Usage (from C:\Projects\mobile):
 #   powershell -ExecutionPolicy Bypass -File scripts\build-release-aab.ps1
 $ErrorActionPreference = 'Stop'
@@ -11,9 +11,9 @@ $GeezleRoot = if ($env:SCROLITH_RELEASE_GEEZLE_ROOT) {
   $DefaultGeezleRoot
 }
 $AndroidRoot = Join-Path $MobileRoot 'android'
-$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.80'
-$VersionCode = 90
-$VersionName = '1.1.80'
+$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.97'
+$VersionCode = 107
+$VersionName = '1.1.97'
 $WebCommit = (git -C $GeezleRoot rev-parse HEAD 2>$null)
 if (-not $WebCommit) { $WebCommit = 'unknown' }
 
@@ -48,7 +48,7 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $LogDir = Join-Path $OutDir 'logs'
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $ReleaseWebDir = Join-Path $OutDir 'web-dist'
-$RelativeReleaseWebDir = 'release-artifacts/android-1.1.80/web-dist'
+$RelativeReleaseWebDir = 'release-artifacts/android-1.1.97/web-dist'
 $env:SCROLITH_CAPACITOR_WEB_DIR = $RelativeReleaseWebDir
 
 # npm/vite write warnings to stderr; do not treat native stderr as terminating errors.
@@ -161,12 +161,12 @@ $meta = @{
   webCommit = $WebCommit
   minifyEnabled = $true
   shrinkResources = $true
-  phase = 'production-backend-hardening-compatibility'
+  phase = 'native-shell-stability-and-controlled-webview-1.1.97'
   targetSdk = 36
   compileSdk = 36
   minSdk = 24
-  productionBackendRevision = 'ca-scrolith-backend--prisma-hardening-8278aca3'
-  productionFrontendRevision = 'ca-scrolith-frontend--messaging-call-183ea55a'
+  productionBackendRevision = 'ca-scrolith-backend--public-hiring-fix-475c3b603'
+  productionFrontendRevision = 'ca-scrolith-frontend--public-hiring-fix-abcbc1c0'
   productionApi = 'https://api.scrolith.com'
   productionAppUrl = 'https://scrolith.com'
   googlePlayUploadPerformed = $false

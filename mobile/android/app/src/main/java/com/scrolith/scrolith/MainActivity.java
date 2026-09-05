@@ -2,8 +2,10 @@ package com.scrolith.scrolith;
 
 import android.Manifest;
 import android.content.Intent;
+import android.content.ActivityNotFoundException;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
@@ -15,8 +17,12 @@ import android.view.View;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.PermissionRequest;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import androidx.activity.OnBackPressedCallback;
@@ -28,11 +34,18 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebChromeClient;
+import com.getcapacitor.BridgeWebViewClient;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import android.view.Gravity;
+import android.view.ViewGroup;
+import android.graphics.drawable.GradientDrawable;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -65,11 +78,23 @@ public class MainActivity extends BridgeActivity {
     public static final String EXTRA_DEEP_LINK = "scrolith_deep_link";
 
     private static final int WEBRTC_MEDIA_PERMISSION_REQUEST_CODE = 4157;
+    private static final int NATIVE_FILE_PICKER_REQUEST_CODE = 4158;
+    private static final String NATIVE_BRIDGE_NAME = ScrolithNativeBridge.NAME;
 
     private PermissionRequest pendingWebRtcPermissionRequest;
     private String[] pendingAndroidPermissions = new String[0];
     private boolean splashKeepOnScreen = true;
     private String pendingIncomingCallJson;
+    private ConnectivityManager.NetworkCallback networkCallback;
+    private View nativeStatusOverlay;
+    private TextView nativeStatusTitle;
+    private TextView nativeStatusMessage;
+    private Button nativeStatusAction;
+    private boolean pageLoaded;
+    private boolean mainFrameLoadFailed;
+    private boolean renderProcessRecoveryAttempted;
+    private String pendingFilePickerAccept = "*/*";
+    private boolean pendingFilePickerMultiple;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -113,9 +138,25 @@ public class MainActivity extends BridgeActivity {
         }
 
         configureWebViewForProduction(webView, isDebuggable);
+        ensureNativeStatusOverlay(webView);
+        webView.addJavascriptInterface(
+            new ScrolithNativeBridge(this, webView, new ScrolithNativeBridge.Host() {
+                @Override
+                public boolean isTrustedCurrentPage() {
+                    return isTrustedWebViewOrigin(Uri.parse(valueOrEmpty(webView.getUrl())));
+                }
+
+                @Override
+                public void openNativeFilePicker(String accept, boolean allowMultiple) {
+                    openNativeFilePickerInternal(accept, allowMultiple);
+                }
+            }),
+            NATIVE_BRIDGE_NAME
+        );
         injectNativeOnlineState(webView);
         publishPendingIncomingCall(webView);
         bridge.getWebView().setWebChromeClient(new AppWebChromeClient());
+        bridge.setWebViewClient(new AppWebViewClient(bridge));
     }
 
     @Override
@@ -174,7 +215,8 @@ public class MainActivity extends BridgeActivity {
         final String payload = pendingIncomingCallJson;
         webView.postDelayed(() -> {
             try {
-                String js = "(function(){try{var p=" + payload
+                String encodedPayload = JSONObject.quote(payload);
+                String js = "(function(){try{var p=JSON.parse(" + encodedPayload + ")"
                     + ";window.__scrolithPendingIncomingCall=p;window.dispatchEvent(new CustomEvent('mobile:incoming-call',{detail:p}));}catch(e){}})();";
                 webView.evaluateJavascript(js, null);
                 if (payload.equals(pendingIncomingCallJson)) pendingIncomingCallJson = null;
@@ -211,6 +253,17 @@ public class MainActivity extends BridgeActivity {
             settings.setDisplayZoomControls(false);
             settings.setSupportZoom(false);
             settings.setJavaScriptCanOpenWindowsAutomatically(false);
+            settings.setAllowFileAccess(false);
+            settings.setAllowContentAccess(true);
+            settings.setSupportMultipleWindows(false);
+            String userAgent = settings.getUserAgentString();
+            String appMarker = " ScrolithAndroid/" + getInstalledVersionName();
+            if (userAgent != null && !userAgent.contains("ScrolithAndroid/")) {
+                settings.setUserAgentString(userAgent + appMarker);
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                settings.setSafeBrowsingEnabled(true);
+            }
             // Prefer default HTTP cache so image/API caching from the SPA works offline-ish.
             settings.setCacheMode(WebSettings.LOAD_DEFAULT);
             if (!isDebuggable) {
@@ -303,8 +356,12 @@ public class MainActivity extends BridgeActivity {
     }
 
     private boolean isNetworkOnline() {
+        return isNetworkOnline(this);
+    }
+
+    static boolean isNetworkOnline(android.content.Context context) {
         try {
-            ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            ConnectivityManager cm = (ConnectivityManager) context.getSystemService(CONNECTIVITY_SERVICE);
             if (cm == null) return true;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 Network network = cm.getActiveNetwork();
@@ -329,11 +386,328 @@ public class MainActivity extends BridgeActivity {
         super.onResume();
         try {
             if (bridge != null && bridge.getWebView() != null) {
+                bridge.getWebView().onResume();
                 injectNativeOnlineState(bridge.getWebView());
                 publishPendingIncomingCall(bridge.getWebView());
             }
         } catch (Throwable ignored) {
             // ignore
+        }
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        registerNetworkCallback();
+    }
+
+    @Override
+    public void onStop() {
+        unregisterNetworkCallback();
+        super.onStop();
+    }
+
+    @Override
+    public void onPause() {
+        try {
+            if (bridge != null && bridge.getWebView() != null) {
+                bridge.getWebView().onPause();
+            }
+        } catch (Throwable ignored) {
+            // The WebView may already be tearing down.
+        }
+        super.onPause();
+    }
+
+    @Override
+    public void onDestroy() {
+        try {
+            if (pendingWebRtcPermissionRequest != null) {
+                pendingWebRtcPermissionRequest.deny();
+                pendingWebRtcPermissionRequest = null;
+            }
+            if (bridge != null && bridge.getWebView() != null) {
+                bridge.getWebView().removeJavascriptInterface(NATIVE_BRIDGE_NAME);
+            }
+        } catch (Throwable ignored) {
+            // Best-effort cleanup; Capacitor owns the final WebView teardown.
+        }
+        super.onDestroy();
+    }
+
+    private String getInstalledVersionName() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Throwable ignored) {
+            return "unknown";
+        }
+    }
+
+    /** Keep the SPA's offline queue and reconnect UI aligned with Android network changes. */
+    private void registerNetworkCallback() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N || networkCallback != null) {
+            return;
+        }
+        try {
+            ConnectivityManager connectivityManager =
+                (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            if (connectivityManager == null) {
+                return;
+            }
+            networkCallback = new ConnectivityManager.NetworkCallback() {
+                @Override
+                public void onAvailable(Network network) {
+                    dispatchCurrentNetworkState();
+                }
+
+                @Override
+                public void onLost(Network network) {
+                    dispatchCurrentNetworkState();
+                }
+
+                @Override
+                public void onCapabilitiesChanged(Network network, NetworkCapabilities capabilities) {
+                    dispatchCurrentNetworkState();
+                }
+            };
+            connectivityManager.registerDefaultNetworkCallback(networkCallback);
+        } catch (Throwable ignored) {
+            networkCallback = null;
+        }
+    }
+
+    private void unregisterNetworkCallback() {
+        if (networkCallback == null) {
+            return;
+        }
+        try {
+            ConnectivityManager connectivityManager =
+                (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            if (connectivityManager != null) {
+                connectivityManager.unregisterNetworkCallback(networkCallback);
+            }
+        } catch (Throwable ignored) {
+            // The callback may already have been removed by the platform.
+        } finally {
+            networkCallback = null;
+        }
+    }
+
+    private void dispatchCurrentNetworkState() {
+        try {
+            if (bridge != null && bridge.getWebView() != null) {
+                injectNativeOnlineState(bridge.getWebView());
+                if (!pageLoaded && isNetworkOnline() && nativeStatusOverlay != null
+                    && nativeStatusOverlay.getVisibility() == View.VISIBLE) {
+                    reloadWebView();
+                }
+            }
+        } catch (Throwable ignored) {
+            // The WebView may be tearing down during an activity transition.
+        }
+    }
+
+    private void ensureNativeStatusOverlay(WebView webView) {
+        if (nativeStatusOverlay != null || !(webView.getParent() instanceof ViewGroup)) return;
+        ViewGroup parent = (ViewGroup) webView.getParent();
+        LinearLayout overlay = new LinearLayout(this);
+        overlay.setOrientation(LinearLayout.VERTICAL);
+        overlay.setGravity(Gravity.CENTER);
+        overlay.setPadding(dp(28), dp(28), dp(28), dp(28));
+        overlay.setBackgroundColor(Color.rgb(248, 250, 252));
+        overlay.setVisibility(View.GONE);
+
+        TextView title = new TextView(this);
+        title.setTextColor(Color.rgb(15, 23, 42));
+        title.setTextSize(22);
+        title.setGravity(Gravity.CENTER);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        overlay.addView(title, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView message = new TextView(this);
+        message.setTextColor(Color.rgb(71, 85, 105));
+        message.setTextSize(16);
+        message.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams messageParams = new LinearLayout.LayoutParams(-1, -2);
+        messageParams.setMargins(0, dp(12), 0, dp(20));
+        overlay.addView(message, messageParams);
+
+        Button action = new Button(this);
+        action.setText("Retry");
+        action.setAllCaps(false);
+        action.setTextColor(Color.WHITE);
+        GradientDrawable buttonBackground = new GradientDrawable();
+        buttonBackground.setColor(Color.rgb(11, 95, 255));
+        buttonBackground.setCornerRadius(dp(24));
+        action.setBackground(buttonBackground);
+        action.setOnClickListener(v -> reloadWebView());
+        overlay.addView(action, new LinearLayout.LayoutParams(dp(160), dp(52)));
+
+        parent.addView(overlay, new ViewGroup.LayoutParams(-1, -1));
+        nativeStatusOverlay = overlay;
+        nativeStatusTitle = title;
+        nativeStatusMessage = message;
+        nativeStatusAction = action;
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private void showNativeStatus(boolean offline) {
+        runOnUiThread(() -> {
+            if (nativeStatusOverlay == null) return;
+            nativeStatusTitle.setText(offline ? "No internet connection" : "Scrolith could not load");
+            nativeStatusMessage.setText(offline
+                ? "Check your connection and retry when you are online."
+                : "The app could not load this page. Retry to continue.");
+            nativeStatusAction.setText("Retry");
+            nativeStatusOverlay.setVisibility(View.VISIBLE);
+        });
+    }
+
+    private void hideNativeStatus() {
+        runOnUiThread(() -> {
+            if (nativeStatusOverlay != null) nativeStatusOverlay.setVisibility(View.GONE);
+        });
+    }
+
+    private void reloadWebView() {
+        if (!isNetworkOnline()) {
+            showNativeStatus(true);
+            return;
+        }
+        try {
+            pageLoaded = false;
+            renderProcessRecoveryAttempted = false;
+            if (bridge != null && bridge.getWebView() != null) {
+                hideNativeStatus();
+                bridge.getWebView().reload();
+            }
+        } catch (Throwable ignored) {
+            showNativeStatus(false);
+        }
+    }
+
+    private void openNativeFilePickerInternal(String accept, boolean allowMultiple) {
+        runOnUiThread(() -> {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType(accept == null || accept.isEmpty() ? "*/*" : accept)
+                .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, allowMultiple);
+            pendingFilePickerAccept = accept;
+            pendingFilePickerMultiple = allowMultiple;
+            try {
+                startActivityForResult(intent, NATIVE_FILE_PICKER_REQUEST_CODE);
+            } catch (ActivityNotFoundException ignored) {
+                dispatchNativeFileSelection(new Uri[0], true);
+            }
+        });
+    }
+
+    private void dispatchNativeFileSelection(Uri[] uris, boolean cancelled) {
+        if (bridge == null || bridge.getWebView() == null) return;
+        try {
+            JSONObject payload = new JSONObject();
+            payload.put("cancelled", cancelled);
+            payload.put("accept", pendingFilePickerAccept);
+            payload.put("multiple", pendingFilePickerMultiple);
+            JSONArray files = new JSONArray();
+            if (uris != null) {
+                for (Uri uri : uris) if (uri != null) files.put(uri.toString());
+            }
+            payload.put("uris", files);
+            String script = ScrolithNativeBridge.eventScript("scrolith:native-file-selected", payload);
+            bridge.getWebView().post(() -> bridge.getWebView().evaluateJavascript(script, null));
+        } catch (JSONException ignored) {
+            // Ignore malformed optional event payloads.
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == NATIVE_FILE_PICKER_REQUEST_CODE) {
+            List<Uri> selected = new ArrayList<>();
+            if (resultCode == RESULT_OK && data != null) {
+                if (data.getClipData() != null) {
+                    for (int i = 0; i < data.getClipData().getItemCount(); i++) {
+                        Uri uri = data.getClipData().getItemAt(i).getUri();
+                        if (uri != null) selected.add(uri);
+                    }
+                } else if (data.getData() != null) {
+                    selected.add(data.getData());
+                }
+            }
+            dispatchNativeFileSelection(selected.toArray(new Uri[0]), selected.isEmpty());
+            return;
+        }
+        super.onActivityResult(requestCode, resultCode, data);
+    }
+
+    private final class AppWebViewClient extends BridgeWebViewClient {
+        AppWebViewClient(com.getcapacitor.Bridge bridge) {
+            super(bridge);
+        }
+
+        @Override
+        public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+            pageLoaded = false;
+            mainFrameLoadFailed = false;
+            super.onPageStarted(view, url, favicon);
+        }
+
+        @Override
+        public void onPageFinished(WebView view, String url) {
+            super.onPageFinished(view, url);
+            if (mainFrameLoadFailed) {
+                return;
+            }
+            pageLoaded = true;
+            renderProcessRecoveryAttempted = false;
+            hideNativeStatus();
+            injectNativeOnlineState(view);
+            publishPendingIncomingCall(view);
+        }
+
+        @Override
+        public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+            super.onReceivedError(view, request, error);
+            if (request == null || request.isForMainFrame()) {
+                pageLoaded = false;
+                mainFrameLoadFailed = true;
+                showNativeStatus(isNetworkOnline() == false);
+            }
+        }
+
+        @Override
+        @SuppressWarnings("deprecation")
+        public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+            super.onReceivedError(view, errorCode, description, failingUrl);
+            pageLoaded = false;
+            showNativeStatus(isNetworkOnline() == false);
+        }
+
+        @Override
+        public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) {
+            super.onReceivedHttpError(view, request, response);
+            if (request == null || request.isForMainFrame()) {
+                pageLoaded = false;
+                mainFrameLoadFailed = true;
+                showNativeStatus(false);
+            }
+        }
+
+        @Override
+        public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+            super.onRenderProcessGone(view, detail);
+            if (!renderProcessRecoveryAttempted && !isFinishing()) {
+                renderProcessRecoveryAttempted = true;
+                showNativeStatus(false);
+                view.postDelayed(() -> {
+                    if (!isFinishing()) recreate();
+                }, 250L);
+            }
+            return true;
         }
     }
 
