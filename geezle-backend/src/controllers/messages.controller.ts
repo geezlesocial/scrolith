@@ -13,6 +13,7 @@ import {
   MESSAGE_PREVIEW_LABELS
 } from '../services/messaging/lastMessagePreview';
 import { parseClientMessageId } from '../services/messaging/clientMessageId';
+import { activeConversationParticipantIds } from '../services/messaging/messageDeliveryPolicy';
 import {
   SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL,
   withScrolithaAssetVersion
@@ -1854,9 +1855,7 @@ export const postMessage = async (req: Request, res: Response) => {
           }
         });
         if (existingByClientId) {
-          const receiverIdsExisting = conversation.participants
-            .map((p) => p.userId)
-            .filter((id) => id !== senderId);
+          const receiverIdsExisting = activeConversationParticipantIds(conversation.participants, senderId);
           const fileMapExisting = Array.isArray(existingByClientId.attachments) && existingByClientId.attachments.length
             ? await buildAttachmentMap(existingByClientId.attachments)
             : new Map<string, any>();
@@ -2053,9 +2052,7 @@ export const postMessage = async (req: Request, res: Response) => {
       }
     }
 
-    const receiverIds = conversation.participants
-      .map((p) => p.userId)
-      .filter((id) => id !== senderId);
+    const receiverIds = activeConversationParticipantIds(conversation.participants, senderId);
 
     await writeMessageRecord({
       messageId: message.id,

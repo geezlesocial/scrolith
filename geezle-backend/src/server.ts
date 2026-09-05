@@ -172,6 +172,12 @@ import {
   releasePresenceLease
 } from './services/realtimeOps.service';
 import { getMessagingPrivacySettings } from './services/messaging/messagingPrivacyPolicy';
+import {
+  activeConversationParticipantIds,
+  activeVoiceParticipantIds,
+  isActiveVoiceParticipant,
+  validateCallSignal
+} from './services/messaging/messageDeliveryPolicy';
 // Restart trigger comment (no-op) to force ts-node-dev reload when modified during debugging
 
 
@@ -806,11 +812,7 @@ const emitMessagePayloadToUsers = (
   senderId: string,
   payload: Record<string, any>
 ) => {
-  const receiverIds = Array.isArray(conversation?.participants)
-    ? conversation.participants
-        .map((entry: any) => String(entry?.userId || '').trim())
-        .filter((id: string) => Boolean(id) && id !== senderId)
-    : [];
+  const receiverIds = activeConversationParticipantIds(conversation?.participants, senderId);
   receiverIds.forEach((id: string) => emitVoiceEventToUsers([id], 'messages:new', payload));
   emitVoiceEventToUsers([senderId], 'messages:sent', payload);
   void dispatchMessageReceiptNotifications({
@@ -846,9 +848,7 @@ const persistVoiceCallSummaryMessage = async (params: {
   });
   if (!conversation) return;
 
-  const participantIds = Array.isArray(conversation.participants)
-    ? conversation.participants.map((entry: any) => String(entry?.userId || '').trim()).filter(Boolean)
-    : [];
+  const participantIds = activeConversationParticipantIds(conversation.participants);
   if (!participantIds.includes(senderId)) return;
 
   const metadata = {
@@ -1040,9 +1040,7 @@ const loadVoiceCallForUser = async (callId: string, userId: string) => {
     }
   });
   if (!call) return null;
-  const participantIds = Array.isArray(call.participants)
-    ? call.participants.map((entry: any) => String(entry.userId || '').trim()).filter(Boolean)
-    : [];
+  const participantIds = activeVoiceParticipantIds(call.participants);
   if (!participantIds.includes(userId)) return null;
   return call;
 };
@@ -1090,9 +1088,7 @@ const markExpiredRingingCallsAsMissed = async () => {
         }
       });
 
-      const participantIds = Array.isArray(call?.participants)
-        ? call.participants.map((entry: any) => String(entry?.userId || '').trim()).filter(Boolean)
-        : [];
+      const participantIds = activeVoiceParticipantIds(call?.participants);
       if (!participantIds.length) continue;
 
       const payload = {
@@ -2549,9 +2545,7 @@ communityNs.on('connection', (socket) => {
           data: { status: 'LEFT', leftAt: rejectedAt }
         });
 
-        const participantIds = Array.isArray(call.participants)
-          ? call.participants.map((entry: any) => String(entry.userId || '')).filter(Boolean)
-          : [];
+        const participantIds = activeVoiceParticipantIds(call.participants);
         const durationMs = resolveVoiceCallDurationMs(call, rejectedAt);
         const rejectedByName = await prisma.user
           .findUnique({ where: { id: userId }, select: { name: true, username: true } })
@@ -2662,9 +2656,7 @@ communityNs.on('connection', (socket) => {
           }
         });
 
-        const participantIds = Array.isArray(call.participants)
-          ? call.participants.map((entry: any) => String(entry.userId || '')).filter(Boolean)
-          : [];
+        const participantIds = activeVoiceParticipantIds(call.participants);
         const durationMs = resolveVoiceCallDurationMs(call, endedAt);
         const eventPayload = {
           callId,
@@ -3005,9 +2997,7 @@ communityNs.on('connection', (socket) => {
             endedAt: endedAt.toISOString()
           };
           communityNs.to(`call:${callId}`).emit('call:end', endPayload);
-          const participantIds = Array.isArray(call.participants)
-            ? call.participants.map((entry: any) => String(entry.userId || '')).filter(Boolean)
-            : [];
+          const participantIds = activeVoiceParticipantIds(call.participants);
           emitVoiceEventToUsers(participantIds, 'call:end', endPayload);
           emitVoiceEventToUsers(participantIds, 'messenger:call_ended', endPayload);
           await persistVoiceCallSummaryMessage({
@@ -3046,6 +3036,17 @@ communityNs.on('connection', (socket) => {
         const call = await loadVoiceCallForUser(callId, userId);
         if (!call) {
           if (ack) ack({ success: false, error: 'Call not found or access denied.' });
+          return;
+        }
+        if (!VOICE_CALL_ACTIVE_STATUSES.includes(String(call.status || '').toUpperCase())) {
+          if (ack) ack({ success: false, error: 'This call is no longer active.' });
+          return;
+        }
+        const actorParticipant = Array.isArray(call.participants)
+          ? call.participants.find((entry: any) => String(entry.userId || '').trim() === userId)
+          : null;
+        if (!isActiveVoiceParticipant(actorParticipant)) {
+          if (ack) ack({ success: false, error: 'You are no longer an active participant in this call.' });
           return;
         }
         socket.join(`call:${callId}`);
@@ -3171,9 +3172,7 @@ communityNs.on('connection', (socket) => {
         };
         communityNs.to(`call:${callId}`).emit('call:join-requested', eventPayload);
         // Notify moderators / owner / initiator for approval UI.
-        const participantIds = Array.isArray(call.participants)
-          ? call.participants.map((entry: any) => String(entry.userId || '')).filter(Boolean)
-          : [];
+        const participantIds = activeVoiceParticipantIds(call.participants);
         emitVoiceEventToUsers(participantIds, 'call:join-requested', eventPayload);
         if (ack) ack({ success: true, data: { request: created } });
       } catch (error: any) {
@@ -3427,12 +3426,19 @@ communityNs.on('connection', (socket) => {
           if (ack) ack({ success: false, error: 'Call not found or access denied.' });
           return;
         }
+        if (!VOICE_CALL_ACTIVE_STATUSES.includes(String(call.status || '').toUpperCase())) {
+          if (ack) ack({ success: false, error: 'This call is no longer active.' });
+          return;
+        }
 
-        const participantIds = Array.isArray(call.participants)
-          ? call.participants.map((entry: any) => String(entry.userId || '')).filter(Boolean)
-          : [];
-        if (!participantIds.includes(toUserId)) {
+        const participantIds = activeVoiceParticipantIds(call.participants);
+        if (!participantIds.includes(fromUserId) || !participantIds.includes(toUserId)) {
           if (ack) ack({ success: false, error: 'Target user is not in this call.' });
+          return;
+        }
+        const safeSignal = validateCallSignal(signal);
+        if (!safeSignal) {
+          if (ack) ack({ success: false, error: 'Invalid or oversized call signal.' });
           return;
         }
 
@@ -3440,7 +3446,7 @@ communityNs.on('connection', (socket) => {
           callId,
           fromUserId,
           toUserId,
-          signal,
+          signal: safeSignal,
           emittedAt: new Date().toISOString()
         };
         emitVoiceEventToUsers([toUserId], 'call:signal', relayPayload);

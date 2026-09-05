@@ -13,19 +13,19 @@ import {
   resolveGroupCallPolicy
 } from '../services/messaging/messengerCallPolicy.service';
 import { isVideoCallingEnabledForUser } from '../services/messaging/messengerCallPlatform.service';
+import { activeConversationParticipantIds } from '../services/messaging/messageDeliveryPolicy';
+import { parseClientMessageId } from '../services/messaging/clientMessageId';
 
 const nowIso = () => new Date().toISOString();
 
 const resolveUserId = (req: Request) => {
   const userId = (req as any)?.user?.id;
-  if (typeof userId === 'string' && userId.trim()) return userId.trim();
-  return String(req.body?.userId || req.query?.userId || '').trim();
+  return typeof userId === 'string' && userId.trim() ? userId.trim() : '';
 };
 
 const resolveRole = (req: Request) => {
   const role = (req as any)?.user?.role;
-  if (typeof role === 'string' && role.trim()) return role.trim().toLowerCase();
-  return String(req.body?.role || req.query?.role || '').trim().toLowerCase();
+  return typeof role === 'string' && role.trim() ? role.trim().toLowerCase() : '';
 };
 
 const isAdminRole = (role: string) => role.includes('admin') || role.includes('moderator') || role.includes('superadmin');
@@ -52,7 +52,7 @@ const buildAttachmentFromFile = (file: any) => {
   const type = mimeType.startsWith('audio/') ? 'audio' : mimeType.startsWith('video/') ? 'video' : mimeType.startsWith('image/') ? 'image' : 'document';
   return {
     id: file.id,
-    url: file.url,
+    url: `/api/files/content/${encodeURIComponent(String(file.id || ''))}`,
     name: file.originalName || file.filename || 'Voice note',
     mimeType: file.mimeType,
     type,
@@ -70,9 +70,7 @@ const ensureConversationMember = async (conversationId: string, userId: string) 
 
   if (!conversation) return { conversation: null, participantIds: [] as string[] };
 
-  const participantIds = Array.isArray(conversation.participants)
-    ? conversation.participants.map((entry: any) => String(entry.userId || '')).filter(Boolean)
-    : [];
+  const participantIds = activeConversationParticipantIds(conversation.participants);
 
   const isMember = participantIds.includes(userId);
   if (!isMember) return { conversation: null, participantIds: [] as string[] };
@@ -123,24 +121,100 @@ export const postVoiceNoteMessage = async (req: Request, res: Response) => {
     }
 
     const messageText = String(req.body?.text || '').trim() || 'Voice note';
+    const clientMessageId = parseClientMessageId(req.body, req.headers as any);
 
-    const message = await prisma.directMessage.create({
-      data: {
-        conversationId,
-        senderId,
-        text: messageText,
-        messageType: 'VOICE_NOTE' as any,
-        metadata: {
-          voiceNote: {
-            fileId,
-            durationMs,
-            mimeType: file.mimeType || null
-          }
+    if (clientMessageId) {
+      const existing = await (prisma.directMessage as any).findFirst({
+        where: { senderId, clientMessageId },
+        include: { reactions: true }
+      });
+      if (existing && existing.conversationId !== conversationId) {
+        return res.status(409).json({
+          success: false,
+          error: 'Client message ID is already used in another conversation.',
+          code: 'CLIENT_MESSAGE_ID_CONFLICT'
+        });
+      }
+      if (existing) {
+        return res.json({
+          success: true,
+          data: {
+            id: existing.id,
+            conversationId,
+            conversation_id: conversationId,
+            senderId,
+            sender_id: senderId,
+            text: existing.text,
+            messageType: 'voice_note',
+            message_type: 'voice_note',
+            attachments: existing.attachments || [],
+            attachment_ids: existing.attachments || [],
+            metadata: existing.metadata || null,
+            clientMessageId,
+            client_message_id: clientMessageId,
+            clientSendId: clientMessageId,
+            client_send_id: clientMessageId,
+            idempotentReplay: true
+          },
+          idempotentReplay: true
+        });
+      }
+    }
+
+    let message: any;
+    try {
+      message = await prisma.directMessage.create({
+        data: {
+          conversationId,
+          senderId,
+          text: messageText,
+          messageType: 'VOICE_NOTE' as any,
+          metadata: {
+            voiceNote: {
+              fileId,
+              durationMs,
+              mimeType: file.mimeType || null
+            },
+            ...(clientMessageId ? { clientMessageId, clientSendId: clientMessageId } : {})
+          },
+          attachments: [fileId],
+          ...(clientMessageId ? { clientMessageId } : {})
         },
-        attachments: [fileId]
-      },
-      include: { reactions: true }
-    });
+        include: { reactions: true }
+      });
+    } catch (error: any) {
+      if (clientMessageId && (error?.code === 'P2002' || String(error?.message || '').includes('clientMessageId'))) {
+        const raced = await (prisma.directMessage as any).findFirst({
+          where: { senderId, clientMessageId, conversationId },
+          include: { reactions: true }
+        });
+        if (raced) {
+          return res.json({
+            success: true,
+            data: {
+              id: raced.id,
+              conversationId,
+              conversation_id: conversationId,
+              senderId,
+              sender_id: senderId,
+              text: raced.text,
+              messageType: 'voice_note',
+              message_type: 'voice_note',
+              attachments: raced.attachments || [],
+              attachment_ids: raced.attachments || [],
+              metadata: raced.metadata || null,
+              clientMessageId,
+              client_message_id: clientMessageId,
+              clientSendId: clientMessageId,
+              client_send_id: clientMessageId,
+              idempotentReplay: true
+            },
+            idempotentReplay: true
+          });
+        }
+      }
+      throw error;
+    }
 
     const voiceNote = await (prisma as any).voiceNote.create({
       data: {
@@ -170,6 +244,7 @@ export const postVoiceNoteMessage = async (req: Request, res: Response) => {
       console.warn('[messenger-voice] syncFileUsages failed:', (error as any)?.message || error);
     }
 
+    const receiverIds = participantIds.filter((id) => id !== senderId);
     const receiverId = conversation.type === 'DIRECT'
       ? participantIds.find((id) => id !== senderId) || ''
       : '';
@@ -193,27 +268,25 @@ export const postVoiceNoteMessage = async (req: Request, res: Response) => {
         id: String(voiceNote.id),
         fileId,
         durationMs,
-        url: file.url
+        url: `/api/files/content/${encodeURIComponent(String(file.id || ''))}`
       },
       voiceNote: {
         id: String(voiceNote.id),
         fileId,
         durationMs,
-        url: file.url
+        url: `/api/files/content/${encodeURIComponent(String(file.id || ''))}`
       },
       attachments: [buildAttachmentFromFile(file)],
       attachment_ids: [fileId],
       reactions: []
     };
 
-    participantIds
-      .filter((id) => id !== senderId)
-      .forEach((userId) => emitToUser(req, userId, 'messages:new', payload));
+    receiverIds.forEach((userId) => emitToUser(req, userId, 'messages:new', payload));
 
     emitToUser(req, senderId, 'messages:sent', payload);
 
     void dispatchMessageReceiptNotifications({
-      receiverIds: participantIds,
+      receiverIds,
       senderId,
       conversationId,
       messageId: message.id,
