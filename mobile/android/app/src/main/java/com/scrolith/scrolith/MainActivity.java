@@ -13,6 +13,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
@@ -32,6 +33,8 @@ import androidx.core.content.ContextCompat;
 import androidx.core.splashscreen.SplashScreen;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebChromeClient;
 import com.getcapacitor.BridgeWebViewClient;
@@ -44,6 +47,7 @@ import android.view.Gravity;
 import android.view.ViewGroup;
 import android.graphics.drawable.GradientDrawable;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import org.json.JSONArray;
@@ -80,6 +84,7 @@ public class MainActivity extends BridgeActivity {
     private static final int WEBRTC_MEDIA_PERMISSION_REQUEST_CODE = 4157;
     private static final int NATIVE_FILE_PICKER_REQUEST_CODE = 4158;
     private static final String NATIVE_BRIDGE_NAME = ScrolithNativeBridge.NAME;
+    private static final String NATIVE_SHELL_TAG = "ScrolithNativeShell";
 
     private PermissionRequest pendingWebRtcPermissionRequest;
     private String[] pendingAndroidPermissions = new String[0];
@@ -90,6 +95,7 @@ public class MainActivity extends BridgeActivity {
     private TextView nativeStatusTitle;
     private TextView nativeStatusMessage;
     private Button nativeStatusAction;
+    private View nativeNavigationBar;
     private boolean pageLoaded;
     private boolean mainFrameLoadFailed;
     private boolean renderProcessRecoveryAttempted;
@@ -109,6 +115,7 @@ public class MainActivity extends BridgeActivity {
         // Soft input must be set before super so the Bridge WebView resizes with
         // the keyboard (messaging composer / Scrolitha / auth forms).
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        NativeFeatureFlags.applyDebugOverrides(this, getIntent());
         super.onCreate(savedInstanceState);
         handleIncomingCallIntent(getIntent());
         configureSystemBars();
@@ -139,6 +146,8 @@ public class MainActivity extends BridgeActivity {
 
         configureWebViewForProduction(webView, isDebuggable);
         ensureNativeStatusOverlay(webView);
+        ensureNativeNavigationBar(webView);
+        observeWindowInsets(webView);
         webView.addJavascriptInterface(
             new ScrolithNativeBridge(this, webView, new ScrolithNativeBridge.Host() {
                 @Override
@@ -149,6 +158,16 @@ public class MainActivity extends BridgeActivity {
                 @Override
                 public void openNativeFilePicker(String accept, boolean allowMultiple) {
                     openNativeFilePickerInternal(accept, allowMultiple);
+                }
+
+                @Override
+                public void navigate(String path) {
+                    navigateWebPath(path);
+                }
+
+                @Override
+                public void handleBridgeEvent(String eventName, JSONObject payload) {
+                    handleBridgeEventInternal(eventName, payload);
                 }
             }),
             NATIVE_BRIDGE_NAME
@@ -301,6 +320,112 @@ public class MainActivity extends BridgeActivity {
             }
         } catch (Throwable ignored) {
             // Best-effort on older devices.
+        }
+    }
+
+    private void applyThemeMode(String mode) {
+        String normalized = mode == null ? "system" : mode.trim().toLowerCase(java.util.Locale.ROOT);
+        boolean night = (getResources().getConfiguration().uiMode
+            & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+            == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        if ("dark".equals(normalized)) night = true;
+        if ("light".equals(normalized)) night = false;
+        try {
+            WindowInsetsControllerCompat controller = new WindowInsetsControllerCompat(
+                getWindow(), getWindow().getDecorView());
+            controller.setAppearanceLightStatusBars(false);
+            controller.setAppearanceLightNavigationBars(!night);
+        } catch (Throwable ignored) {
+            // Theme synchronization is best-effort.
+        }
+    }
+
+    private void handleBridgeEventInternal(String eventName, JSONObject payload) {
+        if ("set_theme".equals(eventName)) {
+            applyThemeMode(payload == null ? "system" : payload.optString("mode", "system"));
+            return;
+        }
+        if ("set_keyboard_mode".equals(eventName)) {
+            String mode = payload == null ? "resize" : payload.optString("mode", "resize");
+            int softInputMode = "pan".equalsIgnoreCase(mode)
+                ? WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
+                : WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
+            getWindow().setSoftInputMode(softInputMode);
+        }
+    }
+
+    private void navigateWebPath(String path) {
+        String normalized = path == null ? "" : path.trim();
+        if (!normalized.startsWith("/") || normalized.startsWith("//")
+            || normalized.contains("\\") || normalized.length() > 512) return;
+        try {
+            if (bridge != null && bridge.getWebView() != null) {
+                bridge.getWebView().loadUrl("https://scrolith.com" + normalized);
+            }
+        } catch (Throwable ignored) {
+            Log.w(NATIVE_SHELL_TAG, "Native navigation fallback failed");
+        }
+    }
+
+    private void ensureNativeNavigationBar(WebView webView) {
+        if (!NativeFeatureFlags.isNativeNavigationEnabled(this)
+            || nativeNavigationBar != null || !(webView.getParent() instanceof ViewGroup)) return;
+        ViewGroup parent = (ViewGroup) webView.getParent();
+        LinearLayout navigation = new LinearLayout(this);
+        navigation.setOrientation(LinearLayout.HORIZONTAL);
+        navigation.setGravity(Gravity.CENTER);
+        navigation.setBackgroundColor(Color.WHITE);
+        navigation.setElevation(dp(8));
+        navigation.setContentDescription("Scrolith native navigation");
+
+        String[] labels = {"Home", "Messages", "Scroll", "Match", "Profile"};
+        String[] paths = {"/member-home", "/messages", "/scroll", "/match", "/profile/edit"};
+        for (int i = 0; i < labels.length; i++) {
+            TextView item = new TextView(this);
+            item.setText(labels[i]);
+            item.setTextColor(Color.rgb(30, 41, 59));
+            item.setTextSize(12);
+            item.setGravity(Gravity.CENTER);
+            item.setFocusable(true);
+            final String path = paths[i];
+            item.setOnClickListener(v -> navigateWebPath(path));
+            navigation.addView(item, new LinearLayout.LayoutParams(0, dp(64), 1f));
+        }
+        if (parent instanceof FrameLayout) {
+            FrameLayout.LayoutParams navigationParams = new FrameLayout.LayoutParams(-1, dp(64));
+            navigationParams.gravity = Gravity.BOTTOM;
+            parent.addView(navigation, navigationParams);
+        } else {
+            parent.addView(navigation, new ViewGroup.LayoutParams(-1, dp(64)));
+        }
+        nativeNavigationBar = navigation;
+        webView.setPadding(webView.getPaddingLeft(), webView.getPaddingTop(), webView.getPaddingRight(), dp(64));
+    }
+
+    private void observeWindowInsets(WebView webView) {
+        ViewCompat.setOnApplyWindowInsetsListener(webView, (view, insets) -> {
+            dispatchNativeInsets(insets);
+            return insets;
+        });
+        ViewCompat.requestApplyInsets(webView);
+    }
+
+    private void dispatchNativeInsets(WindowInsetsCompat insets) {
+        if (insets == null || bridge == null || bridge.getWebView() == null) return;
+        try {
+            android.graphics.Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars()).toPlatformInsets();
+            android.graphics.Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime()).toPlatformInsets();
+            JSONObject payload = new JSONObject();
+            payload.put("top", bars.top);
+            payload.put("right", bars.right);
+            payload.put("bottom", bars.bottom);
+            payload.put("left", bars.left);
+            payload.put("keyboardVisible", insets.isVisible(WindowInsetsCompat.Type.ime()));
+            payload.put("keyboardBottom", ime.bottom);
+            String script = ScrolithNativeBridge.eventScript("scrolith:native-insets", payload);
+            bridge.getWebView().post(() -> bridge.getWebView().evaluateJavascript(script, null));
+        } catch (JSONException ignored) {
+            // Optional insets event only.
         }
     }
 

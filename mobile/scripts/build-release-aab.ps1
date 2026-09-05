@@ -11,9 +11,9 @@ $GeezleRoot = if ($env:SCROLITH_RELEASE_GEEZLE_ROOT) {
   $DefaultGeezleRoot
 }
 $AndroidRoot = Join-Path $MobileRoot 'android'
-$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.97'
-$VersionCode = 107
-$VersionName = '1.1.97'
+$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.98'
+$VersionCode = 108
+$VersionName = '1.1.98'
 $WebCommit = (git -C $GeezleRoot rev-parse HEAD 2>$null)
 if (-not $WebCommit) { $WebCommit = 'unknown' }
 
@@ -48,7 +48,7 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $LogDir = Join-Path $OutDir 'logs'
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $ReleaseWebDir = Join-Path $OutDir 'web-dist'
-$RelativeReleaseWebDir = 'release-artifacts/android-1.1.97/web-dist'
+$RelativeReleaseWebDir = 'release-artifacts/android-1.1.98/web-dist'
 $env:SCROLITH_CAPACITOR_WEB_DIR = $RelativeReleaseWebDir
 
 # npm/vite write warnings to stderr; do not treat native stderr as terminating errors.
@@ -161,7 +161,7 @@ $meta = @{
   webCommit = $WebCommit
   minifyEnabled = $true
   shrinkResources = $true
-  phase = 'native-shell-stability-and-controlled-webview-1.1.97'
+  phase = 'native-shell-phase2-bridge-and-navigation-pilot-1.1.98'
   targetSdk = 36
   compileSdk = 36
   minSdk = 24

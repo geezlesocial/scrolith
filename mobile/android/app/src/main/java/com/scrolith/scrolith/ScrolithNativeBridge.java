@@ -19,11 +19,13 @@ import org.json.JSONObject;
  */
 final class ScrolithNativeBridge {
     static final String NAME = "ScrolithNative";
-    static final String VERSION = "1";
+    static final String VERSION = "2";
 
     interface Host {
         boolean isTrustedCurrentPage();
         void openNativeFilePicker(String accept, boolean allowMultiple);
+        void navigate(String path);
+        void handleBridgeEvent(String eventName, JSONObject payload);
     }
 
     private final Context context;
@@ -59,6 +61,27 @@ final class ScrolithNativeBridge {
     }
 
     @JavascriptInterface
+    public String getCapabilities() {
+        if (!isTrusted()) return "{}";
+        try {
+            JSONObject capabilities = new JSONObject();
+            capabilities.put("bridgeVersion", VERSION);
+            capabilities.put("nativeNavigation", NativeFeatureFlags.isNativeNavigationEnabled(context));
+            capabilities.put("nativePriorityScreens", NativeFeatureFlags.arePriorityScreensEnabled(context));
+            capabilities.put("events", new org.json.JSONArray()
+                .put("scrolith:native-network")
+                .put("scrolith:native-insets")
+                .put("scrolith:native-keyboard")
+                .put("scrolith:native-file-selected")
+                .put("mobile:incoming-call")
+                .put("mobile:push-notification-received"));
+            return capabilities.toString();
+        } catch (Throwable ignored) {
+            return "{}";
+        }
+    }
+
+    @JavascriptInterface
     public void showToast(final String message) {
         if (!isTrusted()) return;
         final String safeMessage = normalizeMessage(message);
@@ -83,6 +106,30 @@ final class ScrolithNativeBridge {
     public void openNativeFilePicker(String accept, boolean allowMultiple) {
         if (!isTrusted()) return;
         host.openNativeFilePicker(normalizeAccept(accept), allowMultiple);
+    }
+
+    /**
+     * Versioned Web-to-native event entry point. Only the documented event
+     * names are forwarded; arbitrary method reflection is never exposed.
+     */
+    @JavascriptInterface
+    public void postEvent(String eventName, String payload) {
+        if (!isTrusted()) return;
+        String safeName = normalizeEventName(eventName);
+        if (safeName.isEmpty()) return;
+        try {
+            JSONObject parsed = new JSONObject(payload == null || payload.trim().isEmpty() ? "{}" : payload);
+            if ("navigate".equals(safeName)) {
+                String path = parsed.optString("path", "");
+                if (isSafeAppPath(path)) host.navigate(path);
+                return;
+            }
+            if ("set_theme".equals(safeName) || "set_keyboard_mode".equals(safeName)) {
+                host.handleBridgeEvent(safeName, parsed);
+            }
+        } catch (Throwable ignored) {
+            // Optional bridge commands must never interrupt the WebView.
+        }
     }
 
     /** Safe JSON envelope for native events dispatched into the web runtime. */
@@ -132,5 +179,17 @@ final class ScrolithNativeBridge {
         if (value == null || value.trim().isEmpty()) return "*/*";
         String accept = value.trim();
         return accept.length() > 512 ? accept.substring(0, 512) : accept;
+    }
+
+    private static String normalizeEventName(String value) {
+        if (value == null) return "";
+        String event = value.trim().toLowerCase(java.util.Locale.ROOT);
+        return event.length() > 48 ? event.substring(0, 48) : event;
+    }
+
+    private static boolean isSafeAppPath(String value) {
+        String path = value == null ? "" : value.trim();
+        return path.startsWith("/") && !path.startsWith("//") && !path.contains("\\")
+            && !path.contains("javascript:") && path.length() <= 512;
     }
 }

@@ -1,23 +1,25 @@
 # Scrolith Android Native Shell
 
 The Android app remains a Capacitor WebView application. The native shell adds
-controlled lifecycle, recovery, and device capability boundaries without
-replacing the web application or its authentication/session model.
+controlled lifecycle, recovery, device capability, and navigation boundaries
+without replacing the web application or its authentication/session model.
 
 ## Native bridge
 
 The app-owned bridge is exposed as `window.ScrolithNative` only by the Android
-shell. The bridge is versioned and all methods reject calls unless the current
-top-level page is a trusted Scrolith origin.
+shell. The bridge is versioned (`2`) and all methods reject calls unless the
+current top-level page is a trusted Scrolith origin.
 
 | Method | Result | Purpose |
 | --- | --- | --- |
 | `getBridgeVersion()` | string | Returns the bridge contract version (`1`). |
 | `getAppVersion()` | string | Returns the installed Android app version. |
 | `getConnectionState()` | `online`, `offline`, or `unknown` | Reads the Android connectivity state. |
+| `getCapabilities()` | JSON string | Reports bridge version, enabled debug pilots, and native event names. |
 | `showToast(message)` | void | Displays a short, bounded native toast. |
 | `triggerHaptic(style)` | void | Provides a short haptic pulse. Use `strong` for a slightly longer pulse. |
 | `openNativeFilePicker(accept, allowMultiple)` | void | Opens Android's document picker. |
+| `postEvent(name, payloadJson)` | void | Sends only documented commands: `navigate`, `set_theme`, and `set_keyboard_mode`. |
 
 The file picker publishes a `scrolith:native-file-selected` browser event with
 `detail: { cancelled, accept, multiple, uris }`. `uris` contains content URI
@@ -27,6 +29,7 @@ using Capacitor's file chooser path.
 ## Existing events preserved
 
 - `scrolith:native-network` reports connectivity changes.
+- `scrolith:native-insets` reports system-bar and keyboard insets.
 - `mobile:incoming-call` hands an incoming call from FCM to the web call
   provider.
 - `mobile:push-notification-received` handles foreground push notifications.
@@ -41,3 +44,21 @@ Main-frame load failures show a native Retry state. Network recovery retries a
 failed initial load when connectivity returns. A WebView renderer crash is
 handled by recreating the activity once, preserving the existing Capacitor
 startup path and session storage.
+
+## Phase 2 pilot flags
+
+The native navigation pilot and priority native-screen slot are disabled in
+release builds. They can only be enabled in a debuggable build through launch
+extras, which prevents an unvalidated native surface from changing production
+behavior:
+
+```text
+adb shell am start -n com.scrolith.scrolith/.MainActivity \
+  --ez scrolith_native_navigation true \
+  --ez scrolith_native_priority_screens true
+```
+
+The pilot navigation routes to the existing authenticated WebView routes. The
+Messages and Notifications screens remain the source of truth for socket state,
+read status, attachments, calls, and deep links until physical-device parity
+testing authorizes a native content implementation.

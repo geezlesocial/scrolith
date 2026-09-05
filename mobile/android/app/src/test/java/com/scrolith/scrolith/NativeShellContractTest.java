@@ -10,7 +10,7 @@ public class NativeShellContractTest {
     @Test
     public void bridgeContractIsVersioned() {
         assertEquals("ScrolithNative", ScrolithNativeBridge.NAME);
-        assertEquals("1", ScrolithNativeBridge.VERSION);
+        assertEquals("2", ScrolithNativeBridge.VERSION);
     }
 
     @Test
