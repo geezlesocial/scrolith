@@ -77,8 +77,8 @@ export const syncSafeAreaCssVars = () => {
   setCssVar('--scrolith-sar', 'env(safe-area-inset-right, 0px)');
   setCssVar('--scrolith-sab', 'env(safe-area-inset-bottom, 0px)');
   setCssVar('--scrolith-sal', 'env(safe-area-inset-left, 0px)');
-  setCssVar('--scrolith-header-h', '56px');
-  setCssVar('--scrolith-bottom-nav-h', '64px');
+  setCssVar('--scrolith-header-h', '52px');
+  setCssVar('--scrolith-bottom-nav-h', '56px');
   setCssVar('--scrolith-shell-header-offset', 'calc(var(--scrolith-header-h) + var(--scrolith-sat))');
   setCssVar(
     '--scrolith-shell-bottom-offset',

@@ -277,6 +277,13 @@ const MobileHome = () => {
   const [softConversationId, setSoftConversationId] = useState<string | null>(null);
   const [currencyOpen, setCurrencyOpen] = useState(false);
   const routeTab = resolveActiveTab(location.pathname);
+  const normalizedPathname = location.pathname.replace(/\/+$/, '') || '/';
+  const isMemberHomeRoute =
+    normalizedPathname === '/m' ||
+    normalizedPathname === '/m/home' ||
+    normalizedPathname === '/member-home' ||
+    normalizedPathname === '/home' ||
+    normalizedPathname === '/';
   const [activePanelTab, setActivePanelTab] = useState<Exclude<MobileTabKey, 'home' | 'messages'> | null>(
     isMobileOverlayTab(routeTab) ? routeTab : null
   );
@@ -388,6 +395,11 @@ const MobileHome = () => {
     setScrollOverlay(null);
     setSoftConversationId(null);
   }, []);
+
+  useEffect(() => {
+    if (isMemberHomeRoute) return;
+    clearShellLayers();
+  }, [clearShellLayers, isMemberHomeRoute]);
 
   const shellLayerKey = useMemo(() => {
     if (scrollOverlay) {
@@ -696,6 +708,7 @@ const MobileHome = () => {
     [dismissShellLayers, location.pathname, navigate]
   );
   const renderOverlayPanel = () => {
+    if (!isMemberHomeRoute) return null;
     if (!activePanelTab) return null;
     const titleMap: Record<Exclude<MobileTabKey, 'home' | 'messages'>, string> = {
       network: 'My Network',
@@ -758,7 +771,7 @@ const MobileHome = () => {
 
   return (
     <div className="min-h-[100%] bg-slate-50" style={{ touchAction: 'pan-y pinch-zoom' }}>
-      <MobileHeader
+      {isMemberHomeRoute ? <MobileHeader
         user={user}
         loading={loading}
         socketConnected={isConnected}
@@ -789,13 +802,15 @@ const MobileHome = () => {
             setProfileOpen(true);
           });
         }}
-      />
+      /> : null}
 
       <div
-        className={`${MOBILE_SHELL_MAIN_PAD_CLASS} mobile-home-feed`}
+        className={`${isMemberHomeRoute ? MOBILE_SHELL_MAIN_PAD_CLASS : ''} mobile-home-feed`}
         style={{ touchAction: 'pan-y pinch-zoom', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
       >
-        {/^\/m\/briefs(\/|$)/.test(location.pathname) ? (
+        {!isMemberHomeRoute ? (
+          <Outlet context={{ mobileLayout: layout }} />
+        ) : /^\/m\/briefs(\/|$)/.test(location.pathname) ? (
           <Outlet
             context={{
               mobileLayout: layout
@@ -819,9 +834,9 @@ const MobileHome = () => {
         )}
       </div>
 
-      {!scrollOverlay ? <MobileBottomNav activeTab={activeTab} onChange={onTabChange} settings={bottomNavSettings} /> : null}
+      {isMemberHomeRoute && !scrollOverlay ? <MobileBottomNav activeTab={activeTab} onChange={onTabChange} settings={bottomNavSettings} /> : null}
 
-      {searchOpen ? (
+      {isMemberHomeRoute && searchOpen ? (
         <div className={`fixed inset-0 z-[900] overflow-y-auto overscroll-contain bg-slate-50 ${MOBILE_SHELL_MAIN_PAD_CLASS}`}>
           <Suspense
             fallback={
@@ -880,7 +895,7 @@ const MobileHome = () => {
         </Suspense>
       ) : null}
 
-      {anySheetOpen ? (
+      {isMemberHomeRoute && anySheetOpen ? (
         <MobileHomeSheets
           profileOpen={profileOpen}
           messagesOpen={messagesOpen}

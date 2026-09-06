@@ -136,7 +136,7 @@ export default function MobileBottomNav({
                 triggerTabChange(item.key, event.currentTarget);
               }}
               className={[
-                'relative flex min-h-[48px] min-w-0 flex-1 flex-col items-center justify-center rounded-2xl px-1 py-1 text-[10px] font-semibold tracking-tight touch-manipulation transition-colors duration-150',
+                'relative flex min-h-[44px] min-w-0 flex-1 flex-col items-center justify-center rounded-2xl px-1 py-0.5 text-[9px] font-semibold tracking-tight touch-manipulation transition-colors duration-150',
                 primary
                   ? 'mx-0.5'
                   : isActive
@@ -149,11 +149,11 @@ export default function MobileBottomNav({
               style={{ WebkitTapHighlightColor: 'transparent' }}
             >
               {primary ? (
-                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 text-white shadow-[0_8px_20px_-10px_rgba(15,23,42,0.65)] ring-1 ring-slate-900/10">
+                <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 text-white shadow-[0_8px_20px_-10px_rgba(15,23,42,0.65)] ring-1 ring-slate-900/10">
                   {item.icon}
                 </span>
               ) : (
-                <div className="relative flex h-7 w-7 items-center justify-center">
+                <div className="relative flex h-6 w-6 items-center justify-center">
                   <span
                     className={[
                       'absolute inset-0 rounded-full transition-opacity duration-150',

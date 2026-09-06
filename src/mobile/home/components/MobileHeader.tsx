@@ -58,7 +58,7 @@ export default function MobileHeader({
       className="fixed left-0 right-0 top-0 z-50 border-b border-slate-200/90 bg-white/92 shadow-[0_8px_24px_-20px_rgba(15,23,42,0.35)] backdrop-blur-xl supports-[backdrop-filter]:bg-white/85"
       style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
     >
-      <div className={`${MOBILE_HEADER_CONTAINER_CLASS} min-h-[56px]`}>
+      <div className={`${MOBILE_HEADER_CONTAINER_CLASS} min-h-[52px]`}>
         <button
           type="button"
           onClick={(event) => {
@@ -66,7 +66,7 @@ export default function MobileHeader({
             event.stopPropagation();
             triggerAction('profile', onOpenProfile, event.currentTarget);
           }}
-          className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100 shadow-sm touch-manipulation ring-offset-2 active:ring-2 active:ring-sky-200"
+          className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100 shadow-sm touch-manipulation ring-offset-2 active:ring-2 active:ring-sky-200"
           aria-label="Open profile"
           style={{ WebkitTapHighlightColor: 'transparent' }}
         >
@@ -90,7 +90,7 @@ export default function MobileHeader({
         <button
           type="button"
           className={[
-            'flex min-h-[40px] min-w-0 flex-1 items-center gap-2 rounded-full border border-slate-200/90 bg-slate-50/95 px-3.5 py-2 text-left shadow-inner touch-manipulation transition-colors',
+            'flex min-h-[36px] min-w-0 flex-1 items-center gap-2 rounded-full border border-slate-200/90 bg-slate-50/95 px-3 py-1.5 text-left shadow-inner touch-manipulation transition-colors',
             searchEnabled
               ? 'cursor-pointer active:bg-slate-100'
               : 'cursor-not-allowed opacity-60'
@@ -101,13 +101,14 @@ export default function MobileHeader({
             if (!searchEnabled) return;
             triggerAction('search', onOpenSearch, event.currentTarget);
           }}
-          aria-label="Search"
+          aria-label="Open search"
+          aria-haspopup="dialog"
           disabled={!searchEnabled}
           style={{ WebkitTapHighlightColor: 'transparent' }}
         >
           <Search className="h-4 w-4 shrink-0 text-slate-500" />
           <span className="min-w-0 truncate text-[13px] text-slate-500">
-            Search people, jobs, gigs, posts
+            Search
           </span>
         </button>
 
@@ -120,7 +121,7 @@ export default function MobileHeader({
                 event.stopPropagation();
                 triggerAction('messages', onOpenMessages, event.currentTarget);
               }}
-              className="relative flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white shadow-sm touch-manipulation active:bg-slate-50"
+              className="relative flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white shadow-sm touch-manipulation active:bg-slate-50"
               aria-label={unread > 0 ? `Open messages, ${unread} unread` : 'Open messages'}
               style={{ WebkitTapHighlightColor: 'transparent' }}
             >
@@ -141,7 +142,7 @@ export default function MobileHeader({
                 event.stopPropagation();
                 triggerAction('menu', onOpenQuickMenu, event.currentTarget);
               }}
-              className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white shadow-sm touch-manipulation active:bg-slate-50"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white shadow-sm touch-manipulation active:bg-slate-50"
               aria-label="Open menu"
               style={{ WebkitTapHighlightColor: 'transparent' }}
             >

@@ -26,6 +26,7 @@ import { resolveResponsiveAssetUrl } from './utils/assetUrl';
 import { getCanonicalAppOrigin, getCanonicalRedirectUrl } from './utils/siteUrl';
 import { isLikelyChunkLoadError, normalizeRouteHref } from './mobile/runtime/routeRecovery';
 import { applyNativeChrome, ensureDocumentScrollEnabled } from './mobile/runtime/nativeChrome';
+import { getScrolithNative } from './mobile/nativeBridge';
 import { shouldUseMobileShellViewport } from './mobile/home/mobileShellLayout';
 import {
   FOLLOW_ONBOARDING_PATH,
@@ -879,6 +880,20 @@ const AppContent = () => {
   useEffect(() => {
     ensureDocumentScrollEnabled();
   }, [location.pathname]);
+
+  // Keep the optional Android navigation pilot scoped to the member home.
+  // Other routes own their own headers and must never receive a second tab bar.
+  useEffect(() => {
+    const bridge = getScrolithNative();
+    if (!bridge?.postEvent) return;
+    try {
+      bridge.postEvent('route_changed', JSON.stringify({
+        path: `${location.pathname}${location.search}${location.hash}`
+      }));
+    } catch {
+      // The optional native shell must never affect web navigation.
+    }
+  }, [location.hash, location.pathname, location.search]);
 
   useEffect(() => {
     if (!canonicalRedirectUrl || typeof window === 'undefined') return;
