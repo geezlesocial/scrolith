@@ -43,11 +43,13 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.graphics.drawable.GradientDrawable;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import org.json.JSONArray;
@@ -96,6 +98,7 @@ public class MainActivity extends BridgeActivity {
     private TextView nativeStatusMessage;
     private Button nativeStatusAction;
     private View nativeNavigationBar;
+    private NativeNotificationsView nativeNotificationsView;
     private boolean pageLoaded;
     private boolean mainFrameLoadFailed;
     private boolean renderProcessRecoveryAttempted;
@@ -163,6 +166,16 @@ public class MainActivity extends BridgeActivity {
                 @Override
                 public void navigate(String path) {
                     navigateWebPath(path);
+                }
+
+                @Override
+                public void openNativeNotifications() {
+                    showNativeNotifications();
+                }
+
+                @Override
+                public void closeNativeNotifications() {
+                    hideNativeNotifications();
                 }
 
                 @Override
@@ -351,13 +364,116 @@ public class MainActivity extends BridgeActivity {
                 ? WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
                 : WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
             getWindow().setSoftInputMode(softInputMode);
+            return;
+        }
+        if ("notifications:ready".equals(eventName)) {
+            if (nativeNotificationsView != null) {
+                nativeNotificationsView.requestInitialSnapshot();
+            }
+            return;
+        }
+        if ("notifications:state".equals(eventName)) {
+            if (nativeNotificationsView != null) {
+                nativeNotificationsView.applySnapshot(payload);
+            }
+            return;
+        }
+        if ("notifications:action_result".equals(eventName)) {
+            if (nativeNotificationsView != null) {
+                nativeNotificationsView.applyActionResult(payload);
+            }
+        }
+    }
+
+    private void showNativeNotifications() {
+        if (!NativeFeatureFlags.isNativeNotificationsEnabled(this)
+            || bridge == null || bridge.getWebView() == null
+            || !(bridge.getWebView().getParent() instanceof ViewGroup)) return;
+        runOnUiThread(() -> {
+            try {
+                ViewGroup parent = (ViewGroup) bridge.getWebView().getParent();
+                if (nativeNotificationsView == null) {
+                    nativeNotificationsView = new NativeNotificationsView(this,
+                        new NativeNotificationsView.Listener() {
+                            @Override
+                            public void requestSnapshot() {
+                                dispatchNativeNotificationCommand("notifications.request_snapshot", null);
+                            }
+
+                            @Override
+                            public void markRead(String notificationId) {
+                                JSONObject data = new JSONObject();
+                                try {
+                                    data.put("id", notificationId);
+                                } catch (JSONException ignored) {
+                                    return;
+                                }
+                                dispatchNativeNotificationCommand("notifications.mark_read", data);
+                            }
+
+                            @Override
+                            public void markAllRead() {
+                                dispatchNativeNotificationCommand("notifications.mark_all_read", null);
+                            }
+
+                            @Override
+                            public void openAction(String notificationId, String actionPath) {
+                                JSONObject data = new JSONObject();
+                                try {
+                                    data.put("id", notificationId);
+                                    data.put("actionPath", actionPath);
+                                } catch (JSONException ignored) {
+                                    return;
+                                }
+                                hideNativeNotifications();
+                                dispatchNativeNotificationCommand("notifications.open_action", data);
+                            }
+
+                            @Override
+                            public void close() {
+                                hideNativeNotifications();
+                            }
+                        });
+                    parent.addView(nativeNotificationsView, new ViewGroup.LayoutParams(-1, -1));
+                }
+                nativeNotificationsView.setVisibility(View.VISIBLE);
+                nativeNotificationsView.bringToFront();
+                nativeNotificationsView.requestFocus();
+                nativeNotificationsView.requestInitialSnapshot();
+            } catch (Throwable ignored) {
+                hideNativeNotifications();
+            }
+        });
+    }
+
+    private void hideNativeNotifications() {
+        runOnUiThread(() -> {
+            if (nativeNotificationsView != null) {
+                nativeNotificationsView.clearState();
+                nativeNotificationsView.setVisibility(View.GONE);
+            }
+        });
+    }
+
+    private void dispatchNativeNotificationCommand(String command, JSONObject data) {
+        if (bridge == null || bridge.getWebView() == null || command == null) return;
+        try {
+            JSONObject payload = data == null ? new JSONObject() : new JSONObject(data.toString());
+            payload.put("command", command);
+            payload.put("bridgeVersion", ScrolithNativeBridge.VERSION);
+            payload.put("requestId", UUID.randomUUID().toString());
+            String script = ScrolithNativeBridge.eventScript("scrolith:native-command", payload);
+            bridge.getWebView().post(() -> bridge.getWebView().evaluateJavascript(script, null));
+        } catch (JSONException ignored) {
+            // Optional native command must never interrupt the WebView.
         }
     }
 
     private void navigateWebPath(String path) {
         String normalized = path == null ? "" : path.trim();
         if (!normalized.startsWith("/") || normalized.startsWith("//")
-            || normalized.contains("\\") || normalized.length() > 512) return;
+            || normalized.contains("\\") || normalized.toLowerCase(java.util.Locale.US).contains("javascript:")
+            || normalized.length() > 512) return;
         try {
             if (bridge != null && bridge.getWebView() != null) {
                 bridge.getWebView().loadUrl("https://scrolith.com" + normalized);
@@ -378,15 +494,36 @@ public class MainActivity extends BridgeActivity {
         navigation.setElevation(dp(8));
         navigation.setContentDescription("Scrolith native navigation");
 
+        int[] icons = {
+            android.R.drawable.ic_menu_view,
+            android.R.drawable.ic_dialog_email,
+            android.R.drawable.ic_menu_sort_by_size,
+            android.R.drawable.ic_menu_search,
+            android.R.drawable.ic_menu_myplaces
+        };
         String[] labels = {"Home", "Messages", "Scroll", "Match", "Profile"};
         String[] paths = {"/member-home", "/messages", "/scroll", "/match", "/profile/edit"};
         for (int i = 0; i < labels.length; i++) {
-            TextView item = new TextView(this);
-            item.setText(labels[i]);
-            item.setTextColor(Color.rgb(30, 41, 59));
-            item.setTextSize(12);
+            LinearLayout item = new LinearLayout(this);
+            item.setOrientation(LinearLayout.VERTICAL);
             item.setGravity(Gravity.CENTER);
+            item.setPadding(dp(4), dp(3), dp(4), dp(3));
             item.setFocusable(true);
+            item.setClickable(true);
+            item.setContentDescription(labels[i]);
+            ImageButton icon = new ImageButton(this);
+            icon.setImageResource(icons[i]);
+            icon.setColorFilter(Color.rgb(30, 41, 59));
+            icon.setBackgroundColor(Color.TRANSPARENT);
+            icon.setContentDescription(labels[i]);
+            icon.setPadding(dp(8), dp(4), dp(8), dp(2));
+            item.addView(icon, new LinearLayout.LayoutParams(dp(40), dp(32)));
+            TextView label = new TextView(this);
+            label.setText(labels[i]);
+            label.setTextColor(Color.rgb(30, 41, 59));
+            label.setTextSize(11);
+            label.setGravity(Gravity.CENTER);
+            item.addView(label, new LinearLayout.LayoutParams(-1, dp(24)));
             final String path = paths[i];
             item.setOnClickListener(v -> navigateWebPath(path));
             navigation.addView(item, new LinearLayout.LayoutParams(0, dp(64), 1f));
@@ -440,6 +577,11 @@ public class MainActivity extends BridgeActivity {
                     @Override
                     public void handleOnBackPressed() {
                         try {
+                            if (nativeNotificationsView != null
+                                && nativeNotificationsView.getVisibility() == View.VISIBLE) {
+                                hideNativeNotifications();
+                                return;
+                            }
                             if (bridge != null && bridge.getWebView() != null && bridge.getWebView().canGoBack()) {
                                 bridge.getWebView().goBack();
                                 return;
@@ -554,6 +696,7 @@ public class MainActivity extends BridgeActivity {
             if (bridge != null && bridge.getWebView() != null) {
                 bridge.getWebView().removeJavascriptInterface(NATIVE_BRIDGE_NAME);
             }
+            nativeNotificationsView = null;
         } catch (Throwable ignored) {
             // Best-effort cleanup; Capacitor owns the final WebView teardown.
         }

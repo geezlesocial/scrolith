@@ -12,7 +12,7 @@ current top-level page is a trusted Scrolith origin.
 
 | Method | Result | Purpose |
 | --- | --- | --- |
-| `getBridgeVersion()` | string | Returns the bridge contract version (`1`). |
+| `getBridgeVersion()` | string | Returns the bridge contract version (`2`). |
 | `getAppVersion()` | string | Returns the installed Android app version. |
 | `getConnectionState()` | `online`, `offline`, or `unknown` | Reads the Android connectivity state. |
 | `getCapabilities()` | JSON string | Reports bridge version, enabled debug pilots, and native event names. |
@@ -37,6 +37,36 @@ using Capacitor's file chooser path.
 The bridge does not expose tokens, cookies, database values, arbitrary URL
 execution, or filesystem paths. Production releases keep cleartext traffic
 disabled and only grant camera/microphone capture to trusted Scrolith origins.
+
+## Phase 3 native experience pilot
+
+The Phase 3 native Notifications Center is a hybrid presentation pilot. The
+authenticated WebView remains the source of truth for notification HTTP calls,
+Socket.IO updates, unread state, mark-read actions, and deep-link routing. The
+native view receives only a bounded, sanitized snapshot and sends allowlisted
+commands back to the WebView.
+
+Release builds keep these pilots disabled. Debug builds can enable them for
+internal testing with launch extras:
+
+```text
+adb shell am start -n com.scrolith.scrolith/.MainActivity \
+  --ez scrolith_native_navigation true \
+  --ez scrolith_native_notifications true
+```
+
+When `scrolith_native_notifications` is enabled, open `/m/notifications` to
+exercise the native host. If the bridge, snapshot, action, or feature flag is
+unavailable, the existing WebView Notifications screen remains the fallback.
+
+The Phase 3 bridge adds the `nativeNotifications` and
+`nativeNavigationPilot` capability fields, plus the `scrolith:native-command`
+event. Supported notification commands are
+`notifications.request_snapshot`, `notifications.retry`,
+`notifications.mark_read`, `notifications.mark_all_read`, and
+`notifications.open_action`. Payloads are bounded and internal action paths
+are validated before navigation. No notification tokens, cookies, raw external
+URLs, or arbitrary user lookup data are exposed to Android.
 
 ## Recovery behavior
 
