@@ -2,6 +2,7 @@ import React from 'react';
 import { MessageProvider } from './MessageContext';
 import { RealtimeProvider } from '../dashboard/shared/RealtimeProvider';
 import GlobalVoiceCallShell from '../messages/GlobalVoiceCallShell';
+import NativeMessagesBridge from '../mobile/NativeMessagesBridge';
 
 /**
  * Authenticated-only messaging/realtime providers.
@@ -13,6 +14,7 @@ import GlobalVoiceCallShell from '../messages/GlobalVoiceCallShell';
 const AuthenticatedRuntimeProviders: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <RealtimeProvider>
     <MessageProvider>
+      <NativeMessagesBridge />
       <GlobalVoiceCallShell>{children}</GlobalVoiceCallShell>
     </MessageProvider>
   </RealtimeProvider>
