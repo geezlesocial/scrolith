@@ -22,7 +22,6 @@ import MobileNetworkScreen from './screens/MobileNetworkScreen';
 import MobilePostScreen from './screens/MobilePostScreen';
 import MobileNotificationsScreen from './screens/MobileNotificationsScreen';
 import MobileJobsScreen from './screens/MobileJobsScreen';
-import ScrollFeed from '../../features/scroll/ScrollFeed';
 import MobileHomeSheets from './components/MobileHomeSheets';
 import {
   buildMessagingSoftOpenState,
@@ -33,6 +32,7 @@ import {
 const MobileMessagingOverlay = React.lazy(
   () => import('../../components/messaging/MobileMessagingOverlay')
 );
+const ScrollFeed = React.lazy(() => import('../../features/scroll/ScrollFeed'));
 import {
   MOBILE_PAGE_CONTAINER_CLASS,
   MOBILE_SHELL_MAIN_PAD_CLASS,
@@ -292,10 +292,6 @@ const MobileHome = () => {
     new URLSearchParams(location.search).get('desktop') === '1' ||
     new URLSearchParams(location.search).get('view') === 'desktop';
 
-  if (!isMobileViewport && !allowDesktopOverride) {
-    return <Navigate to="/" replace />;
-  }
-
   const rawLayout = (settings as any)?.mobileHomeLayout ?? (settings as any)?.mobile_home_layout ?? null;
   const layout = useMemo(() => {
     const merged = deepMerge(DEFAULT_LAYOUT, rawLayout);
@@ -365,6 +361,17 @@ const MobileHome = () => {
   useEffect(() => {
     setActivePanelTab(isMobileOverlayTab(routeTab) ? routeTab : null);
   }, [routeTab]);
+
+  // Native shell menu handoff: keep account and feature actions owned by the
+  // existing web sheet instead of duplicating currency/role state in Android.
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get('openMenu') !== '1') return;
+    setQuickMenuOpen(true);
+    const params = new URLSearchParams(location.search);
+    params.delete('openMenu');
+    const nextQuery = params.toString();
+    navigate(`${location.pathname}${nextQuery ? `?${nextQuery}` : ''}${location.hash}`, { replace: true });
+  }, [location.hash, location.pathname, location.search, navigate]);
 
   useEffect(() => {
     if (activePanelTab !== 'notifications') return;
@@ -742,6 +749,12 @@ const MobileHome = () => {
       </div>
     );
   };
+
+  // Keep this guard after every hook so a delayed viewport measurement cannot
+  // change the hook sequence and crash the signed-in home during startup.
+  if (!isMobileViewport && !allowDesktopOverride) {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <div className="min-h-[100%] bg-slate-50" style={{ touchAction: 'pan-y pinch-zoom' }}>

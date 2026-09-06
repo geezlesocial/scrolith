@@ -72,7 +72,12 @@ export default function NativeMessagesBridge() {
       const conversationId = safeId(detail.conversationId);
 
       if (command === 'messages.request_snapshot') {
-        emitSnapshot(requestId);
+        // The native host may open before the initial MessageContext request
+        // finishes. Reuse the existing fetch path, then project the current
+        // authoritative state so an empty first render does not stick.
+        void refreshMessages({ force: false })
+          .then(() => emitSnapshot(requestId))
+          .catch(() => emitSnapshot(requestId));
         return;
       }
       if (command === 'messages.refresh' || command === 'messages.retry') {

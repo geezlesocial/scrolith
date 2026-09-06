@@ -40,7 +40,7 @@ import SmartComposer from '../components/messaging/SmartComposer';
 import GroupManagePanel from '../components/messaging/GroupManagePanel';
 import GroupCreateWizard from '../components/messaging/GroupCreateWizard';
 import ChatAppearancePanel from '../components/messaging/ChatAppearancePanel';
-import SafeMessageText from '../components/messaging/SafeMessageText';
+import ExpandableMessageText from '../components/messaging/ExpandableMessageText';
 import {
   appearanceToBackgroundStyle,
   buildChatPalette,
@@ -98,6 +98,7 @@ import { dedupeMessagesById, reconcileOptimisticMessage } from '../services/mess
 import { setMessagingMediaConversationAffinity } from '../services/messagingMedia';
 import { generateImageBlurPreview, generateVideoPoster } from '../services/messagingEngine/mediaProgressive';
 import { uploadMessagingFileWithEngine } from '../services/messagingEngine/mediaUploadEngine';
+import { countMessageWords, MAX_MESSAGE_WORDS } from '../utils/messageText';
 
 
 const QUICK_REACTIONS = ['\u{1F44D}', '\u2764\uFE0F', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F64F}'];
@@ -3204,6 +3205,10 @@ const Messages = () => {
       e.preventDefault();
       const trimmed = messageInput.trim();
       if ((!trimmed && pendingAttachments.length === 0) || !activeConvoId || !user) return;
+      if (countMessageWords(trimmed) > MAX_MESSAGE_WORDS) {
+          showNotification('error', 'Message too long', `Messages can contain up to ${MAX_MESSAGE_WORDS} words.`);
+          return;
+      }
       if (isActiveGroupConversation && groupComposerRestriction.blocked) {
           showNotification('error', 'Group', groupComposerRestriction.message || 'Sending is disabled.');
           return;
@@ -4819,7 +4824,7 @@ const Messages = () => {
                                                     'max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word]'
                                                 ].join(' ')}
                                             >
-                                                <SafeMessageText
+                                                <ExpandableMessageText
                                                     text={
                                                         isScrolithaAuthoredMessage(msg)
                                                             ? normalizeScrolithaDisplayText(String(msg.text || ''))

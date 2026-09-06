@@ -50,10 +50,11 @@ import {
 } from '../../services/messagingComposer';
 import InlineMessageComposer from './InlineMessageComposer';
 import { MessageAttachmentsList } from './MessageAttachmentRenderer';
-import SafeMessageText from './SafeMessageText';
+import ExpandableMessageText from './ExpandableMessageText';
 import { extractMessageAttachments } from '../../services/messagingMedia';
 import { getRecoverableActionMessage } from '../../mobile/runtime/requestRecovery';
 import { AIService } from '../../services/ai/ai.service';
+import { countMessageWords, MAX_MESSAGE_WORDS } from '../../utils/messageText';
 
 type MessagingChatWindowProps = {
   conversationId: string;
@@ -806,8 +807,8 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
                             {deleted ? (
                               '[Message deleted]'
                             ) : (
-                              <SafeMessageText
-                                text={getMessagePreviewText(message) || message.text}
+                              <ExpandableMessageText
+                                text={String(message.text || '')}
                                 outgoing={mine && !failed}
                                 navigate={navigate}
                                 mentionClassName={
@@ -1149,6 +1150,10 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
         }}
         onSend={async () => {
           setSendError(null);
+          if (countMessageWords(draft) > MAX_MESSAGE_WORDS) {
+            setSendError(`Messages can contain up to ${MAX_MESSAGE_WORDS} words.`);
+            return;
+          }
           try {
             await sendInlineMessage(conversationId, draft, {
               replyToMessageId: replyTo?.id || null
