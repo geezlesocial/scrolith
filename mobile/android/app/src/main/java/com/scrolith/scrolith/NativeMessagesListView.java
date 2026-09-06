@@ -14,6 +14,7 @@ import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -45,6 +46,7 @@ final class NativeMessagesListView extends FrameLayout {
         void refresh();
         void markRead(String conversationId);
         void openConversation(String conversationId, String actionPath);
+        void openMenu();
         void close();
     }
 
@@ -94,6 +96,9 @@ final class NativeMessagesListView extends FrameLayout {
             listener.refresh();
         });
         toolbar.addView(refresh, buttonParams());
+        ImageButton menu = iconButton(context, android.R.drawable.ic_menu_more, "Open dashboard menu");
+        menu.setOnClickListener(v -> listener.openMenu());
+        toolbar.addView(menu, buttonParams());
         ImageButton close = iconButton(context, android.R.drawable.ic_menu_close_clear_cancel, "Close messages");
         close.setOnClickListener(v -> listener.close());
         toolbar.addView(close, buttonParams());
@@ -120,6 +125,9 @@ final class NativeMessagesListView extends FrameLayout {
         searchParams.setMargins(dp(16), dp(12), dp(16), dp(10));
         root.addView(searchInput, searchParams);
 
+        HorizontalScrollView filterScroller = new HorizontalScrollView(context);
+        filterScroller.setHorizontalScrollBarEnabled(false);
+        filterScroller.setFillViewport(false);
         LinearLayout filters = new LinearLayout(context);
         filters.setGravity(Gravity.CENTER_VERTICAL);
         filters.setPadding(dp(16), 0, dp(16), dp(10));
@@ -131,16 +139,21 @@ final class NativeMessagesListView extends FrameLayout {
             button.setAllCaps(false);
             button.setTextSize(12);
             button.setMinHeight(dp(40));
-            button.setPadding(dp(10), 0, dp(10), 0);
+            button.setMinWidth(dp(76));
+            button.setSingleLine(true);
+            button.setPadding(dp(12), 0, dp(12), 0);
             final String key = filterKeys[i];
             button.setOnClickListener(v -> {
                 filter = key;
                 updateFilterStyles(filters);
                 applyFilters();
             });
-            filters.addView(button, new LinearLayout.LayoutParams(0, dp(40), 1f));
+            LinearLayout.LayoutParams filterParams = new LinearLayout.LayoutParams(-2, dp(40));
+            filterParams.setMargins(dp(3), 0, dp(3), 0);
+            filters.addView(button, filterParams);
         }
-        root.addView(filters, new LinearLayout.LayoutParams(-1, -2));
+        filterScroller.addView(filters, new HorizontalScrollView.LayoutParams(-2, -2));
+        root.addView(filterScroller, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout stateBar = new LinearLayout(context);
         stateBar.setGravity(Gravity.CENTER_VERTICAL);
@@ -174,6 +187,7 @@ final class NativeMessagesListView extends FrameLayout {
     }
 
     void showLoading() {
+        countText.setText("");
         statusText.setText("Loading conversations...");
         statusText.setVisibility(View.VISIBLE);
     }

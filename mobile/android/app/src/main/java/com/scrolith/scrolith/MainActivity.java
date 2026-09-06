@@ -420,7 +420,8 @@ public class MainActivity extends BridgeActivity {
             || !(bridge.getWebView().getParent() instanceof ViewGroup)) return;
         runOnUiThread(() -> {
             try {
-                ViewGroup parent = (ViewGroup) bridge.getWebView().getParent();
+                ViewGroup parent = getNativeShellContainer(bridge.getWebView());
+                if (parent == null) return;
                 if (nativeNotificationsView == null) {
                     nativeNotificationsView = new NativeNotificationsView(this,
                         new NativeNotificationsView.Listener() {
@@ -491,7 +492,8 @@ public class MainActivity extends BridgeActivity {
         runOnUiThread(() -> {
             try {
                 hideNativeNotifications();
-                ViewGroup parent = (ViewGroup) bridge.getWebView().getParent();
+                ViewGroup parent = getNativeShellContainer(bridge.getWebView());
+                if (parent == null) return;
                 if (nativeMessagesListView == null) {
                     nativeMessagesListView = new NativeMessagesListView(this,
                         new NativeMessagesListView.Listener() {
@@ -527,6 +529,12 @@ public class MainActivity extends BridgeActivity {
                                 }
                                 hideNativeMessages();
                                 dispatchNativeMessagesCommand("messages.open_conversation", data);
+                            }
+
+                            @Override
+                            public void openMenu() {
+                                hideNativeMessages();
+                                navigateWebPath("/m/home?openMenu=1");
                             }
 
                             @Override
@@ -599,8 +607,9 @@ public class MainActivity extends BridgeActivity {
 
     private void ensureNativeNavigationBar(WebView webView) {
         if (!NativeFeatureFlags.isNativeNavigationEnabled(this)
-            || nativeNavigationBar != null || !(webView.getParent() instanceof ViewGroup)) return;
-        ViewGroup parent = (ViewGroup) webView.getParent();
+            || nativeNavigationBar != null) return;
+        ViewGroup parent = getNativeShellContainer(webView);
+        if (parent == null) return;
         LinearLayout navigation = new LinearLayout(this);
         navigation.setOrientation(LinearLayout.HORIZONTAL);
         navigation.setGravity(Gravity.CENTER);
@@ -658,6 +667,20 @@ public class MainActivity extends BridgeActivity {
         }
         nativeNavigationBar = navigation;
         webView.setPadding(webView.getPaddingLeft(), webView.getPaddingTop(), webView.getPaddingRight(), dp(64));
+    }
+
+    /**
+     * Host native overlays in the activity content frame, not the WebView's
+     * implementation parent. Some Capacitor versions use a LinearLayout
+     * parent, which otherwise places the navigation bar above the web shell.
+     */
+    private ViewGroup getNativeShellContainer(WebView webView) {
+        View content = findViewById(android.R.id.content);
+        if (content instanceof ViewGroup) return (ViewGroup) content;
+        if (webView != null && webView.getParent() instanceof ViewGroup) {
+            return (ViewGroup) webView.getParent();
+        }
+        return null;
     }
 
     private void observeWindowInsets(WebView webView) {

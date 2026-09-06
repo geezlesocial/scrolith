@@ -286,9 +286,10 @@ message data or WebView state.
 
 ## 11. Implementation and Test Gates
 
-Implementation may begin only after approval of this design. The future branch
-is `feature/native-messages-list-phase4`; branch creation is deferred to avoid
-disturbing the current dirty worktrees.
+Implementation proceeded after approval of this design. The frontend bridge is
+on `feature/native-messages-list-phase4`; the Android/root changes are on
+`feature/native-messages-list-phase4-android` because the shared remote already
+contained the frontend branch name.
 
 Required automated coverage:
 
@@ -315,7 +316,7 @@ deep links blocks release and disables the native flag.
 
 ## 12. Release Plan After Approval
 
-1. Implement the web adapter and native list on the dedicated branch.
+1. Implement the web adapter and native list on the dedicated branches.
 2. Run unit, Android, frontend, and physical-device regression tests.
 3. Bump version from `1.2.0/109` only after the tested scope is known.
 4. Produce signed AAB and APK with SHA-256; do not upload to Google Play.
@@ -326,6 +327,6 @@ deep links blocks release and disables the native flag.
 
 ## 13. Approval Gate
 
-This document is the Phase 4 audit and technical design deliverable. No UI,
-bridge, feature-flag, version, database, deployment, commit, or push changes
-are authorized until the owner approves the data contract and fallback plan.
+This document is the Phase 4 audit and technical design deliverable. The owner
+approved the data contract and fallback plan; implementation, commits, and
+artifact builds are complete. Production promotion remains separately gated.

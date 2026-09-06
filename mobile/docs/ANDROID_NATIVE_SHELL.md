@@ -87,6 +87,11 @@ adb shell am start -n com.scrolith.scrolith/.MainActivity \
 The native list supports local search, All/Unread/Groups/Communities filters,
 stable-ID list updates, refresh, empty/error states, and safe delegation to
 `/messages/:conversationId`. The conversation screen remains WebView-owned.
+Its toolbar Menu action opens the existing web account/feature menu, preserving
+Dashboard, currency switching, Freelancer/Client switching, Jobs, Gigs,
+Marketplace, Community, Groups, and settings without duplicating that state in
+Android. The native pilot is hosted in the activity content frame so it does
+not cover the web shell header or place navigation above the page.
 The `nativeMessagesList` capability reports whether the debug flag is active.
 On malformed or stale state, the native host closes and `/messages` remains the
 fallback. No credentials, cookies, raw socket payloads, or arbitrary URLs cross
