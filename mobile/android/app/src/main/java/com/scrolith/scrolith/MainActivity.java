@@ -367,21 +367,21 @@ public class MainActivity extends BridgeActivity {
             return;
         }
         if ("notifications:ready".equals(eventName)) {
-            if (nativeNotificationsView != null) {
-                nativeNotificationsView.requestInitialSnapshot();
-            }
+            runOnUiThread(() -> {
+                if (nativeNotificationsView != null) nativeNotificationsView.requestInitialSnapshot();
+            });
             return;
         }
         if ("notifications:state".equals(eventName)) {
-            if (nativeNotificationsView != null) {
-                nativeNotificationsView.applySnapshot(payload);
-            }
+            runOnUiThread(() -> {
+                if (nativeNotificationsView != null) nativeNotificationsView.applySnapshot(payload);
+            });
             return;
         }
         if ("notifications:action_result".equals(eventName)) {
-            if (nativeNotificationsView != null) {
-                nativeNotificationsView.applyActionResult(payload);
-            }
+            runOnUiThread(() -> {
+                if (nativeNotificationsView != null) nativeNotificationsView.applyActionResult(payload);
+            });
         }
     }
 
