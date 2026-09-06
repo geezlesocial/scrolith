@@ -99,6 +99,7 @@ public class MainActivity extends BridgeActivity {
     private Button nativeStatusAction;
     private View nativeNavigationBar;
     private NativeNotificationsView nativeNotificationsView;
+    private NativeMessagesListView nativeMessagesListView;
     private boolean pageLoaded;
     private boolean mainFrameLoadFailed;
     private boolean renderProcessRecoveryAttempted;
@@ -176,6 +177,16 @@ public class MainActivity extends BridgeActivity {
                 @Override
                 public void closeNativeNotifications() {
                     hideNativeNotifications();
+                }
+
+                @Override
+                public void openNativeMessages() {
+                    showNativeMessages();
+                }
+
+                @Override
+                public void closeNativeMessages() {
+                    hideNativeMessages();
                 }
 
                 @Override
@@ -382,6 +393,24 @@ public class MainActivity extends BridgeActivity {
             runOnUiThread(() -> {
                 if (nativeNotificationsView != null) nativeNotificationsView.applyActionResult(payload);
             });
+            return;
+        }
+        if ("messages:ready".equals(eventName)) {
+            runOnUiThread(() -> {
+                if (nativeMessagesListView != null) nativeMessagesListView.requestInitialSnapshot();
+            });
+            return;
+        }
+        if ("messages:list_state".equals(eventName)) {
+            runOnUiThread(() -> {
+                if (nativeMessagesListView != null) nativeMessagesListView.applySnapshot(payload);
+            });
+            return;
+        }
+        if ("messages:action_result".equals(eventName)) {
+            runOnUiThread(() -> {
+                if (nativeMessagesListView != null) nativeMessagesListView.applyActionResult(payload);
+            });
         }
     }
 
@@ -455,7 +484,92 @@ public class MainActivity extends BridgeActivity {
         });
     }
 
+    private void showNativeMessages() {
+        if (!NativeFeatureFlags.isNativeMessagesListEnabled(this)
+            || bridge == null || bridge.getWebView() == null
+            || !(bridge.getWebView().getParent() instanceof ViewGroup)) return;
+        runOnUiThread(() -> {
+            try {
+                hideNativeNotifications();
+                ViewGroup parent = (ViewGroup) bridge.getWebView().getParent();
+                if (nativeMessagesListView == null) {
+                    nativeMessagesListView = new NativeMessagesListView(this,
+                        new NativeMessagesListView.Listener() {
+                            @Override
+                            public void requestSnapshot() {
+                                dispatchNativeMessagesCommand("messages.request_snapshot", null);
+                            }
+
+                            @Override
+                            public void refresh() {
+                                dispatchNativeMessagesCommand("messages.refresh", null);
+                            }
+
+                            @Override
+                            public void markRead(String conversationId) {
+                                JSONObject data = new JSONObject();
+                                try {
+                                    data.put("conversationId", conversationId);
+                                } catch (JSONException ignored) {
+                                    return;
+                                }
+                                dispatchNativeMessagesCommand("messages.mark_read", data);
+                            }
+
+                            @Override
+                            public void openConversation(String conversationId, String actionPath) {
+                                JSONObject data = new JSONObject();
+                                try {
+                                    data.put("conversationId", conversationId);
+                                    data.put("actionPath", actionPath);
+                                } catch (JSONException ignored) {
+                                    return;
+                                }
+                                hideNativeMessages();
+                                dispatchNativeMessagesCommand("messages.open_conversation", data);
+                            }
+
+                            @Override
+                            public void close() {
+                                hideNativeMessages();
+                            }
+                        });
+                    parent.addView(nativeMessagesListView, new ViewGroup.LayoutParams(-1, -1));
+                }
+                nativeMessagesListView.setVisibility(View.VISIBLE);
+                nativeMessagesListView.bringToFront();
+                nativeMessagesListView.requestFocus();
+                nativeMessagesListView.requestInitialSnapshot();
+            } catch (Throwable ignored) {
+                hideNativeMessages();
+            }
+        });
+    }
+
+    private void hideNativeMessages() {
+        runOnUiThread(() -> {
+            if (nativeMessagesListView != null) {
+                nativeMessagesListView.clearState();
+                nativeMessagesListView.setVisibility(View.GONE);
+            }
+        });
+    }
+
     private void dispatchNativeNotificationCommand(String command, JSONObject data) {
+        if (bridge == null || bridge.getWebView() == null || command == null) return;
+        try {
+            JSONObject payload = data == null ? new JSONObject() : new JSONObject(data.toString());
+            payload.put("command", command);
+            payload.put("bridgeVersion", ScrolithNativeBridge.VERSION);
+            payload.put("requestId", UUID.randomUUID().toString());
+            String script = ScrolithNativeBridge.eventScript("scrolith:native-command", payload);
+            bridge.getWebView().post(() -> bridge.getWebView().evaluateJavascript(script, null));
+        } catch (JSONException ignored) {
+            // Optional native command must never interrupt the WebView.
+        }
+    }
+
+    private void dispatchNativeMessagesCommand(String command, JSONObject data) {
         if (bridge == null || bridge.getWebView() == null || command == null) return;
         try {
             JSONObject payload = data == null ? new JSONObject() : new JSONObject(data.toString());
@@ -525,7 +639,14 @@ public class MainActivity extends BridgeActivity {
             label.setGravity(Gravity.CENTER);
             item.addView(label, new LinearLayout.LayoutParams(-1, dp(24)));
             final String path = paths[i];
-            item.setOnClickListener(v -> navigateWebPath(path));
+            final String labelText = labels[i];
+            item.setOnClickListener(v -> {
+                if ("Messages".equals(labelText) && NativeFeatureFlags.isNativeMessagesListEnabled(this)) {
+                    showNativeMessages();
+                } else {
+                    navigateWebPath(path);
+                }
+            });
             navigation.addView(item, new LinearLayout.LayoutParams(0, dp(64), 1f));
         }
         if (parent instanceof FrameLayout) {
@@ -580,6 +701,11 @@ public class MainActivity extends BridgeActivity {
                             if (nativeNotificationsView != null
                                 && nativeNotificationsView.getVisibility() == View.VISIBLE) {
                                 hideNativeNotifications();
+                                return;
+                            }
+                            if (nativeMessagesListView != null
+                                && nativeMessagesListView.getVisibility() == View.VISIBLE) {
+                                hideNativeMessages();
                                 return;
                             }
                             if (bridge != null && bridge.getWebView() != null && bridge.getWebView().canGoBack()) {

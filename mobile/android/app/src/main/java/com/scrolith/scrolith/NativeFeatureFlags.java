@@ -12,6 +12,7 @@ final class NativeFeatureFlags {
     private static final String NAVIGATION_OVERRIDE = "native_navigation_override";
     private static final String PRIORITY_SCREEN_OVERRIDE = "native_priority_screen_override";
     private static final String NOTIFICATIONS_OVERRIDE = "native_notifications_override";
+    private static final String MESSAGES_LIST_OVERRIDE = "native_messages_list_override";
 
     private NativeFeatureFlags() {}
 
@@ -27,6 +28,10 @@ final class NativeFeatureFlags {
         return isDebugBuild(context) && readOverride(context, NOTIFICATIONS_OVERRIDE);
     }
 
+    static boolean isNativeMessagesListEnabled(Context context) {
+        return isDebugBuild(context) && readOverride(context, MESSAGES_LIST_OVERRIDE);
+    }
+
     static void applyDebugOverrides(Context context, Intent intent) {
         if (!isDebugBuild(context) || intent == null) return;
         android.content.SharedPreferences.Editor editor =
@@ -39,6 +44,9 @@ final class NativeFeatureFlags {
         }
         if (intent.hasExtra("scrolith_native_notifications")) {
             editor.putBoolean(NOTIFICATIONS_OVERRIDE, intent.getBooleanExtra("scrolith_native_notifications", false));
+        }
+        if (intent.hasExtra("scrolith_native_messages_list")) {
+            editor.putBoolean(MESSAGES_LIST_OVERRIDE, intent.getBooleanExtra("scrolith_native_messages_list", false));
         }
         editor.apply();
     }

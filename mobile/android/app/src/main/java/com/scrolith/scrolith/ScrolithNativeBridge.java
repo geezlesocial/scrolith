@@ -27,6 +27,8 @@ final class ScrolithNativeBridge {
         void navigate(String path);
         void openNativeNotifications();
         void closeNativeNotifications();
+        void openNativeMessages();
+        void closeNativeMessages();
         void handleBridgeEvent(String eventName, JSONObject payload);
     }
 
@@ -71,6 +73,7 @@ final class ScrolithNativeBridge {
             capabilities.put("nativeNavigation", NativeFeatureFlags.isNativeNavigationEnabled(context));
             capabilities.put("nativePriorityScreens", NativeFeatureFlags.arePriorityScreensEnabled(context));
             capabilities.put("nativeNotifications", NativeFeatureFlags.isNativeNotificationsEnabled(context));
+            capabilities.put("nativeMessagesList", NativeFeatureFlags.isNativeMessagesListEnabled(context));
             capabilities.put("nativeNavigationPilot", NativeFeatureFlags.isNativeNavigationEnabled(context));
             capabilities.put("events", new org.json.JSONArray()
                 .put("scrolith:native-network")
@@ -78,6 +81,9 @@ final class ScrolithNativeBridge {
                 .put("scrolith:native-keyboard")
                 .put("scrolith:native-file-selected")
                 .put("scrolith:native-command")
+                .put("messages:ready")
+                .put("messages:list_state")
+                .put("messages:action_result")
                 .put("mobile:incoming-call")
                 .put("mobile:push-notification-received"));
             return capabilities.toString();
@@ -125,6 +131,18 @@ final class ScrolithNativeBridge {
         host.closeNativeNotifications();
     }
 
+    @JavascriptInterface
+    public void openNativeMessages() {
+        if (!isTrusted() || !NativeFeatureFlags.isNativeMessagesListEnabled(context)) return;
+        host.openNativeMessages();
+    }
+
+    @JavascriptInterface
+    public void closeNativeMessages() {
+        if (!isTrusted()) return;
+        host.closeNativeMessages();
+    }
+
     /**
      * Versioned Web-to-native event entry point. Only the documented event
      * names are forwarded; arbitrary method reflection is never exposed.
@@ -145,7 +163,10 @@ final class ScrolithNativeBridge {
             if ("set_theme".equals(safeName) || "set_keyboard_mode".equals(safeName)
                 || "notifications:ready".equals(safeName)
                 || "notifications:state".equals(safeName)
-                || "notifications:action_result".equals(safeName)) {
+                || "notifications:action_result".equals(safeName)
+                || "messages:ready".equals(safeName)
+                || "messages:list_state".equals(safeName)
+                || "messages:action_result".equals(safeName)) {
                 host.handleBridgeEvent(safeName, parsed);
             }
         } catch (Throwable ignored) {
@@ -212,9 +233,12 @@ final class ScrolithNativeBridge {
         return "navigate".equals(event)
             || "set_theme".equals(event)
             || "set_keyboard_mode".equals(event)
-            || "notifications:ready".equals(event)
-            || "notifications:state".equals(event)
-            || "notifications:action_result".equals(event);
+                || "notifications:ready".equals(event)
+                || "notifications:state".equals(event)
+            || "notifications:action_result".equals(event)
+            || "messages:ready".equals(event)
+            || "messages:list_state".equals(event)
+            || "messages:action_result".equals(event);
     }
 
     private static boolean isSafeAppPath(String value) {

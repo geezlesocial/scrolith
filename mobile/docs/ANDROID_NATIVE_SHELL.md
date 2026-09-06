@@ -19,7 +19,7 @@ current top-level page is a trusted Scrolith origin.
 | `showToast(message)` | void | Displays a short, bounded native toast. |
 | `triggerHaptic(style)` | void | Provides a short haptic pulse. Use `strong` for a slightly longer pulse. |
 | `openNativeFilePicker(accept, allowMultiple)` | void | Opens Android's document picker. |
-| `postEvent(name, payloadJson)` | void | Sends only documented commands: `navigate`, `set_theme`, and `set_keyboard_mode`. |
+| `postEvent(name, payloadJson)` | void | Sends only documented commands: `navigate`, `set_theme`, `set_keyboard_mode`, and the versioned notification/messages state events. |
 
 The file picker publishes a `scrolith:native-file-selected` browser event with
 `detail: { cancelled, accept, multiple, uris }`. `uris` contains content URI
@@ -67,6 +67,30 @@ event. Supported notification commands are
 `notifications.open_action`. Payloads are bounded and internal action paths
 are validated before navigation. No notification tokens, cookies, raw external
 URLs, or arbitrary user lookup data are exposed to Android.
+
+## Phase 4 native Messages list
+
+The Phase 4 Native Messages list is a hybrid inbox pilot. The authenticated
+WebView remains the source of truth for conversation HTTP calls, Socket.IO
+updates, unread/read state, attachments, calls, and conversation routing. The
+native host receives only a bounded `messages:list_state` snapshot and sends
+the allowlisted `messages.*` commands back to the WebView.
+
+Release builds keep the feature disabled. Debug builds can enable it with:
+
+```text
+adb shell am start -n com.scrolith.scrolith/.MainActivity \
+  --ez scrolith_native_navigation true \
+  --ez scrolith_native_messages_list true
+```
+
+The native list supports local search, All/Unread/Groups/Communities filters,
+stable-ID list updates, refresh, empty/error states, and safe delegation to
+`/messages/:conversationId`. The conversation screen remains WebView-owned.
+The `nativeMessagesList` capability reports whether the debug flag is active.
+On malformed or stale state, the native host closes and `/messages` remains the
+fallback. No credentials, cookies, raw socket payloads, or arbitrary URLs cross
+the bridge.
 
 ## Recovery behavior
 
