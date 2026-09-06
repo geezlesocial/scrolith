@@ -20,6 +20,24 @@ import {
 } from '../services/scrolitha/scrolitha.platformIdentity';
 
 const nowIso = () => new Date().toISOString();
+export const MAX_DIRECT_MESSAGE_WORDS = 500;
+const countMessageWords = (value: unknown) => {
+  const text = String(value || '').trim();
+  return text ? text.split(/\s+/u).filter(Boolean).length : 0;
+};
+
+const rejectMessageWordLimit = (res: Response, text: string): boolean => {
+  const wordCount = countMessageWords(text);
+  if (wordCount <= MAX_DIRECT_MESSAGE_WORDS) return false;
+  res.status(413).json({
+    success: false,
+    error: `Messages can contain up to ${MAX_DIRECT_MESSAGE_WORDS} words`,
+    code: 'MESSAGE_WORD_LIMIT_EXCEEDED',
+    maxWords: MAX_DIRECT_MESSAGE_WORDS,
+    wordCount
+  });
+  return true;
+};
 const isMessagesTraceEnabled = () =>
   ['1', 'true', 'yes', 'on'].includes(String(process.env.MESSAGES_TRACE_DEBUG || '').toLowerCase());
 
@@ -1687,6 +1705,7 @@ export const postMessage = async (req: Request, res: Response) => {
     if (!text && attachments.length === 0) {
       return res.status(400).json({ success: false, error: 'Message content is required' });
     }
+    if (rejectMessageWordLimit(res, text)) return res;
     traceMessageEvent('api.post_message.request', {
       conversationId,
       senderId,
@@ -3205,6 +3224,7 @@ export const editMessage = async (req: Request, res: Response) => {
     if (!nextText) {
       return res.status(400).json({ success: false, error: 'Edited message text is required' });
     }
+    if (rejectMessageWordLimit(res, nextText)) return res;
 
     const message = await prisma.directMessage.findUnique({
       where: { id: messageId },
