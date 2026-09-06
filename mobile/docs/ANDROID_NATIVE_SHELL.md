@@ -91,7 +91,10 @@ Its toolbar Menu action opens the existing web account/feature menu, preserving
 Dashboard, currency switching, Freelancer/Client switching, Jobs, Gigs,
 Marketplace, Community, Groups, and settings without duplicating that state in
 Android. The native pilot is hosted in the activity content frame so it does
-not cover the web shell header or place navigation above the page.
+not cover the web shell header or place navigation above the page. It is also
+route-scoped to member home; messages, profile, community, dashboard, jobs,
+and other standalone routes keep their own page chrome without a second tab
+bar.
 The `nativeMessagesList` capability reports whether the debug flag is active.
 On malformed or stale state, the native host closes and `/messages` remains the
 fallback. No credentials, cookies, raw socket payloads, or arbitrary URLs cross

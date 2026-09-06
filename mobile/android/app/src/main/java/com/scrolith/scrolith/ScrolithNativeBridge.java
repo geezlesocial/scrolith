@@ -161,6 +161,7 @@ final class ScrolithNativeBridge {
                 return;
             }
             if ("set_theme".equals(safeName) || "set_keyboard_mode".equals(safeName)
+                || "route_changed".equals(safeName)
                 || "notifications:ready".equals(safeName)
                 || "notifications:state".equals(safeName)
                 || "notifications:action_result".equals(safeName)
@@ -233,6 +234,7 @@ final class ScrolithNativeBridge {
         return "navigate".equals(event)
             || "set_theme".equals(event)
             || "set_keyboard_mode".equals(event)
+            || "route_changed".equals(event)
                 || "notifications:ready".equals(event)
                 || "notifications:state".equals(event)
             || "notifications:action_result".equals(event)

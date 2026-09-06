@@ -98,6 +98,7 @@ public class MainActivity extends BridgeActivity {
     private TextView nativeStatusMessage;
     private Button nativeStatusAction;
     private View nativeNavigationBar;
+    private int nativeNavigationOriginalBottomPadding = -1;
     private NativeNotificationsView nativeNotificationsView;
     private NativeMessagesListView nativeMessagesListView;
     private boolean pageLoaded;
@@ -377,6 +378,11 @@ public class MainActivity extends BridgeActivity {
             getWindow().setSoftInputMode(softInputMode);
             return;
         }
+        if ("route_changed".equals(eventName)) {
+            String path = payload == null ? "" : payload.optString("path", "");
+            updateNativeNavigationVisibility(path);
+            return;
+        }
         if ("notifications:ready".equals(eventName)) {
             runOnUiThread(() -> {
                 if (nativeNotificationsView != null) nativeNotificationsView.requestInitialSnapshot();
@@ -610,6 +616,9 @@ public class MainActivity extends BridgeActivity {
             || nativeNavigationBar != null) return;
         ViewGroup parent = getNativeShellContainer(webView);
         if (parent == null) return;
+        if (nativeNavigationOriginalBottomPadding < 0) {
+            nativeNavigationOriginalBottomPadding = webView.getPaddingBottom();
+        }
         LinearLayout navigation = new LinearLayout(this);
         navigation.setOrientation(LinearLayout.HORIZONTAL);
         navigation.setGravity(Gravity.CENTER);
@@ -656,17 +665,45 @@ public class MainActivity extends BridgeActivity {
                     navigateWebPath(path);
                 }
             });
-            navigation.addView(item, new LinearLayout.LayoutParams(0, dp(64), 1f));
+            navigation.addView(item, new LinearLayout.LayoutParams(0, dp(56), 1f));
         }
         if (parent instanceof FrameLayout) {
-            FrameLayout.LayoutParams navigationParams = new FrameLayout.LayoutParams(-1, dp(64));
+            FrameLayout.LayoutParams navigationParams = new FrameLayout.LayoutParams(-1, dp(56));
             navigationParams.gravity = Gravity.BOTTOM;
             parent.addView(navigation, navigationParams);
         } else {
             parent.addView(navigation, new ViewGroup.LayoutParams(-1, dp(64)));
         }
         nativeNavigationBar = navigation;
-        webView.setPadding(webView.getPaddingLeft(), webView.getPaddingTop(), webView.getPaddingRight(), dp(64));
+        updateNativeNavigationVisibility(valueOrEmpty(webView.getUrl()));
+    }
+
+    private void updateNativeNavigationVisibility(String rawPath) {
+        if (nativeNavigationBar == null) return;
+        String path = rawPath == null ? "" : rawPath.trim();
+        try {
+            Uri uri = Uri.parse(path);
+            path = uri.getPath() == null ? path : uri.getPath();
+        } catch (Throwable ignored) {
+            // Treat malformed route state as a non-home route.
+        }
+        while (path.length() > 1 && path.endsWith("/")) {
+            path = path.substring(0, path.length() - 1);
+        }
+        boolean memberHome = "/m".equals(path)
+            || "/m/home".equals(path)
+            || "/member-home".equals(path)
+            || "/home".equals(path)
+            || path.isEmpty();
+        int visibility = memberHome ? View.VISIBLE : View.GONE;
+        nativeNavigationBar.setVisibility(visibility);
+        if (bridge == null || bridge.getWebView() == null) return;
+        WebView webView = bridge.getWebView();
+        int bottom = nativeNavigationOriginalBottomPadding < 0
+            ? webView.getPaddingBottom()
+            : nativeNavigationOriginalBottomPadding;
+        if (memberHome) bottom += dp(56);
+        webView.setPadding(webView.getPaddingLeft(), webView.getPaddingTop(), webView.getPaddingRight(), bottom);
     }
 
     /**
@@ -1070,6 +1107,7 @@ public class MainActivity extends BridgeActivity {
         public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
             pageLoaded = false;
             mainFrameLoadFailed = false;
+            updateNativeNavigationVisibility(url);
             super.onPageStarted(view, url, favicon);
         }
 
@@ -1081,6 +1119,7 @@ public class MainActivity extends BridgeActivity {
             }
             pageLoaded = true;
             renderProcessRecoveryAttempted = false;
+            updateNativeNavigationVisibility(url);
             hideNativeStatus();
             injectNativeOnlineState(view);
             publishPendingIncomingCall(view);
