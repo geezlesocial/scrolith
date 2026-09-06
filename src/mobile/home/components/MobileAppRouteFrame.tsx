@@ -50,7 +50,7 @@ export default function MobileAppRouteFrame({
         className="fixed inset-x-0 top-0 z-[70] border-b border-slate-200/90 bg-white/92 shadow-[0_8px_24px_-20px_rgba(15,23,42,0.35)] backdrop-blur-xl supports-[backdrop-filter]:bg-white/85"
         style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
       >
-        <div className={`${MOBILE_HEADER_BAR_CLASS} h-14`}>
+        <div className={`${MOBILE_HEADER_BAR_CLASS} min-h-[52px] py-1.5`}>
           <button
             type="button"
             onClick={(event) => handleBack(event.currentTarget)}

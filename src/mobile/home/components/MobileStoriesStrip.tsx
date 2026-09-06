@@ -69,8 +69,8 @@ const STORY_AUTO_ADVANCE_MAX_MS = 30000;
 const RAIL_TAP_MAX_TRAVEL = 72;
 const RAIL_ACTION_DEDUPE_MS = 260;
 const STORY_RAIL_CARD_CLASS =
-  'relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl sm:h-[176px] sm:w-[108px] md:h-[188px] md:w-[120px]';
-const STORY_RAIL_MEDIA_SIZES = '(max-width: 640px) 92px, (max-width: 768px) 108px, 120px';
+  'relative h-[148px] w-[88px] shrink-0 overflow-hidden rounded-xl sm:h-[168px] sm:w-[104px] md:h-[184px] md:w-[116px]';
+const STORY_RAIL_MEDIA_SIZES = '(max-width: 640px) 88px, (max-width: 768px) 104px, 116px';
 
 const normalizeVisibility = (value: any): StoryVisibility => {
   const raw = String(value || '').trim().toLowerCase();

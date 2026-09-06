@@ -720,7 +720,7 @@ const MobileHome = () => {
     return (
       <div
         className="fixed inset-0 z-[820] flex flex-col bg-slate-50/97 backdrop-blur-sm animate-in fade-in duration-150"
-        style={{ paddingTop: 'var(--scrolith-shell-header-offset, 3.5rem)' }}
+        style={{ paddingTop: 'var(--scrolith-shell-header-offset, 3.25rem)' }}
         role="dialog"
         aria-modal="true"
         aria-label={titleMap[activePanelTab]}
@@ -743,7 +743,7 @@ const MobileHome = () => {
           style={{
             WebkitOverflowScrolling: 'touch',
             touchAction: 'pan-y',
-            paddingBottom: 'var(--scrolith-shell-bottom-offset, 4.25rem)'
+            paddingBottom: 'var(--scrolith-shell-bottom-offset, 3.5rem)'
           }}
         >
           <Suspense
@@ -829,6 +829,7 @@ const MobileHome = () => {
               onOpenScroll={handleOpenScrollOverlay}
               onOpenPostVideoScroll={handleOpenPostVideoScroll}
               onOpenScrollSeries={handleOpenScrollSeries}
+              onOpenPost={() => onTabChange('post')}
             />
           </Suspense>
         )}

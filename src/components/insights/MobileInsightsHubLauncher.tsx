@@ -400,7 +400,7 @@ export default function MobileInsightsHubLauncher() {
 
   return (
     <>
-      <section className="rounded-3xl border border-white/70 bg-white p-4 shadow-sm">
+      <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-[0_8px_22px_-20px_rgba(15,23,42,0.45)]">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-indigo-500">Insights</p>
@@ -417,7 +417,7 @@ export default function MobileInsightsHubLauncher() {
           </button>
         </div>
 
-        <div className="mt-3 min-h-[112px] rounded-2xl border border-slate-200 bg-slate-50 p-3">
+        <div className="mt-2 min-h-[96px] rounded-xl border border-slate-200 bg-slate-50 p-2.5">
           <div className="flex items-end justify-between gap-3">
             <div className="text-2xl font-semibold tabular-nums text-slate-900">{pgs ? Number(pgs.score || 0).toFixed(0) : '--'}</div>
             <div className="max-w-[112px] text-right text-xs uppercase tracking-wide text-slate-500">
@@ -425,9 +425,9 @@ export default function MobileInsightsHubLauncher() {
               <div className="mt-1 line-clamp-2 leading-4">{hub?.trust?.trustTier || 'Building'} tier</div>
             </div>
           </div>
-          <div className="mt-2 h-2 rounded-full bg-slate-200">
+          <div className="mt-2 h-1.5 rounded-full bg-slate-200">
             <div
-              className="h-2 rounded-full bg-indigo-500 transition-[width] duration-300 ease-out"
+              className="h-1.5 rounded-full bg-indigo-500 transition-[width] duration-300 ease-out"
               style={{
                 width: `${Math.max(0, Math.min(100, (Number(pgs?.score || 0) / 1000) * 100))}%`
               }}
@@ -443,17 +443,17 @@ export default function MobileInsightsHubLauncher() {
           <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">{error}</div>
         ) : null}
 
-        <div className="mt-3 flex items-center justify-between gap-2">
+        <div className="mt-2.5 flex items-center justify-between gap-2">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Quick toggles</p>
           <span className="shrink-0 text-[11px] text-slate-400">2 grouped controls</span>
         </div>
-        <div className="mt-2 grid grid-cols-2 gap-2">
+        <div className="mt-1.5 grid grid-cols-2 gap-2">
           {groupCards.map((group) => (
             <button
               key={group.id}
               type="button"
               onClick={() => openGroup(group.id)}
-              className="min-h-[172px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-left transition hover:border-indigo-200 hover:bg-indigo-50/50 active:scale-[0.99]"
+              className="min-h-[132px] overflow-hidden rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-2.5 text-left transition hover:border-indigo-200 hover:bg-indigo-50/50 active:scale-[0.99]"
             >
               <div className="flex items-start justify-between gap-2">
                 <span className="line-clamp-2 text-sm font-semibold text-slate-900">{group.label}</span>
@@ -463,7 +463,7 @@ export default function MobileInsightsHubLauncher() {
                   </span>
                 ) : null}
               </div>
-              <p className="mt-2 line-clamp-4 text-[11px] leading-5 text-slate-500">{group.description}</p>
+              <p className="mt-1.5 line-clamp-3 text-[11px] leading-4 text-slate-500">{group.description}</p>
             </button>
           ))}
         </div>
