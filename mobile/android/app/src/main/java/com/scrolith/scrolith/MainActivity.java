@@ -308,8 +308,14 @@ public class MainActivity extends BridgeActivity {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 settings.setSafeBrowsingEnabled(true);
             }
-            // Prefer default HTTP cache so image/API caching from the SPA works offline-ish.
-            settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+            // Use the normal validated cache online, but allow the last known SPA shell
+            // to start when the device has no network. The web app still owns auth and
+            // data freshness; this only improves cold-start resilience.
+            settings.setCacheMode(
+                isNetworkOnline()
+                    ? WebSettings.LOAD_DEFAULT
+                    : WebSettings.LOAD_CACHE_ELSE_NETWORK
+            );
             if (!isDebuggable) {
                 settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
             }
