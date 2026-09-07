@@ -789,6 +789,9 @@ const NotificationOperationsCenter: React.FC = () => {
               <MetricCard label="Milestone states" value={(engagementStats?.states || []).reduce((sum: number, row: any) => sum + Number(row._count?._all || 0), 0)} />
               <MetricCard label="Status" value={engagementState?.paused ? 'Paused' : 'Active'} tone={engagementState?.paused ? 'warn' : 'good'} />
             </div>
+            <div className="mt-3 text-xs text-slate-500">
+              Delivery (last 30 days): {(engagementStats?.delivery || []).map((row: any) => `${row.channel}/${row.status}: ${row._count?._all || 0}`).join(' · ') || 'No delivery attempts'}
+            </div>
           </section>
           <div className="grid gap-4 lg:grid-cols-2">
             <section className="rounded-xl border border-slate-200 bg-white p-4">
@@ -826,7 +829,10 @@ const NotificationOperationsCenter: React.FC = () => {
                 {engagementRules.map((rule) => (
                   <li key={rule.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
                     <div><div className="font-medium">{rule.name}</div><div className="text-xs text-slate-500">{rule.eventType} · {rule.thresholds?.join(', ')} · rollout {rule.rolloutPercentage}%</div></div>
-                    <button type="button" className={`rounded px-2 py-1 text-xs font-medium text-white ${rule.isEnabled ? 'bg-emerald-600' : 'bg-slate-500'}`} onClick={async () => { const next = await AdminService.updateEngagementAutomationRule(rule.id, { isEnabled: !rule.isEnabled }); setEngagementRules((rows) => rows.map((row) => row.id === rule.id ? next : row)); }}> {rule.isEnabled ? 'Disable' : 'Enable'} </button>
+                    <div className="flex items-center gap-2">
+                      <button type="button" className="rounded border border-slate-300 px-2 py-1 text-xs font-medium" onClick={async () => { await AdminService.testEngagementAutomationRule({ ruleId: rule.id }); showNotification('success', 'Engagement Automations', 'Test notification sent to your admin account.'); }}>Test to me</button>
+                      <button type="button" className={`rounded px-2 py-1 text-xs font-medium text-white ${rule.isEnabled ? 'bg-emerald-600' : 'bg-slate-500'}`} onClick={async () => { const next = await AdminService.updateEngagementAutomationRule(rule.id, { isEnabled: !rule.isEnabled }); setEngagementRules((rows) => rows.map((row) => row.id === rule.id ? next : row)); }}> {rule.isEnabled ? 'Disable' : 'Enable'} </button>
+                    </div>
                   </li>
                 ))}
                 {!engagementRules.length ? <li className="text-slate-500">No rules configured.</li> : null}

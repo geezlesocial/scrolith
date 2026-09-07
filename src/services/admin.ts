@@ -970,6 +970,8 @@ export const AdminService = {
     adminGet<any>('/notifications/ops/engagement-automations/stats'),
   previewEngagementAutomationRule: async (payload: Record<string, unknown>) =>
     adminPost<any>('/notifications/ops/engagement-automations/preview', payload),
+  testEngagementAutomationRule: async (payload: Record<string, unknown>) =>
+    adminPost<any>('/notifications/ops/engagement-automations/test', payload),
 
 
   getNotificationTemplates: async (params?: {
