@@ -68,6 +68,8 @@ type MobileHomeLayoutConfig = {
     switchUser?: boolean;
     browseJobs?: boolean;
     browseGigs?: boolean;
+    match?: boolean;
+    scroll?: boolean;
     community?: boolean;
     marketplace?: boolean;
     groups?: boolean;
@@ -149,6 +151,8 @@ const DEFAULT_LAYOUT: MobileHomeLayoutConfig = {
     switchUser: true,
     browseJobs: true,
     browseGigs: true,
+    match: true,
+    scroll: true,
     community: true,
     marketplace: true,
     groups: true,
@@ -1000,6 +1004,12 @@ const MobileHome = () => {
           }}
           onBrowseGigs={() => {
             navigateFromShell('/browse');
+          }}
+          onMatch={() => {
+            navigateFromShell('/match');
+          }}
+          onScroll={() => {
+            navigateFromShell('/scroll');
           }}
           onCommunity={() => {
             navigateFromShell('/community');

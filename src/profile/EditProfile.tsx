@@ -39,6 +39,14 @@ type CompanyPageSuggestion = {
     avatarUrl?: string;
 };
 
+const parseCommaSeparated = (value: string) =>
+    value.split(',').map((item) => item.trim()).filter(Boolean);
+
+const formatCommaSeparated = (value: unknown) =>
+    Array.isArray(value)
+        ? value.map((item) => String(item || '').trim()).filter(Boolean).join(', ')
+        : '';
+
 const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false, activeRole }) => {
     const { user, updateUser } = useUser();
     const { settings } = useContent();
@@ -55,6 +63,8 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false, activeRol
     const [hiringDraft, setHiringDraft] = useState<ClientHiringStatus>({
         status: 'INACTIVE', hiringTypes: [], focusAreas: [], timing: 'FLEXIBLE', visibility: 'PUBLIC', isActive: false, expiresAt: null
     });
+    const [availabilityServicesInput, setAvailabilityServicesInput] = useState('');
+    const [hiringFocusAreasInput, setHiringFocusAreasInput] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [displayName, setDisplayName] = useState('');
     
@@ -176,6 +186,8 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false, activeRol
             setLoading(true);
             setDisplayName(user.name || '');
             setUsername(user.username || '');
+            setAvailabilityServicesInput('');
+            setHiringFocusAreasInput('');
             lastSavedUsernameRef.current = user.username || '';
             setProfile({
                 user_id: user.id,
@@ -218,8 +230,14 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false, activeRol
                 const data = await UserService.getMyProfile();
                 if (mounted) {
                     setProfile(data);
-                    if (data.availability) setAvailabilityDraft(data.availability);
-                    if (data.hiring) setHiringDraft(data.hiring);
+                    if (data.availability) {
+                        setAvailabilityDraft(data.availability);
+                        setAvailabilityServicesInput(formatCommaSeparated(data.availability.services));
+                    }
+                    if (data.hiring) {
+                        setHiringDraft(data.hiring);
+                        setHiringFocusAreasInput(formatCommaSeparated(data.hiring.focusAreas));
+                    }
                 }
             } catch (error: any) {
                 if (mounted) {
@@ -308,16 +326,28 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false, activeRol
         setIsSaving(true);
         try {
             if (activeTab === 'availability') {
-                const savedAvailability = await UserService.updateMyAvailability(availabilityDraft);
-                setAvailabilityDraft(savedAvailability || availabilityDraft);
-                setProfile((prev) => prev ? { ...prev, availability: savedAvailability, professionalAvailability: savedAvailability } : prev);
+                const availabilityPayload = {
+                    ...availabilityDraft,
+                    services: parseCommaSeparated(availabilityServicesInput)
+                };
+                const savedAvailability = await UserService.updateMyAvailability(availabilityPayload);
+                const nextAvailability = savedAvailability || availabilityPayload;
+                setAvailabilityDraft(nextAvailability);
+                setAvailabilityServicesInput(formatCommaSeparated(nextAvailability.services));
+                setProfile((prev) => prev ? { ...prev, availability: nextAvailability, professionalAvailability: nextAvailability } : prev);
                 showNotification('success', 'Availability Updated', 'Your professional availability settings have been saved.');
                 return;
             }
             if (activeTab === 'hiring' && canEditClientHiring) {
-                const savedHiring = await UserService.updateMyClientHiringStatus(hiringDraft);
-                setHiringDraft(savedHiring || hiringDraft);
-                setProfile((prev) => prev ? { ...prev, hiring: savedHiring, clientHiringStatus: savedHiring } : prev);
+                const hiringPayload = {
+                    ...hiringDraft,
+                    focusAreas: parseCommaSeparated(hiringFocusAreasInput)
+                };
+                const savedHiring = await UserService.updateMyClientHiringStatus(hiringPayload);
+                const nextHiring = savedHiring || hiringPayload;
+                setHiringDraft(nextHiring);
+                setHiringFocusAreasInput(formatCommaSeparated(nextHiring.focusAreas));
+                setProfile((prev) => prev ? { ...prev, hiring: nextHiring, clientHiringStatus: nextHiring } : prev);
                 showNotification('success', 'Hiring Status Updated', 'Your We Are Hiring settings have been saved.');
                 return;
             }
@@ -340,9 +370,15 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false, activeRol
     const handleSaveAvailability = async () => {
         setIsSaving(true);
         try {
-            const saved = await UserService.updateMyAvailability(availabilityDraft);
-            setAvailabilityDraft(saved || availabilityDraft);
-            setProfile((prev) => prev ? { ...prev, availability: saved, professionalAvailability: saved } : prev);
+            const availabilityPayload = {
+                ...availabilityDraft,
+                services: parseCommaSeparated(availabilityServicesInput)
+            };
+            const saved = await UserService.updateMyAvailability(availabilityPayload);
+            const nextAvailability = saved || availabilityPayload;
+            setAvailabilityDraft(nextAvailability);
+            setAvailabilityServicesInput(formatCommaSeparated(nextAvailability.services));
+            setProfile((prev) => prev ? { ...prev, availability: nextAvailability, professionalAvailability: nextAvailability } : prev);
             showNotification('success', 'Availability Updated', 'Your professional availability settings have been saved.');
         } catch (e: any) {
             showNotification('alert', 'Error', e?.message || 'Failed to save availability.');
@@ -356,10 +392,19 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false, activeRol
     const handleSaveClientHiring = async () => {
         setIsSaving(true);
         try {
-            const saved = await UserService.updateMyClientHiringStatus(hiringDraft);
+            const hiringPayload = {
+                ...hiringDraft,
+                focusAreas: parseCommaSeparated(hiringFocusAreasInput)
+            };
+            const saved = await UserService.updateMyClientHiringStatus(hiringPayload);
+            const nextHiring = saved || hiringPayload;
             if (saved) {
-                setHiringDraft(saved);
-                setProfile((prev) => prev ? { ...prev, hiring: saved, clientHiringStatus: saved } : prev);
+                setHiringDraft(nextHiring);
+                setHiringFocusAreasInput(formatCommaSeparated(nextHiring.focusAreas));
+                setProfile((prev) => prev ? { ...prev, hiring: nextHiring, clientHiringStatus: nextHiring } : prev);
+            } else {
+                setHiringDraft(nextHiring);
+                setHiringFocusAreasInput(formatCommaSeparated(nextHiring.focusAreas));
             }
             showNotification('success', 'Hiring status updated', 'Your We Are Hiring settings have been saved.');
         } catch (e: any) {
@@ -1369,7 +1414,7 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false, activeRol
                                         </label>
                                     </div>
                                     <label className="block text-sm font-medium text-gray-700">Services or focus areas
-                                        <input className="mt-2 min-h-11 w-full rounded-lg border border-gray-300 px-3" placeholder="Design, consulting, engineering" value={availabilityDraft.services.join(', ')} onChange={(e) => setAvailabilityDraft((prev) => ({ ...prev, services: e.target.value.split(',').map((item) => item.trim()).filter(Boolean) }))} />
+                                        <input className="mt-2 min-h-11 w-full rounded-lg border border-gray-300 px-3" placeholder="Design, consulting, engineering" value={availabilityServicesInput} onChange={(e) => setAvailabilityServicesInput(e.target.value)} />
                                     </label>
                                     <label className="flex min-h-11 items-center gap-3 text-sm text-gray-700">
                                         <input type="checkbox" className="h-4 w-4 accent-blue-600" checked={availabilityDraft.visibility === 'PUBLIC'} onChange={(e) => setAvailabilityDraft((prev) => ({ ...prev, visibility: e.target.checked ? 'PUBLIC' : 'HIDDEN' }))} />
@@ -1377,7 +1422,7 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false, activeRol
                                     </label>
                                     <div className="flex flex-wrap gap-3">
                                         <button type="button" onClick={handleSaveAvailability} disabled={isSaving} className="min-h-11 rounded-lg bg-blue-600 px-5 font-semibold text-white hover:bg-blue-700 disabled:opacity-60">Save availability</button>
-                                        {availabilityDraft.isActive && <button type="button" onClick={async () => { const saved = await UserService.pauseMyAvailability(); if (saved) { setAvailabilityDraft(saved); setProfile((prev) => prev ? { ...prev, availability: saved, professionalAvailability: saved } : prev); } }} className="min-h-11 rounded-lg border border-gray-300 px-5 font-semibold text-gray-700 hover:bg-gray-50">Pause</button>}
+                                        {availabilityDraft.isActive && <button type="button" onClick={async () => { const saved = await UserService.pauseMyAvailability(); if (saved) { setAvailabilityDraft(saved); setAvailabilityServicesInput(formatCommaSeparated(saved.services)); setProfile((prev) => prev ? { ...prev, availability: saved, professionalAvailability: saved } : prev); } }} className="min-h-11 rounded-lg border border-gray-300 px-5 font-semibold text-gray-700 hover:bg-gray-50">Pause</button>}
                                     </div>
                                 </div>
                             )}
@@ -1412,7 +1457,7 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false, activeRol
                                             </select>
                                         </label>
                                         <label className="block text-sm font-medium text-gray-700">Focus areas
-                                            <input className="mt-2 min-h-11 w-full rounded-lg border border-gray-300 px-3" placeholder="Product, engineering, operations" value={hiringDraft.focusAreas.join(', ')} onChange={(e) => setHiringDraft((prev) => ({ ...prev, focusAreas: e.target.value.split(',').map((item) => item.trim()).filter(Boolean) }))} />
+                                            <input className="mt-2 min-h-11 w-full rounded-lg border border-gray-300 px-3" placeholder="Product, engineering, operations" value={hiringFocusAreasInput} onChange={(e) => setHiringFocusAreasInput(e.target.value)} />
                                         </label>
                                     </div>
                                     <label className="flex min-h-11 items-center gap-3 text-sm text-gray-700">
@@ -1421,7 +1466,7 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false, activeRol
                                     </label>
                                     <div className="flex flex-wrap gap-3">
                                         <button type="button" onClick={handleSaveClientHiring} disabled={isSaving} className="min-h-11 rounded-lg bg-blue-600 px-5 font-semibold text-white hover:bg-blue-700 disabled:opacity-60">Save hiring status</button>
-                                        {hiringDraft.isActive && <button type="button" onClick={async () => { const saved = await UserService.pauseMyClientHiringStatus(); if (saved) { setHiringDraft(saved); setProfile((prev) => prev ? { ...prev, hiring: saved, clientHiringStatus: saved } : prev); } }} className="min-h-11 rounded-lg border border-gray-300 px-5 font-semibold text-gray-700 hover:bg-gray-50">Pause</button>}
+                                        {hiringDraft.isActive && <button type="button" onClick={async () => { const saved = await UserService.pauseMyClientHiringStatus(); if (saved) { setHiringDraft(saved); setHiringFocusAreasInput(formatCommaSeparated(saved.focusAreas)); setProfile((prev) => prev ? { ...prev, hiring: saved, clientHiringStatus: saved } : prev); } }} className="min-h-11 rounded-lg border border-gray-300 px-5 font-semibold text-gray-700 hover:bg-gray-50">Pause</button>}
                                     </div>
                                 </div>
                             )}

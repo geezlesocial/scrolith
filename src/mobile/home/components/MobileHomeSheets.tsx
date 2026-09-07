@@ -12,9 +12,11 @@ import {
   ShoppingCartIcon as ShoppingCart,
   Repeat2Icon as Repeat2,
   SettingsIcon as Settings,
+  SparklesIcon as Sparkles,
   StarIcon as Star,
   TagIcon as Tag,
-  UsersIcon as Users
+  UsersIcon as Users,
+  VideoIcon as Video
 } from '../../../components/icons/ShellIcons';
 import { MOBILE_SHEET_CARD_CLASS } from '../mobileShellLayout';
 import EnterpriseAvatar from '../../../components/common/EnterpriseAvatar';
@@ -36,6 +38,8 @@ type QuickMenuConfig = {
   switchUser?: boolean;
   browseJobs?: boolean;
   browseGigs?: boolean;
+  match?: boolean;
+  scroll?: boolean;
   community?: boolean;
   marketplace?: boolean;
   groups?: boolean;
@@ -88,6 +92,8 @@ type MobileHomeSheetsProps = {
   onCreatePost: () => void;
   onBrowseJobs: () => void;
   onBrowseGigs: () => void;
+  onMatch: () => void;
+  onScroll: () => void;
   onCommunity: () => void;
   onMarketplace: () => void;
   onGroups: () => void;
@@ -505,6 +511,26 @@ export default function MobileHomeSheets({
           description: 'Explore services, competitors, and pricing patterns.',
           tone: 'slate',
           onClick: onBrowseGigs
+        }
+      : null,
+    quickMenu.match !== false
+      ? {
+          id: 'quick-match',
+          icon: <Sparkles className="h-4 w-4" />,
+          label: 'Match',
+          description: 'Discover professional connections and opportunities matched to you.',
+          tone: 'indigo',
+          onClick: onMatch
+        }
+      : null,
+    quickMenu.scroll !== false
+      ? {
+          id: 'quick-scroll',
+          icon: <Video className="h-4 w-4" />,
+          label: 'Scroll',
+          description: 'Watch and explore the latest short-form community videos.',
+          tone: 'amber',
+          onClick: onScroll
         }
       : null,
     quickMenu.community !== false
