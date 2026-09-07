@@ -12,6 +12,12 @@ import { FileService } from '../../../services/files';
 import { Camera, Loader2, MapPin, Paperclip } from 'lucide-react';
 import { getRecoverableActionMessage } from '../../../mobile/runtime/requestRecovery';
 import {
+  clearMobilePostDraft,
+  hasMobilePostDraftContent,
+  loadMobilePostDraft,
+  saveMobilePostDraft
+} from '../../../mobile/runtime/mobileDrafts';
+import {
   postAiInsightPreferenceToBoolean,
   resolvePostAiInsightPreference,
   resolveStoredPostAiInsightPreference,
@@ -164,6 +170,7 @@ export default function MobilePostScreen({
   const [ownedBusinessPagesLoading, setOwnedBusinessPagesLoading] = useState(false);
   const [postAuthorScopeId, setPostAuthorScopeId] = useState('user');
   const [previewMedia, setPreviewMedia] = useState<PreviewMedia | null>(null);
+  const draftHydratedRef = useRef(false);
 
   const closeComposer = useCallback(() => {
     if (onClose) {
@@ -198,6 +205,54 @@ export default function MobilePostScreen({
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allowedVisibilities.join('|'), defaultVisibility]);
+
+  const draftUserId = String(user?.id || '').trim();
+
+  useEffect(() => {
+    draftHydratedRef.current = false;
+    if (!draftUserId || isEditing) return undefined;
+    const saved = loadMobilePostDraft(draftUserId);
+    if (saved && hasMobilePostDraftContent(saved)) {
+      setContent(saved.content);
+      setMediaCaption(saved.mediaCaption);
+      setVisibility(saved.visibility || defaultVisibility || 'public');
+      setGraphicWarning(saved.graphicWarning);
+      setIsAIEnhanced(saved.isAIEnhanced);
+      setAiInsightPreference(resolvePostAiInsightPreference(saved.aiInsightPreference, 'auto'));
+      setTopic(saved.topic);
+      setPlace(saved.place);
+      setTextBackgroundId(saved.textBackgroundId || POST_TEXT_BG_NONE_ID);
+      setStatusMessage('Draft restored from this device.');
+    }
+    draftHydratedRef.current = true;
+    return () => {
+      draftHydratedRef.current = false;
+    };
+  }, [defaultVisibility, draftUserId, isEditing]);
+
+  useEffect(() => {
+    if (!draftUserId || isEditing || !draftHydratedRef.current) return undefined;
+    const timer = window.setTimeout(() => {
+      const draft = {
+        userId: draftUserId,
+        content,
+        mediaCaption,
+        visibility,
+        graphicWarning,
+        isAIEnhanced,
+        aiInsightPreference,
+        topic,
+        place,
+        textBackgroundId
+      };
+      if (hasMobilePostDraftContent(draft)) {
+        saveMobilePostDraft(draft);
+      } else {
+        clearMobilePostDraft(draftUserId);
+      }
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [aiInsightPreference, content, draftUserId, graphicWarning, isAIEnhanced, isEditing, mediaCaption, place, textBackgroundId, topic, visibility]);
 
   useEffect(() => {
     if (!user?.id || isEditing) return;
@@ -635,6 +690,7 @@ export default function MobilePostScreen({
       window.dispatchEvent(new CustomEvent('community:post_created', { detail: { post: created } }));
 
       media.forEach((item) => revokeAttachmentPreviews(item));
+      clearMobilePostDraft(draftUserId);
       mediaCountRef.current = 0;
       mediaVideoCountRef.current = 0;
       setContent('');

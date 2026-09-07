@@ -24,9 +24,13 @@ import {
 import { MOBILE_MODAL_CARD_CLASS, MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
 
 export default function MobileNotificationsScreen({
-  onNavigate
+  onNavigate,
+  messagesUnread = 0,
+  onOpenMessages
 }: {
   onNavigate?: (to: string) => void;
+  messagesUnread?: number;
+  onOpenMessages?: () => void;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -73,6 +77,7 @@ export default function MobileNotificationsScreen({
 
   const visible = tab === 'community' ? buckets.community : buckets.home;
   const groupedVisible = useMemo(() => groupNotificationsForDisplay(visible), [visible]);
+  const totalUnread = unreadCounts.home + unreadCounts.community + Math.max(0, Number(messagesUnread) || 0);
   const growthShortcuts = useMemo(() => {
     if (!isAuthenticated || !normalizedRole || normalizedRole === 'guest') return [];
     if (dashboardBasePath === '/admin/dashboard') {
@@ -254,6 +259,35 @@ export default function MobileNotificationsScreen({
 
   return (
     <div className={MOBILE_PAGE_SECTION_CLASS}>
+      <section
+        className="mb-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
+        aria-labelledby="mobile-activity-center-title"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div id="mobile-activity-center-title" className="text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-700">
+              Activity center
+            </div>
+            <p className="mt-1 text-sm font-semibold text-slate-900">
+              {totalUnread ? `${totalUnread} unread update${totalUnread === 1 ? '' : 's'}` : 'You are all caught up'}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              Notifications and conversations stay reachable from one mobile surface.
+            </p>
+          </div>
+          {onOpenMessages ? (
+            <button
+              type="button"
+              onClick={onOpenMessages}
+              className="min-h-10 shrink-0 rounded-full border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500"
+              aria-label={messagesUnread ? `Open messages, ${messagesUnread} unread` : 'Open messages'}
+            >
+              Messages{messagesUnread ? ` (${messagesUnread > 99 ? '99+' : messagesUnread})` : ''}
+            </button>
+          ) : null}
+        </div>
+      </section>
+
       {growthShortcuts.length ? (
         <div className="mb-3 rounded-3xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/70 to-slate-50 p-4 shadow-sm">
           <div className="mb-3">

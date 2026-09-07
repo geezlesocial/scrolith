@@ -147,6 +147,7 @@ const Sheet = ({
   children: React.ReactNode;
 }) => {
   const titleId = React.useId();
+  const gestureStartY = React.useRef<number | null>(null);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[1000]">
@@ -164,7 +165,21 @@ const Sheet = ({
           className={MOBILE_SHEET_CARD_CLASS}
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="flex justify-center pt-3">
+          <div
+            className="flex cursor-grab justify-center pt-3 touch-none active:cursor-grabbing"
+            onPointerDown={(event) => {
+              gestureStartY.current = event.clientY;
+            }}
+            onPointerUp={(event) => {
+              const startY = gestureStartY.current;
+              gestureStartY.current = null;
+              if (startY !== null && event.clientY - startY > 72) onClose();
+            }}
+            onPointerCancel={() => {
+              gestureStartY.current = null;
+            }}
+            aria-hidden="true"
+          >
             <div className="h-1.5 w-14 rounded-full bg-slate-200" />
           </div>
           <div className="flex max-h-[82dvh] flex-col">

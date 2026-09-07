@@ -10,6 +10,7 @@ import {
   MOBILE_PAGE_CONTAINER_CLASS
 } from '../mobileShellLayout';
 import { pulseTapFeedback } from '../../runtime/nativeChrome';
+import { useMobilePerformance } from '../../runtime/mobilePerformance';
 
 type MobileAppRouteFrameProps = {
   title: string;
@@ -25,6 +26,8 @@ export default function MobileAppRouteFrame({
   const location = useLocation();
   const navigate = useNavigate();
   const cameFromMobileHome = Boolean((location.state as Record<string, unknown> | null)?.fromMobileHome);
+
+  useMobilePerformance(`mobile-route-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, true);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'auto' });
