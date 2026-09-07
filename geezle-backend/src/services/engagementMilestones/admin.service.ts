@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import prisma from '../../utils/prismaClient';
 import { DEFAULT_ENGAGEMENT_TEMPLATES, ENGAGEMENT_EVENT_TYPES } from './contracts';
 import { NotificationOpsConfigService } from '../notificationCenter/ops/opsConfig.service';
+import { NotificationService } from '../notificationCenter/NotificationService';
 import { writeNotificationAudit } from '../notificationCenter/analytics';
 
 const EVENT_TYPES = Object.values(ENGAGEMENT_EVENT_TYPES);
@@ -87,7 +88,67 @@ export class EngagementMilestoneAdminService {
       (prisma as any).engagementMilestoneState.groupBy({ by: ['status'], _count: { _all: true } }),
       (prisma as any).engagementSignal.count()
     ]);
-    return { signals, states };
+    let delivery: any[] = [];
+    try {
+      const events = await (prisma as any).notificationEvent.findMany({
+        where: { category: 'engagement', createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } },
+        select: { eventId: true },
+        take: 10_000
+      });
+      const eventIds = events.map((row: any) => row.eventId).filter(Boolean);
+      if (eventIds.length) {
+        delivery = await (prisma as any).notificationDelivery.groupBy({
+          by: ['channel', 'status'],
+          where: { eventId: { in: eventIds } },
+          _count: { _all: true }
+        });
+      }
+    } catch {
+      delivery = [];
+    }
+    return { signals, states, delivery };
+  }
+
+  static async testDelivery(ruleId: string | undefined, recipientId: string, actorId?: string) {
+    const rule = ruleId
+      ? await (prisma as any).engagementNotificationRule.findUnique({ where: { id: ruleId } })
+      : null;
+    if (ruleId && !rule) throw Object.assign(new Error('Engagement rule not found'), { statusCode: 404 });
+
+    const eventType = rule?.eventType || ENGAGEMENT_EVENT_TYPES.POST_IMPRESSION;
+    const preview = this.preview({
+      ...(rule || {}),
+      eventType,
+      thresholds: rule?.thresholds?.length ? rule.thresholds : [50]
+    });
+    const eventId = `engagement-test:${randomUUID()}`;
+    const result = await NotificationService.emitToUser(recipientId, {
+      eventId,
+      eventType,
+      type: 'engagement_milestone_test',
+      category: rule?.category || 'engagement',
+      priority: rule?.priority || 'normal',
+      title: preview.title,
+      body: preview.body,
+      deepLink: preview.deepLink,
+      source: 'engagement-milestone-admin-test',
+      metadata: {
+        testDelivery: true,
+        ruleId: rule?.id || null,
+        aiAssisted: false
+      },
+      skipInApp: rule?.inAppEnabled === false,
+      skipPush: rule?.pushEnabled === false,
+      respectPreferences: true
+    });
+    await writeNotificationAudit({
+      action: 'engagement_test_delivery',
+      actorId,
+      userId: recipientId,
+      eventId,
+      details: { ruleId: rule?.id || null, result: { createdCount: result.createdCount, suppressedCount: result.suppressedCount, failedCount: result.failedCount } }
+    });
+    return { eventId, ruleId: rule?.id || null, result };
   }
 
   static preview(input: any) {

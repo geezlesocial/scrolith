@@ -45,7 +45,8 @@ import {
   opsGetEngagementState,
   opsPutEngagementState,
   opsGetEngagementStats,
-  opsPreviewEngagementRule
+  opsPreviewEngagementRule,
+  opsTestEngagementRule
 } from '../../controllers/notificationOps.controller';
 import notificationDefaultsRoutes from './notification-defaults.routes';
 
@@ -109,5 +110,6 @@ router.get('/ops/engagement-automations/state', read, opsGetEngagementState);
 router.put('/ops/engagement-automations/state', manage, opsPutEngagementState);
 router.get('/ops/engagement-automations/stats', read, opsGetEngagementStats);
 router.post('/ops/engagement-automations/preview', manage, opsPreviewEngagementRule);
+router.post('/ops/engagement-automations/test', manage, opsTestEngagementRule);
 
 export default router;

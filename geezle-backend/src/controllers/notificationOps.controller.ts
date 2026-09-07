@@ -415,3 +415,18 @@ export const opsPreviewEngagementRule = async (req: Request, res: Response) => {
   try { return res.json({ success: true, data: EngagementMilestoneAdminService.preview(req.body || {}) }); }
   catch (error: any) { return handle(res, error, 'Failed to preview engagement rule'); }
 };
+
+export const opsTestEngagementRule = async (req: Request, res: Response) => {
+  try {
+    const adminId = actor(req);
+    if (!adminId) return res.status(401).json({ success: false, error: 'Authenticated admin required' });
+    const data = await EngagementMilestoneAdminService.testDelivery(
+      req.body?.ruleId ? String(req.body.ruleId) : undefined,
+      adminId,
+      adminId
+    );
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    return handle(res, error, 'Failed to send engagement test notification');
+  }
+};
