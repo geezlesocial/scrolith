@@ -85,6 +85,9 @@ export async function loadAIFeatureFlags(force = false): Promise<AIFeatureFlags>
     ['1', 'true', 'yes', 'on'].includes(String(process.env[name] || '').trim().toLowerCase());
   const envFlagSet = (name: string) => process.env[name] !== undefined;
   if (envFlagSet('SCROLITHA_AI_ENABLED')) flagsCache.masterEnabled = envFlag('SCROLITHA_AI_ENABLED');
+  if (envFlagSet('SCROLITHA_AI_ENGAGEMENT_NOTIFICATION_COPY_ENABLED')) {
+    flagsCache.ENGAGEMENT_NOTIFICATION_COPY = envFlag('SCROLITHA_AI_ENGAGEMENT_NOTIFICATION_COPY_ENABLED');
+  }
   if (envFlagSet('SCROLITHA_AI_PLATFORM_COPILOT_ENABLED')) {
     flagsCache.platformCopilotEnabled = envFlag('SCROLITHA_AI_PLATFORM_COPILOT_ENABLED');
   }

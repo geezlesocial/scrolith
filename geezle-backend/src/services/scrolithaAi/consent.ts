@@ -143,6 +143,20 @@ export async function assertConsentForRequest(input: {
   requiresExternal?: boolean;
 }): Promise<ConsentCheckResult> {
   const consent = await getAIConsent(input.userId);
+  // Engagement copy is generated from non-user-specific event metadata. It is
+  // a platform operation controlled by the durable admin rule, not a user's
+  // private AI surface, so it may run without per-user AI consent.
+  if (input.capability === 'ENGAGEMENT_NOTIFICATION_COPY' && !input.userId) {
+    return {
+      allowed: true,
+      consent: {
+        ...DEFAULT_AI_CONSENT,
+        aiFeaturesEnabled: true,
+        aiSuggestionsAllowed: true,
+        consentVersion: CONSENT_VERSION
+      }
+    };
+  }
   if (!consent.aiFeaturesEnabled) {
     return { allowed: false, reason: 'CONSENT_AI_FEATURES_DISABLED', consent };
   }

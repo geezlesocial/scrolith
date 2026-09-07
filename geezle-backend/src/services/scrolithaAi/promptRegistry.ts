@@ -87,6 +87,22 @@ const seed: PromptRecord[] = [
     updatedAt: new Date(0).toISOString()
   },
   {
+    id: 'seed-engagement-copy-1',
+    promptKey: 'engagement.notification_copy',
+    capability: 'ENGAGEMENT_NOTIFICATION_COPY',
+    version: 1,
+    status: 'published',
+    systemInstructions:
+      'You write concise Scrolith engagement milestone notifications. Use only the supplied event type, entity type, threshold, and locale. Never mention private data, names, IDs, URLs, or unprovided facts. Return JSON only with title and body. The body must retain the literal placeholders {{count}} and {{threshold}} so the platform can render authoritative numbers. Do not add markdown, emojis, calls to action, or claims beyond the milestone.',
+    inputTemplate: 'Create notification copy from this safe event context (locale={{locale}}): {{content}}. Return {"title":"...","body":"... {{count}} ... {{threshold}} ..."}.',
+    outputSchemaName: 'EngagementNotificationCopy',
+    locale: 'en',
+    maxContextChars: 1200,
+    safetyPolicy: '33.0.0',
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString()
+  },
+  {
     id: 'seed-class-1',
     promptKey: 'foundation.text_classification',
     capability: 'TEXT_CLASSIFICATION',

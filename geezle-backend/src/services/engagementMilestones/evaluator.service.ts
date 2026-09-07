@@ -2,6 +2,11 @@ import { createHash, randomUUID } from 'crypto';
 import prisma from '../../utils/prismaClient';
 import { NotificationService } from '../notificationCenter/NotificationService';
 import { DEFAULT_ENGAGEMENT_TEMPLATES, EngagementSignalInput } from './contracts';
+import {
+  getCachedEngagementNotificationCopy,
+  recordEngagementCopyFallback,
+  warmEngagementNotificationCopy
+} from './aiCopy.service';
 
 const asRecord = (value: unknown): Record<string, any> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, any>) : {};
@@ -66,12 +71,28 @@ const emitMilestone = async (state: any, rule: any, signal: EngagementSignalInpu
     deepLink: '/analytics'
   };
   const metadata = asRecord(signal.metadata);
-  const title = render(rule.titleTemplate || fallback.title, {
+  const copyInput = {
+    ruleId: String(rule.id),
+    eventType: signal.eventType,
+    entityType: signal.entityType,
+    threshold: state.threshold,
+    locale: typeof metadata.locale === 'string' ? metadata.locale : 'en'
+  };
+  const cachedAiCopy = rule.aiAssistanceEnabled
+    ? getCachedEngagementNotificationCopy(copyInput)
+    : null;
+  if (rule.aiAssistanceEnabled && !cachedAiCopy) {
+    recordEngagementCopyFallback('cache_miss');
+    // Never await AI on the delivery path. The next milestone can use the
+    // validated template if Ollama succeeds and the rule remains enabled.
+    void warmEngagementNotificationCopy(copyInput).catch(() => undefined);
+  }
+  const title = render(rule.titleTemplate || cachedAiCopy?.title || fallback.title, {
     count: signal.aggregateCount,
     threshold: state.threshold,
     entityId: signal.entityId
   });
-  const body = render(rule.bodyTemplate || fallback.body, {
+  const body = render(rule.bodyTemplate || cachedAiCopy?.body || fallback.body, {
     count: signal.aggregateCount,
     threshold: state.threshold,
     entityId: signal.entityId
@@ -100,7 +121,8 @@ const emitMilestone = async (state: any, rule: any, signal: EngagementSignalInpu
       ruleId: rule.id,
       threshold: state.threshold,
       aggregateCount: signal.aggregateCount,
-      aiAssisted: false,
+      aiAssisted: Boolean(cachedAiCopy),
+      aiCopySource: cachedAiCopy ? 'ollama_cache' : 'deterministic_fallback',
       templateKey: rule.templateKey || null
     },
     skipInApp: rule.inAppEnabled === false,

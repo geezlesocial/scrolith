@@ -54,6 +54,8 @@ import {
   validateNotificationSummary,
   parseNotificationPriority,
   validateNotificationPriority,
+  parseEngagementNotificationCopy,
+  validateEngagementNotificationCopy,
   parseGenericExtraction,
   validateGenericExtraction
 } from './structured';
@@ -435,6 +437,10 @@ export class ScrolithaAI {
                 NotificationPrioritySuggestions: {
                   parse: parseNotificationPriority,
                   validate: validateNotificationPriority
+                },
+                EngagementNotificationCopy: {
+                  parse: parseEngagementNotificationCopy,
+                  validate: validateEngagementNotificationCopy
                 },
                 GenericExtraction: {
                   parse: parseGenericExtraction,

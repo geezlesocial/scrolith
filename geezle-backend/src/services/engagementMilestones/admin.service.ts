@@ -4,6 +4,10 @@ import { DEFAULT_ENGAGEMENT_TEMPLATES, ENGAGEMENT_EVENT_TYPES } from './contract
 import { NotificationOpsConfigService } from '../notificationCenter/ops/opsConfig.service';
 import { NotificationService } from '../notificationCenter/NotificationService';
 import { writeNotificationAudit } from '../notificationCenter/analytics';
+import {
+  getCachedEngagementNotificationCopy,
+  warmEngagementNotificationCopy
+} from './aiCopy.service';
 
 const EVENT_TYPES = Object.values(ENGAGEMENT_EVENT_TYPES);
 
@@ -116,11 +120,25 @@ export class EngagementMilestoneAdminService {
     if (ruleId && !rule) throw Object.assign(new Error('Engagement rule not found'), { statusCode: 404 });
 
     const eventType = rule?.eventType || ENGAGEMENT_EVENT_TYPES.POST_IMPRESSION;
+    const threshold = Number(rule?.thresholds?.[0] || 50);
     const preview = this.preview({
       ...(rule || {}),
       eventType,
       thresholds: rule?.thresholds?.length ? rule.thresholds : [50]
     });
+    const aiCopyInput = {
+      ruleId: String(rule?.id || 'admin-test'),
+      eventType,
+      entityType: 'entity',
+      threshold,
+      locale: 'en'
+    };
+    const cachedAiCopy = rule?.aiAssistanceEnabled
+      ? getCachedEngagementNotificationCopy(aiCopyInput)
+      : null;
+    if (rule?.aiAssistanceEnabled && !cachedAiCopy) {
+      void warmEngagementNotificationCopy(aiCopyInput).catch(() => undefined);
+    }
     const eventId = `engagement-test:${randomUUID()}`;
     const result = await NotificationService.emitToUser(recipientId, {
       eventId,
@@ -128,14 +146,15 @@ export class EngagementMilestoneAdminService {
       type: 'engagement_milestone_test',
       category: rule?.category || 'engagement',
       priority: rule?.priority || 'normal',
-      title: preview.title,
-      body: preview.body,
+      title: rule?.titleTemplate || cachedAiCopy?.title || preview.title,
+      body: rule?.bodyTemplate || cachedAiCopy?.body || preview.body,
       deepLink: preview.deepLink,
       source: 'engagement-milestone-admin-test',
       metadata: {
         testDelivery: true,
         ruleId: rule?.id || null,
-        aiAssisted: false
+        aiAssisted: Boolean(cachedAiCopy),
+        aiCopySource: cachedAiCopy ? 'ollama_cache' : 'deterministic_fallback'
       },
       skipInApp: rule?.inAppEnabled === false,
       skipPush: rule?.pushEnabled === false,

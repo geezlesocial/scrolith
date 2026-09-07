@@ -22,6 +22,11 @@ export type NotificationPrioritySuggestions = {
   generatedAt: string;
 };
 
+export type EngagementNotificationCopy = {
+  title: string;
+  body: string;
+};
+
 function extractJson(raw: string): unknown {
   const text = String(raw || '').trim();
   if (!text) return {};
@@ -81,6 +86,27 @@ export function parseNotificationPriority(raw: string): NotificationPrioritySugg
 
 export function validateNotificationPriority(v: NotificationPrioritySuggestions): boolean {
   return Boolean(v && Array.isArray(v.suggestions));
+}
+
+export function parseEngagementNotificationCopy(raw: string): EngagementNotificationCopy {
+  const obj = extractJson(raw) as any;
+  return {
+    title: String(obj.title || '').slice(0, 160),
+    body: String(obj.body || '').slice(0, 400)
+  };
+}
+
+export function validateEngagementNotificationCopy(v: EngagementNotificationCopy): boolean {
+  return Boolean(
+    v &&
+      typeof v.title === 'string' &&
+      v.title.trim().length >= 4 &&
+      v.title.length <= 160 &&
+      typeof v.body === 'string' &&
+      v.body.trim().length >= 12 &&
+      v.body.length <= 400 &&
+      /\{\{\s*count\s*\}\}/i.test(v.body)
+  );
 }
 
 export function parseGenericExtraction(raw: string): Record<string, unknown> {
