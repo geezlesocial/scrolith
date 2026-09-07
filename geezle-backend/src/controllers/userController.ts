@@ -11,6 +11,7 @@ import { syncFileUsages } from '../utils/fileUsage';
 import { FileVisibility } from '@prisma/client';
 import { serializeProfessionalAvailability } from '../services/professionalAvailability.service';
 import { serializeClientHiringStatus } from '../services/clientHiringStatus.service';
+import { ENGAGEMENT_EVENT_TYPES, recordEngagementSignal } from '../services/engagementMilestones';
 
 const nowIso = () => new Date().toISOString();
 
@@ -1437,6 +1438,18 @@ export const logProfileView = async (req: Request, res: Response) => {
         viewedUserId
       }
     });
+
+    const directViewCount = await prisma.profileView.count({ where: { viewedUserId } });
+    void recordEngagementSignal({
+      sourceEventId: `profile-direct-view:${createdView.id}`,
+      eventType: ENGAGEMENT_EVENT_TYPES.PROFILE_DIRECT_VIEW,
+      entityType: 'profile',
+      entityId: viewedUserId,
+      ownerId: viewedUserId,
+      actorId: viewerId,
+      aggregateCount: directViewCount,
+      metadata: { source: 'user.logProfileView' }
+    }).catch(error => console.error('Profile direct-view milestone error:', error));
 
     const payload = {
       viewerId,

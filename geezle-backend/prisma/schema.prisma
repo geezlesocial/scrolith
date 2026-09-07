@@ -5922,6 +5922,80 @@ model NotificationOpsConfig {
   updatedAt DateTime @updatedAt
 }
 
+// Phase 1 — admin-controlled engagement milestone automation rules.
+model EngagementNotificationRule {
+  id                       String   @id @default(cuid())
+  eventType                String   @map("event_type")
+  name                     String
+  isEnabled                Boolean  @default(false) @map("is_enabled")
+  thresholds               Int[]    @default([])
+  cooldownSeconds          Int      @default(0) @map("cooldown_seconds")
+  frequencyWindowSeconds   Int      @default(86400) @map("frequency_window_seconds")
+  maxNotificationsPerWindow Int     @default(1) @map("max_notifications_per_window")
+  inAppEnabled             Boolean  @default(true) @map("in_app_enabled")
+  pushEnabled              Boolean  @default(true) @map("push_enabled")
+  rolloutPercentage        Int      @default(0) @map("rollout_percentage")
+  aiAssistanceEnabled      Boolean  @default(false) @map("ai_assistance_enabled")
+  category                 String   @default("engagement")
+  priority                 String   @default("normal")
+  templateKey              String?  @map("template_key")
+  titleTemplate            String?  @map("title_template")
+  bodyTemplate             String?  @map("body_template")
+  deepLinkTemplate         String?  @map("deep_link_template")
+  metadata                 Json?
+  createdById              String?  @map("created_by_id")
+  updatedById              String?  @map("updated_by_id")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  @@unique([eventType, name])
+  @@index([eventType, isEnabled])
+  @@index([isEnabled, updatedAt])
+  @@map("engagement_notification_rule")
+}
+
+// Phase 1 — durable normalized engagement events used for replay and audit.
+model EngagementSignal {
+  id            String   @id @default(cuid())
+  sourceEventId String   @unique @map("source_event_id")
+  eventType     String   @map("event_type")
+  entityType    String   @map("entity_type")
+  entityId      String   @map("entity_id")
+  ownerId       String   @map("owner_id")
+  actorId       String?  @map("actor_id")
+  aggregateCount Int     @map("aggregate_count")
+  occurredAt    DateTime @map("occurred_at")
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([eventType, entityType, entityId, occurredAt])
+  @@index([ownerId, eventType, occurredAt])
+  @@map("engagement_signal")
+}
+
+// Phase 1 — durable claim/idempotency record for each rule threshold.
+model EngagementMilestoneState {
+  id             String    @id @default(cuid())
+  ruleId         String    @map("rule_id")
+  eventType      String    @map("event_type")
+  entityType     String    @map("entity_type")
+  entityId       String    @map("entity_id")
+  ownerId        String    @map("owner_id")
+  threshold      Int
+  sourceEventId  String    @map("source_event_id")
+  status         String    @default("claimed")
+  notificationId String?   @map("notification_id")
+  suppressedReason String? @map("suppressed_reason")
+  emittedAt      DateTime? @map("emitted_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@unique([ruleId, entityType, entityId, ownerId, threshold])
+  @@index([ownerId, eventType, createdAt])
+  @@index([status, createdAt])
+  @@map("engagement_milestone_state")
+}
+
 model MonetizationApplication {
   id                  String                        @id @default(cuid())
   userId              String

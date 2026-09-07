@@ -8,6 +8,7 @@ import { NotificationOpsTemplateService } from '../services/notificationCenter/o
 import { NotificationOpsCampaignService } from '../services/notificationCenter/ops/opsCampaign.service';
 import { NotificationOpsConfigService } from '../services/notificationCenter/ops/opsConfig.service';
 import { NotificationAdminDefaultsService } from '../services/notificationCenter/adminDefaults.service';
+import { EngagementMilestoneAdminService } from '../services/engagementMilestones/admin.service';
 
 const actor = (req: Request) => (req as any).user?.id as string | undefined;
 
@@ -378,4 +379,39 @@ export const opsPutSettings = async (req: Request, res: Response) => {
   } catch (error: any) {
     return handle(res, error, 'Failed to update settings');
   }
+};
+
+export const opsListEngagementRules = async (_req: Request, res: Response) => {
+  try { return res.json({ success: true, data: await EngagementMilestoneAdminService.listRules() }); }
+  catch (error: any) { return handle(res, error, 'Failed to load engagement rules'); }
+};
+
+export const opsCreateEngagementRule = async (req: Request, res: Response) => {
+  try { return res.status(201).json({ success: true, data: await EngagementMilestoneAdminService.createRule(req.body || {}, actor(req)) }); }
+  catch (error: any) { return handle(res, error, 'Failed to create engagement rule'); }
+};
+
+export const opsUpdateEngagementRule = async (req: Request, res: Response) => {
+  try { return res.json({ success: true, data: await EngagementMilestoneAdminService.updateRule(String(req.params.id), req.body || {}, actor(req)) }); }
+  catch (error: any) { return handle(res, error, 'Failed to update engagement rule'); }
+};
+
+export const opsGetEngagementState = async (_req: Request, res: Response) => {
+  try { return res.json({ success: true, data: await EngagementMilestoneAdminService.getGlobalState() }); }
+  catch (error: any) { return handle(res, error, 'Failed to load engagement automation state'); }
+};
+
+export const opsPutEngagementState = async (req: Request, res: Response) => {
+  try { return res.json({ success: true, data: await EngagementMilestoneAdminService.setGlobalPause(Boolean(req.body?.paused), actor(req)) }); }
+  catch (error: any) { return handle(res, error, 'Failed to update engagement automation state'); }
+};
+
+export const opsGetEngagementStats = async (_req: Request, res: Response) => {
+  try { return res.json({ success: true, data: await EngagementMilestoneAdminService.stats() }); }
+  catch (error: any) { return handle(res, error, 'Failed to load engagement automation stats'); }
+};
+
+export const opsPreviewEngagementRule = async (req: Request, res: Response) => {
+  try { return res.json({ success: true, data: EngagementMilestoneAdminService.preview(req.body || {}) }); }
+  catch (error: any) { return handle(res, error, 'Failed to preview engagement rule'); }
 };

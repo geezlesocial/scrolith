@@ -52,6 +52,7 @@ import {
   scoreCommunityPostForMode
 } from '../services/opportunityGraph.service';
 import { getActiveFeedRecipe } from '../services/discovery.service';
+import { ENGAGEMENT_EVENT_TYPES, recordEngagementSignal } from '../services/engagementMilestones';
 import {
   normalizeStoredContentOfferTags,
   resolveSubmittedContentOfferTags
@@ -1741,7 +1742,22 @@ export const postView = async (req: Request, res: Response) => {
     if (!created.created) return res.json({ success: true, duplicate: true });
 
     // increment view count
-    await prisma.communityPost.update({ where: { id: postId }, data: { viewsCount: { increment: 1 } as any } as any });
+    const updatedPost = await prisma.communityPost.update({
+      where: { id: postId },
+      data: { viewsCount: { increment: 1 } as any } as any,
+      select: { authorId: true, viewsCount: true }
+    });
+
+    void recordEngagementSignal({
+      sourceEventId: `post-impression:${eventKey}`,
+      eventType: ENGAGEMENT_EVENT_TYPES.POST_IMPRESSION,
+      entityType: 'community_post',
+      entityId: postId,
+      ownerId: String(updatedPost.authorId),
+      actorId: actorId || null,
+      aggregateCount: Number(updatedPost.viewsCount || 0),
+      metadata: { source: 'community.postView' }
+    }).catch(error => console.error('Post impression milestone error:', error));
 
     await emitPostMetricsUpdated(io, postId, 'view');
 

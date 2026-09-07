@@ -2,6 +2,7 @@ import prisma from '../utils/prismaClient';
 import { notifyAdmins, notifyUser } from '../utils/notify';
 import { DEFAULT_MARKETPLACE_CATEGORIES } from '../config/marketplaceCategories';
 import { publishIntegrationEvent } from './talentCloud.service';
+import { ENGAGEMENT_EVENT_TYPES, recordEngagementSignal } from './engagementMilestones';
 import {
   normalizePublicMedia,
   resolveDirectMediaUrl,
@@ -1758,6 +1759,17 @@ export const favoriteMarketplaceListing = async (listingId: string, userId: stri
     throw error;
   }
 
+  const existingFavorite = await prisma.favorite.findUnique({
+    where: {
+      userId_entityType_entityId: {
+        userId,
+        entityType: MARKETPLACE_FAVORITE_ENTITY_TYPE,
+        entityId: listingId
+      }
+    },
+    select: { id: true }
+  });
+
   await prisma.favorite.upsert({
     where: {
       userId_entityType_entityId: {
@@ -1774,10 +1786,23 @@ export const favoriteMarketplaceListing = async (listingId: string, userId: stri
     }
   });
 
-  await prisma.marketplaceListing.update({
-    where: { id: listingId },
-    data: { saveCount: { increment: 1 } }
-  });
+  if (!existingFavorite) {
+    const updated = await prisma.marketplaceListing.update({
+      where: { id: listingId },
+      data: { saveCount: { increment: 1 } },
+      select: { sellerId: true, saveCount: true }
+    });
+    void recordEngagementSignal({
+      sourceEventId: `marketplace-listing-save:${listingId}:${userId}`,
+      eventType: ENGAGEMENT_EVENT_TYPES.MARKETPLACE_LISTING_SAVE,
+      entityType: 'marketplace_listing',
+      entityId: listingId,
+      ownerId: updated.sellerId,
+      actorId: userId,
+      aggregateCount: Number(updated.saveCount || 0),
+      metadata: { source: 'marketplace.favorite' }
+    }).catch(error => console.error('Marketplace listing save milestone error:', error));
+  }
 
   return true;
 };
@@ -1904,6 +1929,18 @@ export const contactMarketplaceSeller = async (listingId: string, buyer: User, i
       conversationId: conversation.id
     }
   });
+
+  const inquiryCount = await prisma.marketplaceInquiry.count({ where: { sellerId: listing.sellerId, listingId } });
+  void recordEngagementSignal({
+    sourceEventId: `marketplace-listing-inquiry:${inquiry.id}`,
+    eventType: ENGAGEMENT_EVENT_TYPES.MARKETPLACE_LISTING_INQUIRY,
+    entityType: 'marketplace_listing',
+    entityId: listingId,
+    ownerId: listing.sellerId,
+    actorId: buyer.id,
+    aggregateCount: inquiryCount,
+    metadata: { source: 'marketplace.contact' }
+  }).catch(error => console.error('Marketplace listing inquiry milestone error:', error));
 
   notifyUser(listing.sellerId, {
     type: 'marketplace.inquiry.received',

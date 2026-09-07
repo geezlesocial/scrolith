@@ -22,6 +22,7 @@ import {
   unfavoriteMarketplaceListing,
   updateMarketplaceListing
 } from '../services/marketplace.service';
+import { recordMarketplaceListingView } from '../services/engagementMilestones';
 
 const router = express.Router();
 
@@ -152,6 +153,13 @@ router.get('/listings/:idOrSlug', optionalAuthMiddleware, async (req, res) => {
     );
     if (!data) {
       return res.status(404).json({ success: false, error: 'Listing not found' });
+    }
+    if (req.user?.id && String(data.sellerId || '') !== String(req.user.id)) {
+      void recordMarketplaceListingView({
+        listingId: String(data.id),
+        viewerId: String(req.user.id),
+        metadata: { source: 'marketplace.getListing' }
+      }).catch(error => console.error('Marketplace listing impression error:', error));
     }
     return res.json({ success: true, data });
   } catch (error: any) {

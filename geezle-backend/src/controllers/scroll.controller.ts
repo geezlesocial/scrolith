@@ -17,6 +17,7 @@ import {
   isVideoFileStorageAvailable
 } from '../services/storage/videoStorageAvailability';
 import { getScrollDashTotals } from '../services/gcoinDonationTotals.service';
+import { ENGAGEMENT_EVENT_TYPES, recordEngagementSignal } from '../services/engagementMilestones';
 import {
   normalizeStoredContentOfferTags,
   resolveSubmittedContentOfferTags
@@ -2201,8 +2202,9 @@ export const engageScroll = async (req: Request, res: Response) => {
           });
         }
       }
+      let createdEngagement: any = null;
       try {
-        await prismaAny.scrollEngagement.create({ data: { scrollId, userId, type } });
+        createdEngagement = await prismaAny.scrollEngagement.create({ data: { scrollId, userId, type } });
         created = true;
       } catch (error: any) {
         const code = String(error?.code || '').toUpperCase();
@@ -2213,10 +2215,21 @@ export const engageScroll = async (req: Request, res: Response) => {
       // Public counters only for non-learning engagement types
       if (created && !isLearning) {
         if (type === 'impression') {
-          await prismaAny.scrollVideo.update({
+          const updatedScroll = await prismaAny.scrollVideo.update({
             where: { id: scrollId },
-            data: { impressions: { increment: 1 }, lastImpressionIncrementAt: new Date() }
+            data: { impressions: { increment: 1 }, lastImpressionIncrementAt: new Date() },
+            select: { authorId: true, impressions: true }
           });
+          void recordEngagementSignal({
+            sourceEventId: `scroll-impression:${createdEngagement?.id || `${scrollId}:${userId}`}`,
+            eventType: ENGAGEMENT_EVENT_TYPES.SCROLL_IMPRESSION,
+            entityType: 'scroll_video',
+            entityId: scrollId,
+            ownerId: String(updatedScroll.authorId),
+            actorId: userId,
+            aggregateCount: Number(updatedScroll.impressions || 0),
+            metadata: { source: 'scroll.engage', watchedSeconds }
+          }).catch(error => console.error('Scroll impression milestone error:', error));
         } else {
           const field = mapTypeToCounterField(type);
           if (field) {

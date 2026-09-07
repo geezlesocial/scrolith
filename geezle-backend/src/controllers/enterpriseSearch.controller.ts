@@ -4,6 +4,8 @@ import {
   SearchContractError,
   type SearchFeedbackRequest
 } from '../services/enterpriseSearch';
+import prisma from '../utils/prismaClient';
+import { ENGAGEMENT_EVENT_TYPES, recordProfileSearchAppearance } from '../services/engagementMilestones';
 
 const sendError = (res: Response, error: unknown) => {
   if (error instanceof SearchContractError) {
@@ -53,6 +55,25 @@ export const enterpriseSearchQueryController = async (req: Request, res: Respons
     }
     const viewerId = req.user?.id || null;
     const data = await enterpriseSearchService.query(raw as Record<string, unknown>, viewerId);
+    const searchRequestId = String((data as any)?.requestId || raw.requestId || '').trim();
+    if (searchRequestId && Array.isArray((data as any)?.items)) {
+      void Promise.all((data as any).items
+        .filter((item: any) => String(item?.entityType || '').toLowerCase() === 'freelancer' && item?.entityId)
+        .map(async (item: any) => {
+          const profileId = String(item.entityId);
+          const aggregateCount = await (prisma as any).engagementSignal.count({
+            where: { eventType: ENGAGEMENT_EVENT_TYPES.PROFILE_SEARCH_APPEARANCE, entityType: 'profile', entityId: profileId }
+          });
+          return recordProfileSearchAppearance({
+            profileId,
+            searchRequestId,
+            viewerId,
+            aggregateCount: aggregateCount + 1,
+            metadata: { source: 'enterpriseSearch.query', surface: String(raw.surface || 'search_results') }
+          });
+        }))
+        .catch(error => console.error('Profile search appearance milestone error:', error));
+    }
     return res.json({ success: true, data });
   } catch (error) {
     return sendError(res, error);

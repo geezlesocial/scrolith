@@ -307,6 +307,53 @@ export class NotificationService {
         }
       }
 
+      if (input.skipInApp && !input.skipPush && !input.skipRealtime) {
+        let allowPushOnly = priority !== 'silent';
+        if (allowPushOnly) {
+          try {
+            const { NotificationDeliveryPolicy } = await import('./delivery/NotificationDeliveryPolicy');
+            const policy = await NotificationDeliveryPolicy.evaluate({
+              userId,
+              eventType: eventType || type,
+              category,
+              channel: 'PUSH',
+              priority,
+              actorId,
+              conversationId: (meta.conversationId || meta.entityId || null) as any,
+              isMandatorySecurity: Boolean(input.isMandatorySecurity) || category === 'security',
+              isEmergencySystem: Boolean(input.isEmergencySystem) || String(eventType || type).includes('emergency')
+            });
+            allowPushOnly = policy.allowed && policy.action === 'DELIVER_NOW';
+            if (!allowPushOnly) {
+              await recordDelivery({ notificationId: null, eventId, userId, channel: 'push', status: 'suppressed', errorCode: policy.reason });
+            }
+          } catch {
+            // Optional policy tables must not block the canonical sender.
+          }
+        }
+        if (allowPushOnly) {
+          try {
+            notifyUser(userId, {
+              id: eventId,
+              type,
+              title,
+              body,
+              action_url: deepLink || undefined,
+              meta,
+              createdAt: new Date().toISOString()
+            });
+            await recordDelivery({ notificationId: null, eventId, userId, channel: 'push', status: 'sent', latencyMs: Date.now() - started });
+            items.push({ userId, notificationId: null, status: 'created' });
+          } catch (pushErr: any) {
+            await recordDelivery({ notificationId: null, eventId, userId, channel: 'push', status: 'failed', errorMessage: pushErr?.message || 'push_failed' });
+            items.push({ userId, notificationId: null, status: 'failed', reason: pushErr?.message || 'push_failed' });
+          }
+        } else {
+          items.push({ userId, notificationId: null, status: 'suppressed', reason: 'push_policy' });
+        }
+        continue;
+      }
+
       if (input.skipInApp) {
         items.push({ userId, notificationId: null, status: 'suppressed', reason: 'skip_in_app' });
         continue;

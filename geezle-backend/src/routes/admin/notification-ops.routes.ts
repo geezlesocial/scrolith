@@ -38,7 +38,14 @@ import {
   opsGetRetention,
   opsPutRetention,
   opsGetSettings,
-  opsPutSettings
+  opsPutSettings,
+  opsListEngagementRules,
+  opsCreateEngagementRule,
+  opsUpdateEngagementRule,
+  opsGetEngagementState,
+  opsPutEngagementState,
+  opsGetEngagementStats,
+  opsPreviewEngagementRule
 } from '../../controllers/notificationOps.controller';
 import notificationDefaultsRoutes from './notification-defaults.routes';
 
@@ -93,5 +100,14 @@ router.get('/ops/retention', read, opsGetRetention);
 router.put('/ops/retention', manage, opsPutRetention);
 router.get('/ops/settings', read, opsGetSettings);
 router.put('/ops/settings', manage, opsPutSettings);
+
+// Phase 1 engagement milestone automation
+router.get('/ops/engagement-automations/rules', read, opsListEngagementRules);
+router.post('/ops/engagement-automations/rules', manage, opsCreateEngagementRule);
+router.patch('/ops/engagement-automations/rules/:id', manage, opsUpdateEngagementRule);
+router.get('/ops/engagement-automations/state', read, opsGetEngagementState);
+router.put('/ops/engagement-automations/state', manage, opsPutEngagementState);
+router.get('/ops/engagement-automations/stats', read, opsGetEngagementStats);
+router.post('/ops/engagement-automations/preview', manage, opsPreviewEngagementRule);
 
 export default router;
