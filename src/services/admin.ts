@@ -956,6 +956,20 @@ export const AdminService = {
   getNotificationOpsSettings: async () => adminGet<any>('/notifications/ops/settings'),
   putNotificationOpsSettings: async (payload: Record<string, unknown>) =>
     adminPut<any>('/notifications/ops/settings', payload),
+  getEngagementAutomationRules: async () =>
+    adminGet<any[]>('/notifications/ops/engagement-automations/rules'),
+  createEngagementAutomationRule: async (payload: Record<string, unknown>) =>
+    adminPost<any>('/notifications/ops/engagement-automations/rules', payload),
+  updateEngagementAutomationRule: async (id: string, payload: Record<string, unknown>) =>
+    adminPatch<any>(`/notifications/ops/engagement-automations/rules/${encodeURIComponent(id)}`, payload),
+  getEngagementAutomationState: async () =>
+    adminGet<any>('/notifications/ops/engagement-automations/state'),
+  putEngagementAutomationState: async (payload: Record<string, unknown>) =>
+    adminPut<any>('/notifications/ops/engagement-automations/state', payload),
+  getEngagementAutomationStats: async () =>
+    adminGet<any>('/notifications/ops/engagement-automations/stats'),
+  previewEngagementAutomationRule: async (payload: Record<string, unknown>) =>
+    adminPost<any>('/notifications/ops/engagement-automations/preview', payload),
 
 
   getNotificationTemplates: async (params?: {

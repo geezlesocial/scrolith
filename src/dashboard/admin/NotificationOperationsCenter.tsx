@@ -31,6 +31,7 @@ type Section =
   | 'queue'
   | 'devices'
   | 'analytics'
+  | 'engagement'
   | 'flags'
   | 'audit'
   | 'settings';
@@ -46,6 +47,7 @@ const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
   { id: 'queue', label: 'Queue Health', icon: <Activity className="h-4 w-4" /> },
   { id: 'devices', label: 'Device Health', icon: <Smartphone className="h-4 w-4" /> },
   { id: 'analytics', label: 'Analytics', icon: <Activity className="h-4 w-4" /> },
+  { id: 'engagement', label: 'Engagement Automations', icon: <Bell className="h-4 w-4" /> },
   { id: 'flags', label: 'Feature Flags', icon: <Flag className="h-4 w-4" /> },
   { id: 'audit', label: 'Audit Logs', icon: <Shield className="h-4 w-4" /> },
   { id: 'settings', label: 'Settings', icon: <Settings className="h-4 w-4" /> }
@@ -90,6 +92,23 @@ const NotificationOperationsCenter: React.FC = () => {
   const [flags, setFlags] = useState<any>(null);
   const [retention, setRetention] = useState<any>(null);
   const [settings, setSettings] = useState<any>(null);
+  const [engagementRules, setEngagementRules] = useState<any[]>([]);
+  const [engagementState, setEngagementState] = useState<any>(null);
+  const [engagementStats, setEngagementStats] = useState<any>(null);
+  const [engagementForm, setEngagementForm] = useState({
+    eventType: 'engagement.post.impression',
+    name: 'Post impression milestones',
+    thresholds: '50,100,250,500,1000',
+    rolloutPercentage: 0,
+    maxNotificationsPerWindow: 1,
+    frequencyWindowSeconds: 86400,
+    cooldownSeconds: 0,
+    inAppEnabled: true,
+    pushEnabled: true,
+    aiAssistanceEnabled: false,
+    titleTemplate: '',
+    bodyTemplate: ''
+  });
   const [busy, setBusy] = useState(false);
 
   // Campaign form
@@ -154,6 +173,15 @@ const NotificationOperationsCenter: React.FC = () => {
       } else if (section === 'settings') {
         setRetention(await AdminService.getNotificationOpsRetention());
         setSettings(await AdminService.getNotificationOpsSettings());
+      } else if (section === 'engagement') {
+        const [rules, state, stats] = await Promise.all([
+          AdminService.getEngagementAutomationRules(),
+          AdminService.getEngagementAutomationState(),
+          AdminService.getEngagementAutomationStats()
+        ]);
+        setEngagementRules(Array.isArray(rules) ? rules : []);
+        setEngagementState(state);
+        setEngagementStats(stats);
       }
     } catch (e: any) {
       // Soft — section may 503 pre-migration
@@ -734,6 +762,78 @@ const NotificationOperationsCenter: React.FC = () => {
             {!flagEntries.length ? <p className="text-sm text-slate-500">Unable to load flags.</p> : null}
           </div>
         </section>
+      ) : null}
+
+      {section === 'engagement' ? (
+        <div className="space-y-4" role="tabpanel">
+          <section className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-semibold">Engagement Automations</h3>
+                <p className="mt-1 text-xs text-slate-500">Durable milestone rules. New rules start disabled and at 0% rollout.</p>
+              </div>
+              <button
+                type="button"
+                className={`rounded-lg px-3 py-2 text-sm font-medium text-white ${engagementState?.paused ? 'bg-emerald-600' : 'bg-amber-600'}`}
+                onClick={async () => {
+                  const next = await AdminService.putEngagementAutomationState({ paused: !engagementState?.paused });
+                  setEngagementState((s: any) => ({ ...s, ...next }));
+                  showNotification('success', 'Engagement Automations', next.paused ? 'Automation paused.' : 'Automation activated.');
+                }}
+              >
+                {engagementState?.paused ? 'Activate automation' : 'Pause automation'}
+              </button>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <MetricCard label="Signals" value={engagementStats?.signals ?? 0} />
+              <MetricCard label="Milestone states" value={(engagementStats?.states || []).reduce((sum: number, row: any) => sum + Number(row._count?._all || 0), 0)} />
+              <MetricCard label="Status" value={engagementState?.paused ? 'Paused' : 'Active'} tone={engagementState?.paused ? 'warn' : 'good'} />
+            </div>
+          </section>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <section className="rounded-xl border border-slate-200 bg-white p-4">
+              <h3 className="font-semibold">Create milestone rule</h3>
+              <div className="mt-3 space-y-2 text-sm">
+                <select className="w-full rounded-lg border px-3 py-2" value={engagementForm.eventType} onChange={(e) => setEngagementForm((f) => ({ ...f, eventType: e.target.value }))}>
+                  {['post.impression','profile.search_appearance','marketplace.listing.impression','scroll.impression','profile.direct_view','content.reach','marketplace.listing.save','marketplace.listing.inquiry','opportunity.qualified'].map((suffix) => (
+                    <option key={suffix} value={`engagement.${suffix}`}>{suffix}</option>
+                  ))}
+                </select>
+                <input className="w-full rounded-lg border px-3 py-2" placeholder="Rule name" value={engagementForm.name} onChange={(e) => setEngagementForm((f) => ({ ...f, name: e.target.value }))} />
+                <input className="w-full rounded-lg border px-3 py-2" placeholder="Thresholds: 50,100,250" value={engagementForm.thresholds} onChange={(e) => setEngagementForm((f) => ({ ...f, thresholds: e.target.value }))} />
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <input type="number" min={0} max={100} className="rounded-lg border px-3 py-2" aria-label="Rollout percentage" value={engagementForm.rolloutPercentage} onChange={(e) => setEngagementForm((f) => ({ ...f, rolloutPercentage: Number(e.target.value) }))} />
+                  <input type="number" min={1} className="rounded-lg border px-3 py-2" aria-label="Max notifications per window" value={engagementForm.maxNotificationsPerWindow} onChange={(e) => setEngagementForm((f) => ({ ...f, maxNotificationsPerWindow: Number(e.target.value) }))} />
+                  <input type="number" min={60} className="rounded-lg border px-3 py-2" aria-label="Frequency window seconds" value={engagementForm.frequencyWindowSeconds} onChange={(e) => setEngagementForm((f) => ({ ...f, frequencyWindowSeconds: Number(e.target.value) }))} />
+                </div>
+                <div className="flex flex-wrap gap-4 text-sm">
+                  <label><input type="checkbox" checked={engagementForm.inAppEnabled} onChange={(e) => setEngagementForm((f) => ({ ...f, inAppEnabled: e.target.checked }))} /> In-app</label>
+                  <label><input type="checkbox" checked={engagementForm.pushEnabled} onChange={(e) => setEngagementForm((f) => ({ ...f, pushEnabled: e.target.checked }))} /> Push</label>
+                  <label><input type="checkbox" checked={engagementForm.aiAssistanceEnabled} onChange={(e) => setEngagementForm((f) => ({ ...f, aiAssistanceEnabled: e.target.checked }))} /> AI assistance</label>
+                </div>
+                <button type="button" className="rounded-lg bg-blue-600 px-3 py-2 font-medium text-white" onClick={async () => {
+                  try {
+                    await AdminService.createEngagementAutomationRule({ ...engagementForm, thresholds: engagementForm.thresholds.split(',').map((v) => Number(v.trim())) });
+                    showNotification('success', 'Engagement Automations', 'Rule created.');
+                    await loadSection();
+                  } catch (e: any) { showNotification('error', 'Engagement Automations', e?.response?.data?.error || e?.message || 'Failed'); }
+                }}>Create disabled rule</button>
+              </div>
+            </section>
+            <section className="rounded-xl border border-slate-200 bg-white p-4">
+              <h3 className="font-semibold">Configured rules</h3>
+              <ul className="mt-3 divide-y text-sm">
+                {engagementRules.map((rule) => (
+                  <li key={rule.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
+                    <div><div className="font-medium">{rule.name}</div><div className="text-xs text-slate-500">{rule.eventType} · {rule.thresholds?.join(', ')} · rollout {rule.rolloutPercentage}%</div></div>
+                    <button type="button" className={`rounded px-2 py-1 text-xs font-medium text-white ${rule.isEnabled ? 'bg-emerald-600' : 'bg-slate-500'}`} onClick={async () => { const next = await AdminService.updateEngagementAutomationRule(rule.id, { isEnabled: !rule.isEnabled }); setEngagementRules((rows) => rows.map((row) => row.id === rule.id ? next : row)); }}> {rule.isEnabled ? 'Disable' : 'Enable'} </button>
+                  </li>
+                ))}
+                {!engagementRules.length ? <li className="text-slate-500">No rules configured.</li> : null}
+              </ul>
+            </section>
+          </div>
+        </div>
       ) : null}
 
       {section === 'audit' ? (
