@@ -335,6 +335,8 @@ export default function MobileHomeSheets({
   onCreatePost,
   onBrowseJobs,
   onBrowseGigs,
+  onMatch,
+  onScroll,
   onCommunity,
   onMarketplace,
   onGroups,
