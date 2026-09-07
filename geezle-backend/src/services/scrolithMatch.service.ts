@@ -1,6 +1,7 @@
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
 import { NotificationService } from './notificationCenter';
+import { recordQualifiedOpportunity } from './engagementMilestones';
 
 export type MatchAccountType = 'FREELANCER' | 'CLIENT';
 type MatchAction = 'INTERESTED' | 'DISMISSED';
@@ -521,6 +522,15 @@ export const recordMatchAction = async (input: { userId: string; targetId: strin
     mutual = reciprocal?.action === 'INTERESTED';
     if (mutual) {
       const pair = [input.userId, input.targetId].sort().join(':');
+      void recordQualifiedOpportunity({
+        sourceEventId: `qualified-opportunity:match:${pair}`,
+        entityType: 'scrolith_match',
+        entityId: pair,
+        ownerId: input.targetId,
+        actorId: input.userId,
+        aggregateCount: 1,
+        metadata: { source: 'scrolithMatch.mutual' }
+      }).catch(error => console.error('Qualified opportunity milestone error:', error));
       await NotificationService.emitToUser(input.targetId, {
         type: 'scrolith_match_mutual', eventType: 'scrolith.match.mutual', category: 'social',
         actorId: input.userId, entityType: 'scrolith_match', entityId: pair,

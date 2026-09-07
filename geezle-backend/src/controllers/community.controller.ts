@@ -52,7 +52,7 @@ import {
   scoreCommunityPostForMode
 } from '../services/opportunityGraph.service';
 import { getActiveFeedRecipe } from '../services/discovery.service';
-import { ENGAGEMENT_EVENT_TYPES, recordEngagementSignal } from '../services/engagementMilestones';
+import { ENGAGEMENT_EVENT_TYPES, recordContentReach, recordEngagementSignal } from '../services/engagementMilestones';
 import {
   normalizeStoredContentOfferTags,
   resolveSubmittedContentOfferTags
@@ -1758,6 +1758,16 @@ export const postView = async (req: Request, res: Response) => {
       aggregateCount: Number(updatedPost.viewsCount || 0),
       metadata: { source: 'community.postView' }
     }).catch(error => console.error('Post impression milestone error:', error));
+
+    void recordContentReach({
+      sourceEventId: `content-reach:${eventKey}`,
+      entityType: 'community_post',
+      entityId: postId,
+      ownerId: String(updatedPost.authorId),
+      actorId: actorId || null,
+      aggregateCount: Number(updatedPost.viewsCount || 0),
+      metadata: { source: 'community.postView' }
+    }).catch(error => console.error('Content reach milestone error:', error));
 
     await emitPostMetricsUpdated(io, postId, 'view');
 
