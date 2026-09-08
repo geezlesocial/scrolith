@@ -14,6 +14,7 @@ ARG VITE_API_URL=https://api.scrolith.com/api
 ARG VITE_BACKEND_URL=https://api.scrolith.com
 ARG VITE_PUBLIC_APP_DOMAIN=scrolith.com
 ARG VITE_MESSAGES_TRACE_DEBUG=false
+ARG VITE_INSTANT_GRAPH_ENABLED=false
 
 RUN npm run build
 
