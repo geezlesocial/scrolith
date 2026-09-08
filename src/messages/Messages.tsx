@@ -819,6 +819,43 @@ const Messages = () => {
   }, [conversationId, dedupedConversations.length, user, navigate]);
 
   // Phase 22.2 — accept group invite via /messages/join/:code or ?invite=
+  // Deep-link hydration must run after the inbox list effect as well. The list can be
+  // stale or can collapse a legacy direct-message row, while the URL still points at
+  // the conversation the profile contact action created/opened.
+  useEffect(() => {
+      const requestedId = String(conversationId || '').trim();
+      if (!requestedId || requestedId === 'join') return;
+
+      let cancelled = false;
+      setActiveConvoId(requestedId);
+      void MessagingService.getConversationById(requestedId)
+          .then((deepLinked) => {
+              if (cancelled || !deepLinked?.id) return;
+              setConversations((previous) => {
+                  const merged = mergeDirectConversations(
+                      [deepLinked, ...previous.filter((entry) => entry.id !== deepLinked.id)],
+                      user?.id
+                  );
+                  const resolved = merged.find((entry) => entry.id === deepLinked.id) ||
+                      merged.find((entry) => {
+                          const ids = ((entry as any)?.mergedFromIds || (entry as any)?.merged_from_ids || []) as string[];
+                          return Array.isArray(ids) && ids.includes(deepLinked.id);
+                      });
+                  const canonicalId = resolved?.id || deepLinked.id;
+                  setActiveConvoId(canonicalId);
+                  if (canonicalId !== requestedId) {
+                      navigate(`/messages/${canonicalId}`, { replace: true });
+                  }
+                  return merged;
+              });
+          })
+          .catch(() => undefined);
+
+      return () => {
+          cancelled = true;
+      };
+  }, [conversationId, user?.id, navigate]);
+
   useEffect(() => {
       const code = String(inviteCodeParam || searchParams.get('invite') || '').trim();
       if (!code || !user?.id) return;

@@ -50,6 +50,7 @@ import {
   type PendingPostVideoScrollViewerSource
 } from '../../../utils/postVideoScrollBridge';
 import { resolveVerificationLevel } from '../../../utils/verification';
+import { resolvePublicAvailabilityFlags } from '../../../utils/publicAvailability';
 import { resolveVideoCaption } from '../../../utils/videoCaption';
 import FeedAdCard from './FeedAdCard';
 import RecommendedListingCard from './RecommendedListingCard';
@@ -876,6 +877,12 @@ export default function MobileFeed({
       post?.author?.userId ||
       post?.author?.user_id ||
       (authorType === 'user' ? authorId : null);
+    const publicAvailabilityFlags = resolvePublicAvailabilityFlags({
+      availability: post?.author?.availability ?? post?.author?.professionalAvailability ?? post?.availability ?? post?.professionalAvailability,
+      hiring: post?.author?.hiring ?? post?.author?.clientHiringStatus ?? post?.hiring ?? post?.clientHiringStatus,
+      availableForHire: post?.author?.availableForHire ?? post?.author?.available_for_hire ?? post?.availableForHire ?? post?.available_for_hire,
+      weAreHiring: post?.author?.weAreHiring ?? post?.author?.we_are_hiring ?? post?.weAreHiring ?? post?.we_are_hiring
+    });
 
     return {
       ...post,
@@ -904,7 +911,13 @@ export default function MobileFeed({
         type: authorType,
         businessSlug: post?.author?.businessSlug || post?.businessPage?.slug || null,
         isVerified: Boolean(post?.author?.isVerified ?? post?.authorIsVerified ?? post?.author_verified),
-        isPro: Boolean(post?.author?.isPro ?? post?.authorIsPro ?? post?.author_pro)
+        isPro: Boolean(post?.author?.isPro ?? post?.authorIsPro ?? post?.author_pro),
+        availability: post?.author?.availability ?? post?.author?.professionalAvailability ?? post?.availability ?? post?.professionalAvailability,
+        professionalAvailability: post?.author?.professionalAvailability ?? post?.author?.availability ?? post?.professionalAvailability ?? post?.availability,
+        hiring: post?.author?.hiring ?? post?.author?.clientHiringStatus ?? post?.hiring ?? post?.clientHiringStatus,
+        clientHiringStatus: post?.author?.clientHiringStatus ?? post?.author?.hiring ?? post?.clientHiringStatus ?? post?.hiring,
+        availableForHire: publicAvailabilityFlags.availableForHire,
+        weAreHiring: publicAvailabilityFlags.weAreHiring
       },
       viewer: {
         ...(post?.viewer || {}),

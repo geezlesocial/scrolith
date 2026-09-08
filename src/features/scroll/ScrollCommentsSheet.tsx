@@ -7,6 +7,7 @@ import { ScrollService, type ScrollComment, type ScrollVideo } from '../../servi
 import ReactionBar from '../../community/components/ReactionBar';
 import MentionText from '../../community/components/MentionText';
 import CommentAiAssist from '../../components/post/CommentAiAssist';
+import EnterpriseAvatar from '../../components/common/EnterpriseAvatar';
 
 type ScrollCommentsSheetProps = {
   scroll: ScrollVideo | null;
@@ -335,14 +336,17 @@ const ScrollCommentsSheet: React.FC<ScrollCommentsSheetProps> = ({
         className={`rounded-2xl border border-slate-100 bg-white/70 p-3 shadow-sm ${depth > 0 ? 'ml-5 mt-3' : 'mt-3'}`}
       >
         <div className="flex items-start gap-3">
-          <Link to={profileUrl} className="h-10 w-10 overflow-hidden rounded-full bg-slate-100">
-            {avatar ? (
-              <img src={avatar} alt={authorName} className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-slate-500">
-                {authorName.slice(0, 1)}
-              </div>
-            )}
+          <Link to={profileUrl} className="inline-flex h-10 w-10 overflow-visible rounded-full bg-slate-100">
+            <EnterpriseAvatar
+              user={comment}
+              src={avatar}
+              name={authorName}
+              size="md"
+              availableForHire={comment.availableForHire}
+              weAreHiring={comment.weAreHiring}
+              className="!h-full !w-full"
+              alt={authorName}
+            />
           </Link>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2 text-sm">

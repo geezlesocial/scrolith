@@ -1585,6 +1585,9 @@ export default function MobileStoriesStrip({
                         <div className="pointer-events-none absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
                           <StoryAuthorAvatar
                             src={avatar}
+                            user={story?.author || story}
+                            availableForHire={Boolean(story?.author?.availableForHire ?? story?.availableForHire)}
+                            weAreHiring={Boolean(story?.author?.weAreHiring ?? story?.weAreHiring)}
                             name={name}
                             initial={fallbackLetter}
                             className="inline-flex h-full w-full items-center justify-center bg-slate-700 text-[11px] font-semibold text-white"
@@ -2353,6 +2356,9 @@ function StoryViewer({
                 <button type="button" onClick={openAuthorProfile} className="flex min-w-0 items-center gap-3 text-left">
                   <StoryAuthorAvatar
                     src={avatar}
+                    user={story?.author || story}
+                    availableForHire={Boolean(story?.author?.availableForHire ?? story?.availableForHire)}
+                    weAreHiring={Boolean(story?.author?.weAreHiring ?? story?.weAreHiring)}
                     name={name}
                     initial={name[0] || 'S'}
                     className="inline-flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/20 bg-white/10 text-xs font-semibold text-white"
@@ -2369,6 +2375,9 @@ function StoryViewer({
                 <>
                   <StoryAuthorAvatar
                     src={avatar}
+                    user={story?.author || story}
+                    availableForHire={Boolean(story?.author?.availableForHire ?? story?.availableForHire)}
+                    weAreHiring={Boolean(story?.author?.weAreHiring ?? story?.weAreHiring)}
                     name={name}
                     initial={name[0] || 'S'}
                     className="inline-flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/20 bg-white/10 text-xs font-semibold text-white"

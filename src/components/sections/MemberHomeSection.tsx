@@ -113,7 +113,7 @@ import {
 } from '../../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
 import { filterUnfollowedRecommendations, recommendationIsFollowing } from '../../utils/recommendationVisibility';
-import { isPubliclyActiveAvailability } from '../../utils/publicAvailability';
+import { isPubliclyActiveAvailability, resolvePublicAvailabilityFlags } from '../../utils/publicAvailability';
 import { buildScrollVideoUrl } from '../../utils/scrollVideoRoutes';
 import { hydrateStoryAuthorAvatars } from '../../utils/storyAuthorAvatarHydration';
 import {
@@ -2602,6 +2602,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       post.author?.userId ||
       post.author?.user_id ||
       (authorType === 'user' ? authorId : null);
+    const publicAvailabilityFlags = resolvePublicAvailabilityFlags({
+      availability: post.author?.availability ?? post.author?.professionalAvailability ?? post.availability ?? post.professionalAvailability,
+      hiring: post.author?.hiring ?? post.author?.clientHiringStatus ?? post.hiring ?? post.clientHiringStatus,
+      availableForHire: post.author?.availableForHire ?? post.author?.available_for_hire ?? post.availableForHire ?? post.available_for_hire,
+      weAreHiring: post.author?.weAreHiring ?? post.author?.we_are_hiring ?? post.weAreHiring ?? post.we_are_hiring
+    });
     const aiInsightTextRaw = post.aiInsightText ?? post.ai_insight_text ?? null;
     const aiInsightText =
       aiInsightTextRaw === null || aiInsightTextRaw === undefined
@@ -2686,7 +2692,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         type: authorType,
         businessSlug: post.author?.businessSlug || post.businessPage?.slug || null,
         isVerified: Boolean(post.author?.isVerified),
-        isPro: Boolean(post.author?.isPro)
+        isPro: Boolean(post.author?.isPro),
+        availability: post.author?.availability ?? post.author?.professionalAvailability ?? post.availability ?? post.professionalAvailability,
+        professionalAvailability: post.author?.professionalAvailability ?? post.author?.availability ?? post.professionalAvailability ?? post.availability,
+        hiring: post.author?.hiring ?? post.author?.clientHiringStatus ?? post.hiring ?? post.clientHiringStatus,
+        clientHiringStatus: post.author?.clientHiringStatus ?? post.author?.hiring ?? post.clientHiringStatus ?? post.hiring,
+        availableForHire: publicAvailabilityFlags.availableForHire,
+        weAreHiring: publicAvailabilityFlags.weAreHiring
       },
       viewer: {
         isFollowingAuthor: post.viewer?.isFollowingAuthor
@@ -9369,6 +9381,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             return (
                               <StoryAuthorAvatar
                                 src={authorAvatar}
+                                user={story?.author || story}
+                                availableForHire={Boolean(story?.author?.availableForHire ?? story?.availableForHire)}
+                                weAreHiring={Boolean(story?.author?.weAreHiring ?? story?.weAreHiring)}
                                 name={authorName}
                                 initial={authorInitial}
                                 className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-white/90 bg-slate-700 text-[11px] font-semibold text-white shadow"
@@ -9437,21 +9452,17 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             const authorAvatar = resolveReelAuthorAvatar(scroll);
                             const authorInitial = resolveReelAuthorInitial(scroll);
                             return (
-                              <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
-                                {authorAvatar ? (
-                                  <OptimizedImage
-                                    src={authorAvatar}
-                                    alt={authorName}
-                                    width={96}
-                                    height={96}
-                                    sizes="48px"
-                                    className="h-full w-full object-cover"
-                                    loading="lazy"
-                                    decoding="async"
-                                  />
-                                ) : (
-                                  <span>{authorInitial}</span>
-                                )}
+                              <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-visible rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
+                                <EnterpriseAvatar
+                                  user={(scroll as any)?.author || scroll}
+                                  src={authorAvatar}
+                                  name={authorName}
+                                  size="sm"
+                                  availableForHire={Boolean((scroll as any)?.author?.availableForHire ?? (scroll as any)?.availableForHire)}
+                                  weAreHiring={Boolean((scroll as any)?.author?.weAreHiring ?? (scroll as any)?.weAreHiring)}
+                                  className="!h-full !w-full !text-[inherit]"
+                                  alt={authorName || authorInitial}
+                                />
                               </div>
                             );
                           })()}
@@ -9723,6 +9734,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     businessSlug: post.author?.businessSlug || post.businessPage?.slug || null,
                     isVerified: post.author?.isVerified,
                     isPro: post.author?.isPro,
+                    availability: (post.author as any)?.availability ?? (post.author as any)?.professionalAvailability ?? (post as any)?.availability ?? (post as any)?.professionalAvailability,
+                    professionalAvailability: (post.author as any)?.professionalAvailability ?? (post.author as any)?.availability ?? (post as any)?.professionalAvailability ?? (post as any)?.availability,
+                    hiring: (post.author as any)?.hiring ?? (post.author as any)?.clientHiringStatus ?? (post as any)?.hiring ?? (post as any)?.clientHiringStatus,
+                    clientHiringStatus: (post.author as any)?.clientHiringStatus ?? (post.author as any)?.hiring ?? (post as any)?.clientHiringStatus ?? (post as any)?.hiring,
+                    availableForHire: Boolean((post.author as any)?.availableForHire ?? (post.author as any)?.available_for_hire ?? (post as any)?.availableForHire ?? (post as any)?.available_for_hire),
+                    weAreHiring: Boolean((post.author as any)?.weAreHiring ?? (post.author as any)?.we_are_hiring ?? (post as any)?.weAreHiring ?? (post as any)?.we_are_hiring),
                     kycStatus: (post.author as any)?.kycStatus ?? (post.author as any)?.kyc_status,
                     verificationStatus:
                       (post.author as any)?.verificationStatus ?? (post.author as any)?.verification_status

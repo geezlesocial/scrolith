@@ -41,6 +41,10 @@ export interface ScrollVideo {
     avatar?: string | null;
     username?: string | null;
     isVerified?: boolean;
+    availability?: any;
+    hiring?: any;
+    availableForHire?: boolean;
+    weAreHiring?: boolean;
     email?: string | null;
     role?: string | null;
   };
@@ -72,6 +76,10 @@ export interface ScrollVideo {
       avatar?: string | null;
       username?: string | null;
       isVerified?: boolean;
+      availability?: any;
+      hiring?: any;
+      availableForHire?: boolean;
+      weAreHiring?: boolean;
     };
     title?: string | null;
     description?: string | null;
@@ -209,6 +217,10 @@ export interface ScrollComment {
   userName?: string;
   userUsername?: string | null;
   userAvatar?: string | null;
+  availability?: any;
+  hiring?: any;
+  availableForHire?: boolean;
+  weAreHiring?: boolean;
   content?: string;
   status?: 'active' | 'deleted' | string;
   deletedAt?: string | null;

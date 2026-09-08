@@ -83,6 +83,7 @@ import {
 } from '../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../utils/userAvatar';
 import { filterUnfollowedRecommendations } from '../utils/recommendationVisibility';
+import { resolvePublicAvailabilityFlags } from '../utils/publicAvailability';
 import { hydrateStoryAuthorAvatars } from '../utils/storyAuthorAvatarHydration';
 import {
   filterExistingActiveStories,
@@ -991,6 +992,12 @@ const CommunityHome = () => {
       post.author?.userId ||
       post.author?.user_id ||
       (authorType === 'user' ? authorId : null);
+    const publicAvailabilityFlags = resolvePublicAvailabilityFlags({
+      availability: post.author?.availability ?? post.author?.professionalAvailability ?? post.availability ?? post.professionalAvailability,
+      hiring: post.author?.hiring ?? post.author?.clientHiringStatus ?? post.hiring ?? post.clientHiringStatus,
+      availableForHire: post.author?.availableForHire ?? post.author?.available_for_hire ?? post.availableForHire ?? post.available_for_hire,
+      weAreHiring: post.author?.weAreHiring ?? post.author?.we_are_hiring ?? post.weAreHiring ?? post.we_are_hiring
+    });
 
     return {
       id: post.id || `${authorId}-${Date.now()}`,
@@ -1016,7 +1023,13 @@ const CommunityHome = () => {
         type: authorType,
         businessSlug: post.author?.businessSlug || post.businessPage?.slug || null,
         isVerified: Boolean(post.author?.isVerified),
-        isPro: Boolean(post.author?.isPro)
+        isPro: Boolean(post.author?.isPro),
+        availability: post.author?.availability ?? post.author?.professionalAvailability ?? post.availability ?? post.professionalAvailability,
+        professionalAvailability: post.author?.professionalAvailability ?? post.author?.availability ?? post.professionalAvailability ?? post.availability,
+        hiring: post.author?.hiring ?? post.author?.clientHiringStatus ?? post.hiring ?? post.clientHiringStatus,
+        clientHiringStatus: post.author?.clientHiringStatus ?? post.author?.hiring ?? post.clientHiringStatus ?? post.hiring,
+        availableForHire: publicAvailabilityFlags.availableForHire,
+        weAreHiring: publicAvailabilityFlags.weAreHiring
       },
       viewer: {
         isFollowingAuthor: post.viewer?.isFollowingAuthor
@@ -3374,6 +3387,9 @@ const CommunityHome = () => {
                             return (
                               <StoryAuthorAvatar
                                 src={authorAvatar}
+                                user={story?.author || story}
+                                availableForHire={Boolean(story?.author?.availableForHire ?? story?.availableForHire)}
+                                weAreHiring={Boolean(story?.author?.weAreHiring ?? story?.weAreHiring)}
                                 name={authorName}
                                 initial={authorInitial}
                                 className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-white/90 bg-slate-700 text-[11px] font-semibold text-white shadow"
@@ -3442,21 +3458,17 @@ const CommunityHome = () => {
                             const authorAvatar = resolveReelAuthorAvatar(scroll);
                             const authorInitial = resolveReelAuthorInitial(scroll);
                             return (
-                              <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
-                                {authorAvatar ? (
-                                  <OptimizedImage
-                                    src={authorAvatar}
-                                    alt={authorName}
-                                    width={96}
-                                    height={96}
-                                    sizes="48px"
-                                    className="h-full w-full object-cover"
-                                    loading="lazy"
-                                    decoding="async"
-                                  />
-                                ) : (
-                                  <span>{authorInitial}</span>
-                                )}
+                              <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-visible rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
+                                <EnterpriseAvatar
+                                  user={scroll?.author || scroll}
+                                  src={authorAvatar}
+                                  name={authorName}
+                                  size="sm"
+                                  availableForHire={Boolean((scroll as any)?.author?.availableForHire ?? (scroll as any)?.availableForHire)}
+                                  weAreHiring={Boolean((scroll as any)?.author?.weAreHiring ?? (scroll as any)?.weAreHiring)}
+                                  className="!h-full !w-full !text-[inherit]"
+                                  alt={authorName || authorInitial}
+                                />
                               </div>
                             );
                           })()}

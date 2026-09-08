@@ -2,6 +2,7 @@ import { UserService } from '../services/user';
 import { resolveAssetUrl } from './assetUrl';
 import { resolvePostAttachmentMediaUrl } from './postAttachmentMedia';
 import { resolveUserAvatarUrl } from './userAvatar';
+import { resolvePublicAvailabilityFlags } from './publicAvailability';
 
 type HydratedStoryAuthor = {
   id?: string;
@@ -9,6 +10,12 @@ type HydratedStoryAuthor = {
   username?: string;
   avatarUrl?: string;
   profilePhotoFileId?: string;
+  availability?: any;
+  professionalAvailability?: any;
+  hiring?: any;
+  clientHiringStatus?: any;
+  availableForHire?: boolean;
+  weAreHiring?: boolean;
 };
 
 const authorCache = new Map<string, Promise<HydratedStoryAuthor | null>>();
@@ -56,6 +63,15 @@ const resolveProfilePhotoFileId = (value: any) =>
 
 const resolveHydratedAuthor = (profile: any): HydratedStoryAuthor | null => {
   if (!profile || typeof profile !== 'object') return null;
+  const publicAvailabilityFlags = resolvePublicAvailabilityFlags(profile);
+  const publicStatus = {
+    availability: profile.availability ?? profile.professionalAvailability,
+    professionalAvailability: profile.professionalAvailability ?? profile.availability,
+    hiring: profile.hiring ?? profile.clientHiringStatus,
+    clientHiringStatus: profile.clientHiringStatus ?? profile.hiring,
+    availableForHire: publicAvailabilityFlags.availableForHire,
+    weAreHiring: publicAvailabilityFlags.weAreHiring
+  };
   const profilePhotoFileId = resolveProfilePhotoFileId(profile);
   const directAvatar = pickFirstString(
     profile.avatarUrl,
@@ -71,7 +87,8 @@ const resolveHydratedAuthor = (profile: any): HydratedStoryAuthor | null => {
       name: pickFirstString(profile.name, profile.displayName, profile.display_name, profile.username),
       username: pickFirstString(profile.username, profile.userName, profile.user_name),
       avatarUrl: resolveAssetUrl(directAvatar),
-      profilePhotoFileId
+      profilePhotoFileId,
+      ...publicStatus
     };
   }
 
@@ -87,7 +104,8 @@ const resolveHydratedAuthor = (profile: any): HydratedStoryAuthor | null => {
     name: pickFirstString(profile.name, profile.displayName, profile.display_name, profile.username),
     username: pickFirstString(profile.username, profile.userName, profile.user_name),
     avatarUrl,
-    profilePhotoFileId
+    profilePhotoFileId,
+    ...publicStatus
   };
 };
 
@@ -169,7 +187,7 @@ export const mergeStoryAuthorAvatar = (story: any, author: HydratedStoryAuthor |
   if (!story || !author) return story;
   const avatarUrl = pickFirstString(author.avatarUrl);
   const profilePhotoFileId = pickFirstString(author.profilePhotoFileId);
-  if (!avatarUrl && !profilePhotoFileId) return story;
+  if (!avatarUrl && !profilePhotoFileId && author.availableForHire === undefined && author.weAreHiring === undefined) return story;
 
   return {
     ...story,
@@ -188,7 +206,13 @@ export const mergeStoryAuthorAvatar = (story: any, author: HydratedStoryAuthor |
       profilePhotoFileId: profilePhotoFileId || story.author?.profilePhotoFileId || story.authorAvatarFileId,
       profile_photo_file_id: profilePhotoFileId || story.author?.profile_photo_file_id,
       avatarFileId: profilePhotoFileId || story.author?.avatarFileId,
-      avatar_file_id: profilePhotoFileId || story.author?.avatar_file_id
+      avatar_file_id: profilePhotoFileId || story.author?.avatar_file_id,
+      availability: author.availability,
+      professionalAvailability: author.professionalAvailability,
+      hiring: author.hiring,
+      clientHiringStatus: author.clientHiringStatus,
+      availableForHire: author.availableForHire,
+      weAreHiring: author.weAreHiring
     }
   };
 };

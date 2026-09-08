@@ -630,6 +630,9 @@ export default function StoryViewer({
             >
               <StoryAuthorAvatar
                 src={avatar}
+                user={story?.author || story}
+                availableForHire={Boolean(story?.author?.availableForHire ?? story?.availableForHire)}
+                weAreHiring={Boolean(story?.author?.weAreHiring ?? story?.weAreHiring)}
                 name={name}
                 initial={name.charAt(0) || 'S'}
                 className="inline-flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/25 bg-white/10 text-xs font-semibold text-white"
