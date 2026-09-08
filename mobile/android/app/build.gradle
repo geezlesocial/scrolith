@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 1.3.6 - profile-to-inbox deep links and realtime public status avatars.
-        versionCode 117
-        versionName "1.3.6"
+        // 1.3.7 - feature-flagged passkey/WebAuthn support and Android WebView stability.
+        versionCode 118
+        versionName "1.3.7"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]
