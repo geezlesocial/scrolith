@@ -11,9 +11,9 @@ $GeezleRoot = if ($env:SCROLITH_RELEASE_GEEZLE_ROOT) {
   $DefaultGeezleRoot
 }
 $AndroidRoot = Join-Path $MobileRoot 'android'
-$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.98'
-$VersionCode = 108
-$VersionName = '1.1.98'
+$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.3.4'
+$VersionCode = 115
+$VersionName = '1.3.4'
 $WebCommit = (git -C $GeezleRoot rev-parse HEAD 2>$null)
 if (-not $WebCommit) { $WebCommit = 'unknown' }
 
@@ -164,12 +164,12 @@ $meta = @{
   webCommit = $WebCommit
   minifyEnabled = $true
   shrinkResources = $true
-  phase = 'native-shell-phase2-bridge-and-navigation-pilot-1.1.98'
+  phase = 'instant-graph-phase1'
   targetSdk = 36
   compileSdk = 36
   minSdk = 24
-  productionBackendRevision = 'ca-scrolith-backend--public-hiring-fix-475c3b603'
-  productionFrontendRevision = 'ca-scrolith-frontend--public-hiring-fix-abcbc1c0'
+  productionBackendRevision = 'ca-scrolith-backend--instant-graph-d13472048'
+  productionFrontendRevision = 'ca-scrolith-frontend--instant-graph-d13472048'
   productionApi = 'https://api.scrolith.com'
   productionAppUrl = 'https://scrolith.com'
   googlePlayUploadPerformed = $false
