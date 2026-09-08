@@ -4,6 +4,8 @@ import realtime from '../utils/realtime';
 import { addFileUsage, removeUsage } from '../utils/fileUsage';
 import { resolveDirectMediaUrl, resolveFileBaseUrl } from '../utils/mediaUrl';
 import { buildStoryActionUrl, deliverStoryEngagementAlert } from '../services/storyEngagementDelivery.service';
+import { serializeProfessionalAvailability } from '../services/professionalAvailability.service';
+import { serializeClientHiringStatus } from '../services/clientHiringStatus.service';
 
 const DISK_ID_PREFIX = 'disk:';
 const DEFAULT_VIDEO_THUMBNAIL_FILENAME = '__video_fallback_thumbnail.svg';
@@ -243,7 +245,9 @@ const STORY_AUTHOR_SELECT = {
   name: true,
   avatar: true,
   username: true,
-  profilePhotoFileId: true
+  profilePhotoFileId: true,
+  professionalAvailability: true,
+  clientHiringStatus: true
 };
 
 const getStoryEngagementField = (type: string) => {
@@ -323,6 +327,8 @@ const buildStoryPayload = async (
   const authorAvatarFileId =
     story.author?.profilePhotoFileId || (looksLikeStoredFileId(rawAuthorAvatar) ? rawAuthorAvatar : null);
   const authorName = story.author?.name || story.author?.username || 'Anonymous';
+  const availability = serializeProfessionalAvailability(story.author?.professionalAvailability, { publicOnly: true });
+  const hiring = serializeClientHiringStatus(story.author?.clientHiringStatus, { publicOnly: true });
   return {
     id: story.id,
     authorId: story.authorId,
@@ -337,7 +343,13 @@ const buildStoryPayload = async (
       avatarUrl: authorAvatar,
       avatar: authorAvatar,
       profilePhotoFileId: authorAvatarFileId,
-      avatarFileId: authorAvatarFileId
+      avatarFileId: authorAvatarFileId,
+      availability,
+      professionalAvailability: availability,
+      hiring,
+      clientHiringStatus: hiring,
+      availableForHire: Boolean(availability),
+      weAreHiring: Boolean(hiring)
     },
     type: story.type,
     content: story.content,

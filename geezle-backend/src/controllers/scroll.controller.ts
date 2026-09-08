@@ -29,6 +29,8 @@ import {
   recordFeedIntentSignal,
   scoreScrollForMode
 } from '../services/opportunityGraph.service';
+import { serializeProfessionalAvailability } from '../services/professionalAvailability.service';
+import { serializeClientHiringStatus } from '../services/clientHiringStatus.service';
 
 const SCROLL_VISIBILITIES = new Set(['public', 'network', 'followers', 'private']);
 const SCROLL_FILTER_PRESETS = new Set(['none', 'vibrant', 'cinematic', 'bw', 'sepia', 'warm']);
@@ -690,7 +692,9 @@ const buildSourceScrollSummaryMap = async (
             name: true,
             avatar: true,
             username: true,
-            isVerified: true
+            isVerified: true,
+            professionalAvailability: true,
+            clientHiringStatus: true
           }
         })
       : Promise.resolve([]),
@@ -717,7 +721,11 @@ const buildSourceScrollSummaryMap = async (
         name: author?.name || 'Community member',
         avatar: resolveDirectMediaUrl(author?.avatar, getBaseFileUrl(req)) || author?.avatar || null,
         username: author?.username || null,
-        isVerified: Boolean(author?.isVerified)
+        isVerified: Boolean(author?.isVerified),
+        availability: serializeProfessionalAvailability(author?.professionalAvailability, { publicOnly: true }),
+        hiring: serializeClientHiringStatus(author?.clientHiringStatus, { publicOnly: true }),
+        availableForHire: Boolean(serializeProfessionalAvailability(author?.professionalAvailability, { publicOnly: true })),
+        weAreHiring: Boolean(serializeClientHiringStatus(author?.clientHiringStatus, { publicOnly: true }))
       },
       title: row.title || null,
       description: row.description || null,
@@ -933,7 +941,9 @@ const fetchScrollPayloadList = async (
             username: true,
             isVerified: true,
             email: true,
-            role: true
+            role: true,
+            professionalAvailability: true,
+            clientHiringStatus: true
           }
         })
       : Promise.resolve([]),
@@ -1031,6 +1041,10 @@ const fetchScrollPayloadList = async (
         avatar: resolveDirectMediaUrl(author?.avatar, getBaseFileUrl(req)) || author?.avatar || null,
         username: author?.username || null,
         isVerified: Boolean(author?.isVerified),
+        availability: serializeProfessionalAvailability(author?.professionalAvailability, { publicOnly: true }),
+        hiring: serializeClientHiringStatus(author?.clientHiringStatus, { publicOnly: true }),
+        availableForHire: Boolean(serializeProfessionalAvailability(author?.professionalAvailability, { publicOnly: true })),
+        weAreHiring: Boolean(serializeClientHiringStatus(author?.clientHiringStatus, { publicOnly: true })),
         ...(includeAdminFields
           ? {
               email: author?.email || null,
@@ -1164,6 +1178,10 @@ const buildScrollCommentPayload = (
     userName: author?.name || 'Community member',
     userUsername: author?.username || null,
     userAvatar: author?.avatar || null,
+    availability: serializeProfessionalAvailability(author?.professionalAvailability, { publicOnly: true }),
+    hiring: serializeClientHiringStatus(author?.clientHiringStatus, { publicOnly: true }),
+    availableForHire: Boolean(serializeProfessionalAvailability(author?.professionalAvailability, { publicOnly: true })),
+    weAreHiring: Boolean(serializeClientHiringStatus(author?.clientHiringStatus, { publicOnly: true })),
     content: isDeleted ? '' : String(comment.content || ''),
     status: comment.status,
     deletedAt: comment.deletedAt ? new Date(comment.deletedAt).toISOString() : null,
@@ -1190,7 +1208,14 @@ const loadScrollCommentsBundle = async (req: Request, scrollId: string, viewerId
     authorIds.length
       ? prisma.user.findMany({
           where: { id: { in: authorIds } },
-          select: { id: true, name: true, username: true, avatar: true }
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            avatar: true,
+            professionalAvailability: true,
+            clientHiringStatus: true
+          }
         })
       : Promise.resolve([]),
     loadScrollCommentReactionSummaryMap(
@@ -1229,7 +1254,14 @@ const buildSingleScrollCommentPayload = async (req: Request, comment: any, viewe
     authorIds.length
       ? prisma.user.findMany({
           where: { id: { in: authorIds } },
-          select: { id: true, name: true, username: true, avatar: true }
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            avatar: true,
+            professionalAvailability: true,
+            clientHiringStatus: true
+          }
         })
       : Promise.resolve([]),
     loadScrollCommentReactionSummaryMap([String(comment.id)], viewerId)

@@ -25,6 +25,8 @@ import {
   absolutizePublicMediaUrl,
   isVideoFileStorageAvailable
 } from './storage/videoStorageAvailability';
+import { serializeProfessionalAvailability } from './professionalAvailability.service';
+import { serializeClientHiringStatus } from './clientHiringStatus.service';
 
 export type OrchestratedSurface = 'member_home' | 'community';
 
@@ -158,13 +160,21 @@ const mapAuthor = (userLike: any, pageLike?: any) => {
     };
   }
   if (!userLike?.id) return null;
+  const availability = serializeProfessionalAvailability(userLike.professionalAvailability, { publicOnly: true });
+  const hiring = serializeClientHiringStatus(userLike.clientHiringStatus, { publicOnly: true });
   return {
     id: userLike.id,
     type: 'user',
     displayName: userLike.name || userLike.username || 'Member',
     username: userLike.username || null,
     avatarUrl: userLike.avatar || userLike.avatarUrl || null,
-    businessSlug: null
+    businessSlug: null,
+    availability,
+    professionalAvailability: availability,
+    hiring,
+    clientHiringStatus: hiring,
+    availableForHire: Boolean(availability),
+    weAreHiring: Boolean(hiring)
   };
 };
 
@@ -758,7 +768,16 @@ async function collectPosts(input: {
       createdAt: true,
       updatedAt: true,
       author: {
-        select: { id: true, name: true, username: true, avatar: true, role: true, isVerified: true }
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          avatar: true,
+          role: true,
+          isVerified: true,
+          professionalAvailability: true,
+          clientHiringStatus: true
+        }
       },
       businessPage: {
         select: { id: true, name: true, slug: true, handle: true, tagline: true }
@@ -896,7 +915,16 @@ async function collectJobsGigs(
             isRecommended: true,
             proposalsCount: true,
             createdAt: true,
-            client: { select: { id: true, name: true, username: true, avatar: true } }
+            client: {
+              select: {
+                id: true,
+                name: true,
+                username: true,
+                avatar: true,
+                professionalAvailability: true,
+                clientHiringStatus: true
+              }
+            }
           } as any
         })
         .catch(() => []),
@@ -921,7 +949,16 @@ async function collectJobsGigs(
             isFeatured: true,
             isRecommended: true,
             createdAt: true,
-            user: { select: { id: true, name: true, username: true, avatar: true } }
+            user: {
+              select: {
+                id: true,
+                name: true,
+                username: true,
+                avatar: true,
+                professionalAvailability: true,
+                clientHiringStatus: true
+              }
+            }
           } as any
         })
         .catch(() =>
@@ -943,7 +980,16 @@ async function collectJobsGigs(
                 isFeatured: true,
                 isRecommended: true,
                 createdAt: true,
-                user: { select: { id: true, name: true, username: true, avatar: true } }
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    username: true,
+                    avatar: true,
+                    professionalAvailability: true,
+                    clientHiringStatus: true
+                  }
+                }
               } as any
             })
             .catch(() => [])
@@ -1139,6 +1185,8 @@ async function collectPeoplePages(
           avatar: true,
           role: true,
           isVerified: true,
+          professionalAvailability: true,
+          clientHiringStatus: true,
           updatedAt: true,
           profile: {
             select: {
@@ -1526,7 +1574,16 @@ async function collectStoriesScroll(take: number, seen: Set<string>): Promise<Ca
             mediaFileId: true,
             createdAt: true,
             expiresAt: true,
-            author: { select: { id: true, name: true, username: true, avatar: true } }
+          author: {
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              avatar: true,
+              professionalAvailability: true,
+              clientHiringStatus: true
+            }
+          }
           }
         })
         .catch(() => []),
@@ -1554,7 +1611,14 @@ async function collectStoriesScroll(take: number, seen: Set<string>): Promise<Ca
       ? await prisma.user
           .findMany({
             where: { id: { in: authorIds } },
-            select: { id: true, name: true, username: true, avatar: true }
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              avatar: true,
+              professionalAvailability: true,
+              clientHiringStatus: true
+            }
           })
           .catch(() => [])
       : [];
