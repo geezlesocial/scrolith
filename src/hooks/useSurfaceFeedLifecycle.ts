@@ -62,7 +62,8 @@ export function useSurfaceFeedLifecycle(
     ...feedOptions,
     surface,
     isMobile,
-    dataSaver
+    dataSaver,
+    viewerKey
   });
 
   const restoredRef = useRef(false);

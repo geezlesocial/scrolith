@@ -176,6 +176,20 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .catch(() => undefined);
   }, [isAuthenticated, user?.id]);
 
+  // Phase 1 Instant Graph: warm only non-sensitive critical metadata after the
+  // shell is interactive. The existing feed lifecycle owns the live feed fetch;
+  // this background path fills badges/conversation metadata and never blocks auth.
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) return;
+    let stop: (() => void) | undefined;
+    void import('../services/instantGraph')
+      .then(({ startInstantGraphPrefetch }) => {
+        stop = startInstantGraphPrefetch(String(user.id));
+      })
+      .catch(() => undefined);
+    return () => stop?.();
+  }, [isAuthenticated, user?.id]);
+
   // Get admin profile from localStorage
   const getAdminProfile = () => {
     try {
@@ -356,6 +370,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    const previousUserId = user?.id ? String(user.id) : null;
     setUser(null);
     setActiveRoleOverride(null);
     setIsAuthenticated(false);
@@ -373,6 +388,11 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .catch(() => {
         // best-effort
       });
+
+    // Do not leave private feed/conversation metadata on a shared device after logout.
+    void import('../services/instantGraph')
+      .then(({ clearInstantGraphUser }) => clearInstantGraphUser(previousUserId))
+      .catch(() => undefined);
 
     void AuthService.clearToken();
     void (async () => {

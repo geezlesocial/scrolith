@@ -24,8 +24,15 @@ import {
   buildStreamFromMemberFeedPage,
   buildStreamFromPosts,
   mergeStreamEntries,
+  postsFromStream,
   type FeedStreamEntry
 } from '../utils/feedStream';
+import {
+  collectInstantGraphMediaUrls,
+  readInstantGraphSnapshot,
+  warmInstantGraphMediaBatch,
+  writeInstantGraphSnapshot
+} from '../services/instantGraph';
 import { emitFeedAnalytics, measureFeedRequest } from '../utils/feedAnalytics';
 import { resolveFeedTerminalState } from '../utils/continuousFeed';
 import {
@@ -63,6 +70,8 @@ export type UseContinuousFeedOptions = {
   }) => Promise<{ posts: any[]; nextCursor: string | null; hasMore?: boolean } | null>;
   /** Authenticated viewer required for orchestrator. */
   isAuthenticated?: boolean;
+  /** User scope for the additive Instant Graph cache. */
+  viewerKey?: string;
 };
 
 export type UseContinuousFeedResult = {
@@ -104,7 +113,8 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
     dataSaver = false,
     basePageSize = 12,
     legacyFetch,
-    isAuthenticated = true
+    isAuthenticated = true,
+    viewerKey = ''
   } = options;
 
   const [stream, setStream] = useState<FeedStreamEntry[]>([]);
@@ -136,6 +146,7 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
   const sessionIdRef = useRef(createFeedSessionId(surface));
   const sessionKeyRef = useRef(`${surface}:${feedMode}`);
   const lastHeadPostIdRef = useRef<string | null>(null);
+  const hydratedInstantGraphRef = useRef(false);
 
   const networkClass = useMemo(
     () =>
@@ -278,6 +289,30 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
   const load = useCallback(
     async (mode: ContinuousFeedMode = 'initial') => {
       if (!enabled) return;
+
+      // Restore a bounded, user-scoped read snapshot before checking the network.
+      // The live request below remains authoritative and session-stability rules
+      // protect the current reading position when fresh data arrives.
+      if (mode === 'initial' && isAuthenticated && viewerKey && !hydratedInstantGraphRef.current) {
+        hydratedInstantGraphRef.current = true;
+        const cached = await readInstantGraphSnapshot(viewerKey);
+        const cachedPosts = cached?.feed?.posts || [];
+        if (cachedPosts.length > 0) {
+          const cachedStream = Array.isArray(cached?.feed?.stream) && cached.feed.stream.length
+            ? (cached.feed.stream as FeedStreamEntry[])
+            : buildStreamFromPosts(cachedPosts);
+          const cachedCursor = cached?.feed?.cursor ? String(cached.feed.cursor) : null;
+          streamRef.current = cachedStream;
+          cursorRef.current = cachedCursor;
+          setStream(cachedStream);
+          setCursor(cachedCursor);
+          setRenderedCount(Math.min(policy.progressiveInitialWindow, cachedStream.length));
+          setLoading(false);
+          setError(null);
+          setStatusMessage('Showing your saved feed while we refresh.');
+        }
+      }
+
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         setStatusMessage('You are offline. Showing cached feed when available.');
         if (streamRef.current.length === 0) {
@@ -366,6 +401,19 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
         if (page && (page.items?.length || page.posts?.length || page.hasMore)) {
           setTransport('orchestrated');
           const incoming = buildStreamFromMemberFeedPage(page);
+          if (viewerKey && incoming.length > 0) {
+            void writeInstantGraphSnapshot(viewerKey, {
+              feed: {
+                posts: page.posts || postsFromStream(incoming),
+                stream: incoming,
+                cursor: page.nextCursor
+              }
+            });
+            void warmInstantGraphMediaBatch(collectInstantGraphMediaUrls(page.posts || postsFromStream(incoming)), {
+              signal: controller.signal,
+              max: policy.maxRetainedItems > 100 ? 12 : 8
+            });
+          }
           // Phase 21.1.4 — soft refresh must NOT reorder or replace the visible session.
           // Phase 21.1.7c — re-initial against a live session is also isolated (WebKit remount /
           // feedMode flicker previously hard-replaced the reading head).
@@ -489,6 +537,19 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
               mode,
               mode === 'initial' ? incoming.length : addedCount
             );
+            if (viewerKey && incoming.length > 0) {
+              void writeInstantGraphSnapshot(viewerKey, {
+                feed: {
+                  posts: legacy.posts || postsFromStream(incoming),
+                  stream: incoming,
+                  cursor: legacy.nextCursor
+                }
+              });
+              void warmInstantGraphMediaBatch(collectInstantGraphMediaUrls(legacy.posts || postsFromStream(incoming)), {
+                signal: controller.signal,
+                max: 8
+              });
+            }
             measureFeedRequest(surface, startedAt, 'success', { transport: 'legacy' });
             setError(null);
             return;
@@ -531,8 +592,10 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
       feedMode,
       pageSize,
       isAuthenticated,
+      viewerKey,
       legacyFetch,
       policy.maxRetainedItems,
+      policy.progressiveInitialWindow,
       commitStream
     ]
   );

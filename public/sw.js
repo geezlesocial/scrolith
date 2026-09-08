@@ -1,7 +1,12 @@
-const VERSION = 'v15-20260612-cache-reset';
-const STATIC_CACHE = `scrolith-static-${VERSION}`;
-const API_CACHE = `scrolith-api-${VERSION}`;
-const APP_SHELL = [];
+/* Scrolith Instant Graph Phase 1 service worker.
+ * Scope is intentionally limited to public navigation/media caching. Authenticated
+ * API responses and private message media are never cached here.
+ */
+const VERSION = 'scrolith-instant-shell-v1';
+const MEDIA_CACHE = 'scrolith-instant-media-v1';
+const MEDIA_LIMIT = 80;
+const STATIC_CACHE = 'scrolith-static-v15-20260612-cache-reset';
+const API_CACHE = 'scrolith-api-v15-20260612-cache-reset';
 const FEED_PATH_HINTS = ['/api/community/feed', '/api/community/stories/feed', '/api/scroll/feed'];
 const OFFLINE_DOCUMENT = `<!doctype html>
 <html lang="en">
@@ -59,67 +64,47 @@ const OFFLINE_DOCUMENT = `<!doctype html>
 </html>`;
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    Promise.resolve()
-      .then(() => {
-        if (!APP_SHELL.length) return undefined;
-        return caches
-          .open(STATIC_CACHE)
-          .then((cache) => cache.addAll(APP_SHELL))
-          .catch(() => undefined);
-      })
-      .then(() => self.skipWaiting())
-  );
+  event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches
-      .keys()
-      .then((keys) =>
-        Promise.all(
-          keys
-            .filter((key) => key !== STATIC_CACHE && key !== API_CACHE)
-            .map((key) => caches.delete(key))
-        )
-      )
-      .then(() => self.clients.claim())
+    caches.keys().then((keys) => Promise.all(
+      keys
+        .filter((key) => key !== STATIC_CACHE && key !== API_CACHE && key !== MEDIA_CACHE)
+        .map((key) => caches.delete(key))
+    )).then(() => self.clients.claim())
   );
 });
 
-const isFeedRequest = (url) => FEED_PATH_HINTS.some((path) => url.pathname.includes(path));
-
-const shouldCacheStaticAsset = (request, url) => {
-  if (request.method !== 'GET') return false;
-  if (request.destination === 'document') return false;
-  if (url.origin !== self.location.origin) return false;
-  return ['style', 'script', 'font', 'image'].includes(request.destination);
+const isPublicMedia = (url) => {
+  if (!/^https?:$/.test(url.protocol)) return false;
+  const path = url.pathname.toLowerCase();
+  const allowedOrigin = url.origin === self.location.origin || /(^|\.)api\.scrolith\.com$/i.test(url.hostname);
+  return allowedOrigin &&
+    (path.includes('/api/files/content/') || /\.(avif|gif|jpe?g|png|webp)$/.test(path));
 };
+
+const isFeedRequest = (url) => FEED_PATH_HINTS.some((path) => url.pathname.includes(path));
+const shouldCacheStaticAsset = (request, url) =>
+  request.method === 'GET' && request.destination !== 'document' && url.origin === self.location.origin &&
+  ['style', 'script', 'font', 'image'].includes(request.destination);
 
 const staleWhileRevalidate = async (request, cacheName) => {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
-  const networkPromise = fetch(request)
-    .then((response) => {
-      if (response && response.ok) {
-        cache.put(request, response.clone()).catch(() => undefined);
-      }
-      return response;
-    })
-    .catch(() => undefined);
-
-  if (cached) return cached;
-  const network = await networkPromise;
-  return network || cached;
+  const networkPromise = fetch(request).then((response) => {
+    if (response?.ok) cache.put(request, response.clone()).catch(() => undefined);
+    return response;
+  }).catch(() => undefined);
+  return cached || (await networkPromise);
 };
 
 const networkFirst = async (request, cacheName) => {
   const cache = await caches.open(cacheName);
   try {
     const response = await fetch(request);
-    if (response && response.ok) {
-      cache.put(request, response.clone()).catch(() => undefined);
-    }
+    if (response?.ok) cache.put(request, response.clone()).catch(() => undefined);
     return response;
   } catch {
     const cached = await cache.match(request);
@@ -128,33 +113,46 @@ const networkFirst = async (request, cacheName) => {
   }
 };
 
-self.addEventListener('fetch', (event) => {
-  const { request } = event;
-  if (request.method !== 'GET') return;
+const trimMediaCache = async (cache) => {
+  const requests = await cache.keys();
+  if (requests.length <= MEDIA_LIMIT) return;
+  await Promise.all(requests.slice(0, requests.length - MEDIA_LIMIT).map((request) => cache.delete(request)));
+};
 
+self.addEventListener('fetch', (event) => {
+  const request = event.request;
+  if (request.method !== 'GET') return;
   const url = new URL(request.url);
 
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request).catch(() => {
-        return new Response(OFFLINE_DOCUMENT, {
-          status: 503,
-          headers: {
-            'Content-Type': 'text/html; charset=UTF-8',
-            'Cache-Control': 'no-store',
-          },
-        });
-      })
-    );
+  if (isPublicMedia(url)) {
+    event.respondWith((async () => {
+      const cache = await caches.open(MEDIA_CACHE);
+      const cached = await cache.match(request);
+      if (cached) return cached;
+      try {
+        const response = await fetch(request);
+        if (response.ok) {
+          await cache.put(request, response.clone());
+          await trimMediaCache(cache);
+        }
+        return response;
+      } catch {
+        return cached || Response.error();
+      }
+    })());
     return;
   }
 
+  if (request.mode === 'navigate') {
+    event.respondWith(fetch(request).catch(() => new Response(OFFLINE_DOCUMENT, {
+      status: 503,
+      headers: { 'Content-Type': 'text/html; charset=UTF-8', 'Cache-Control': 'no-store' }
+    })));
+    return;
+  }
   if (isFeedRequest(url)) {
     event.respondWith(networkFirst(request, API_CACHE));
     return;
   }
-
-  if (shouldCacheStaticAsset(request, url)) {
-    event.respondWith(staleWhileRevalidate(request, STATIC_CACHE));
-  }
+  if (shouldCacheStaticAsset(request, url)) event.respondWith(staleWhileRevalidate(request, STATIC_CACHE));
 });
