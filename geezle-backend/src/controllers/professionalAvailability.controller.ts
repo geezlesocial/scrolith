@@ -6,6 +6,7 @@ import {
   updateProfessionalAvailability
 } from '../services/professionalAvailability.service';
 import prisma from '../utils/prismaClient';
+import { emitPublicProfileStatus } from '../utils/profileStatusRealtime';
 
 const authId = (req: Request) => req.user?.id;
 const ok = (res: Response, data: unknown) => res.json({ success: true, data });
@@ -27,6 +28,7 @@ export const updateMyAvailability = async (req: Request, res: Response) => {
   if (!userId) return fail(res, 401, 'Unauthorized');
   try {
     const availability = await updateProfessionalAvailability(userId, req.body || {});
+    await emitPublicProfileStatus(req, userId, 'profile:availability_updated');
     return ok(res, serializeProfessionalAvailability(availability));
   } catch (error: any) {
     return fail(res, 400, error?.message || 'Invalid availability settings');
@@ -42,6 +44,7 @@ const updateAvailabilityState = async (req: Request, res: Response, status: 'ACT
   if (!userId) return fail(res, 401, 'Unauthorized');
   try {
     const availability = await setProfessionalAvailabilityState(userId, status);
+    await emitPublicProfileStatus(req, userId, 'profile:availability_updated');
     return ok(res, serializeProfessionalAvailability(availability));
   } catch (error: any) {
     return fail(res, 500, error?.message || 'Failed to update availability');

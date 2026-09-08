@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
+import { emitPublicProfileStatus } from '../utils/profileStatusRealtime';
 import {
   getOrCreateClientHiringStatus,
   serializeClientHiringStatus,
@@ -39,6 +40,7 @@ export const updateMyClientHiringStatus = async (req: Request, res: Response) =>
   if (!user) return undefined;
   try {
     const status = await updateClientHiringStatus(user.id, req.body || {});
+    await emitPublicProfileStatus(req, user.id, 'profile:hiring_updated');
     return ok(res, serializeClientHiringStatus(status));
   } catch (error: any) {
     return fail(res, 400, error?.message || 'Invalid hiring settings');
@@ -51,6 +53,7 @@ const updateState = async (req: Request, res: Response, state: 'ACTIVE' | 'PAUSE
   if (!user) return undefined;
   try {
     const status = await setClientHiringState(user.id, state);
+    await emitPublicProfileStatus(req, user.id, 'profile:hiring_updated');
     return ok(res, serializeClientHiringStatus(status));
   } catch (error: any) {
     return fail(res, 500, error?.message || 'Failed to update hiring status');

@@ -71,6 +71,8 @@ import {
   isVideoFileStorageAvailable,
   resolvePublicApiOrigin
 } from '../services/storage/videoStorageAvailability';
+import { serializeProfessionalAvailability } from '../services/professionalAvailability.service';
+import { serializeClientHiringStatus } from '../services/clientHiringStatus.service';
 
 // Safe helper to retrieve the `io` instance from `req.app` without broad `as any` casts
 const getAppIo = (req: Request) => {
@@ -648,6 +650,8 @@ const buildPostAuthorPayload = (author: {
   kycStatus?: string | null;
   freelancerPlanActive?: boolean | null;
   employerPlanActive?: boolean | null;
+  professionalAvailability?: any;
+  clientHiringStatus?: any;
 }, businessPage?: {
   id: string;
   name: string;
@@ -669,6 +673,8 @@ const buildPostAuthorPayload = (author: {
   }
 
   const displayName = author.name || 'Community member';
+  const availability = serializeProfessionalAvailability(author.professionalAvailability, { publicOnly: true });
+  const hiring = serializeClientHiringStatus(author.clientHiringStatus, { publicOnly: true });
   return {
     id: author.id,
     username: author.username || null,
@@ -677,9 +683,20 @@ const buildPostAuthorPayload = (author: {
     type: 'user' as const,
     businessSlug: null,
     isVerified: Boolean(author.isVerified || isKycVerifiedStatus(author.kycStatus)),
-    isPro: Boolean(author.freelancerPlanActive || author.employerPlanActive)
+    isPro: Boolean(author.freelancerPlanActive || author.employerPlanActive),
+    availability,
+    hiring,
+    availableForHire: Boolean(availability),
+    weAreHiring: Boolean(hiring)
   };
 };
+
+const publicProfileFlags = (author: any) => ({
+  availability: author?.availability ?? null,
+  hiring: author?.hiring ?? null,
+  availableForHire: Boolean(author?.availableForHire),
+  weAreHiring: Boolean(author?.weAreHiring)
+});
 
 const resolvePostAuthorIdentity = (
   post: { authorId: string; businessPageId?: string | null },
@@ -763,7 +780,9 @@ const communityPostAuthorSelect = {
   isVerified: true,
   kycStatus: true,
   freelancerPlanActive: true,
-  employerPlanActive: true
+  employerPlanActive: true,
+  professionalAvailability: true,
+  clientHiringStatus: true
 };
 
 const communityBusinessPageSelect = {
@@ -1887,6 +1906,8 @@ export const postRepost = async (req: Request, res: Response) => {
                 kycStatus: true,
                 freelancerPlanActive: true,
                 employerPlanActive: true,
+                professionalAvailability: true,
+                clientHiringStatus: true,
                 gcoinWallet: {
                   select: {
                     recipientId: true
@@ -1947,7 +1968,8 @@ export const postRepost = async (req: Request, res: Response) => {
             type: wrapperAuthor.type,
             businessSlug: wrapperAuthor.businessSlug,
             isVerified: wrapperAuthor.isVerified,
-            isPro: wrapperAuthor.isPro
+            isPro: wrapperAuthor.isPro,
+            ...publicProfileFlags(wrapperAuthor)
           },
           viewer: {
             isFollowingAuthor: false
@@ -2306,7 +2328,8 @@ export const getPosts = async (req: Request, res: Response) => {
           type: author.type,
           businessSlug: author.businessSlug,
           isVerified: author.isVerified,
-          isPro: author.isPro
+          isPro: author.isPro,
+          ...publicProfileFlags(author)
         },
         club: post.club ? {
           id: post.club.id,
@@ -2586,7 +2609,8 @@ export const getFeed = async (req: Request, res: Response) => {
           type: author.type,
           businessSlug: author.businessSlug,
           isVerified: author.isVerified,
-          isPro: author.isPro
+          isPro: author.isPro,
+          ...publicProfileFlags(author)
         },
         viewer: {
           isFollowingAuthor
@@ -2762,6 +2786,8 @@ export const getPostById = async (req: Request, res: Response) => {
             kycStatus: true,
             freelancerPlanActive: true,
             employerPlanActive: true,
+            professionalAvailability: true,
+            clientHiringStatus: true,
             gcoinWallet: {
               select: {
                 recipientId: true
@@ -2909,7 +2935,8 @@ export const getPostById = async (req: Request, res: Response) => {
         type: author.type,
         businessSlug: author.businessSlug,
         isVerified: author.isVerified,
-        isPro: author.isPro
+        isPro: author.isPro,
+        ...publicProfileFlags(author)
       },
       viewer: {
         isFollowingAuthor
@@ -3136,7 +3163,9 @@ export const getCommunityPostsByTag = async (req: Request, res: Response) => {
             isVerified: true,
             kycStatus: true,
             freelancerPlanActive: true,
-            employerPlanActive: true
+            employerPlanActive: true,
+            professionalAvailability: true,
+            clientHiringStatus: true
           }
         },
         businessPage: {
@@ -3177,7 +3206,8 @@ export const getCommunityPostsByTag = async (req: Request, res: Response) => {
             type: author.type,
             businessSlug: author.businessSlug,
             isVerified: author.isVerified,
-            isPro: author.isPro
+            isPro: author.isPro,
+            ...publicProfileFlags(author)
           },
           viewer: {
             isFollowingAuthor: false
@@ -3476,6 +3506,8 @@ export const createPost = async (req: Request, res: Response) => {
             kycStatus: true,
             freelancerPlanActive: true,
             employerPlanActive: true,
+            professionalAvailability: true,
+            clientHiringStatus: true,
             gcoinWallet: {
               select: {
                 recipientId: true
@@ -3560,7 +3592,8 @@ export const createPost = async (req: Request, res: Response) => {
         type: author.type,
         businessSlug: author.businessSlug,
         isVerified: author.isVerified,
-        isPro: author.isPro
+        isPro: author.isPro,
+        ...publicProfileFlags(author)
       },
       club: post.club
         ? {
@@ -4052,6 +4085,8 @@ export const updatePost = async (req: Request, res: Response) => {
             kycStatus: true,
             freelancerPlanActive: true,
             employerPlanActive: true,
+            professionalAvailability: true,
+            clientHiringStatus: true,
             gcoinWallet: {
               select: {
                 recipientId: true
@@ -4129,7 +4164,8 @@ export const updatePost = async (req: Request, res: Response) => {
         type: author.type,
         businessSlug: author.businessSlug,
         isVerified: author.isVerified,
-        isPro: author.isPro
+        isPro: author.isPro,
+        ...publicProfileFlags(author)
       },
       viewer: {
         isFollowingAuthor: false
@@ -4576,7 +4612,17 @@ export const createPostComment = async (req: Request, res: Response) => {
         attachments: normalizedAttachmentIds
       },
       include: {
-        author: { select: { id: true, name: true, avatar: true, username: true, isVerified: true } }
+        author: {
+          select: {
+            id: true,
+            name: true,
+            avatar: true,
+            username: true,
+            isVerified: true,
+            professionalAvailability: true,
+            clientHiringStatus: true
+          }
+        }
       }
     });
 
@@ -4584,6 +4630,8 @@ export const createPostComment = async (req: Request, res: Response) => {
       try { await syncFileUsages('community_post_comment', comment.id, comment.attachments || [], 'Community Post Comment Media'); } catch (e) {}
     }
 
+    const commentAvailability = serializeProfessionalAvailability(comment.author?.professionalAvailability, { publicOnly: true });
+    const commentHiring = serializeClientHiringStatus(comment.author?.clientHiringStatus, { publicOnly: true });
     const payload = {
       id: comment.id,
       postId: comment.postId,
@@ -4598,7 +4646,11 @@ export const createPostComment = async (req: Request, res: Response) => {
         username: comment.author?.username || null,
         avatar: comment.author?.avatar || null,
         isVerified: Boolean(comment.author?.isVerified),
-        isScrolitha: isScrolithaUsername(comment.author?.username)
+        isScrolitha: isScrolithaUsername(comment.author?.username),
+        availability: commentAvailability,
+        hiring: commentHiring,
+        availableForHire: Boolean(commentAvailability),
+        weAreHiring: Boolean(commentHiring)
       },
       content: comment.content,
       attachmentFileIds: comment.attachments || [],
@@ -4770,11 +4822,33 @@ export const getPostComments = async (req: Request, res: Response) => {
       orderBy: { createdAt: 'asc' },
       take: Number(limit),
       include: {
-        author: { select: { id: true, name: true, avatar: true, username: true, isVerified: true } },
+        author: {
+          select: {
+            id: true,
+            name: true,
+            avatar: true,
+            username: true,
+            isVerified: true,
+            professionalAvailability: true,
+            clientHiringStatus: true
+          }
+        },
         replies: {
           where: { postId },
           orderBy: { createdAt: 'asc' },
-          include: { author: { select: { id: true, name: true, avatar: true, username: true, isVerified: true } } }
+          include: {
+            author: {
+              select: {
+                id: true,
+                name: true,
+                avatar: true,
+                username: true,
+                isVerified: true,
+                professionalAvailability: true,
+                clientHiringStatus: true
+              }
+            }
+          }
         }
       }
     };
@@ -4813,6 +4887,8 @@ export const getPostComments = async (req: Request, res: Response) => {
       const isScrolitha =
         Boolean(scrolithaUserIdForList && comment.authorId === scrolithaUserIdForList) ||
         isScrolithaUsername(comment.author?.username);
+      const commentAvailability = serializeProfessionalAvailability(comment.author?.professionalAvailability, { publicOnly: true });
+      const commentHiring = serializeClientHiringStatus(comment.author?.clientHiringStatus, { publicOnly: true });
       return {
         id: comment.id,
         postId: comment.postId,
@@ -4827,7 +4903,11 @@ export const getPostComments = async (req: Request, res: Response) => {
           username: comment.author?.username || null,
           avatar: comment.author?.avatar || null,
           isVerified: Boolean(comment.author?.isVerified) || isScrolitha,
-          isScrolitha
+          isScrolitha,
+          availability: commentAvailability,
+          hiring: commentHiring,
+          availableForHire: Boolean(commentAvailability),
+          weAreHiring: Boolean(commentHiring)
         },
         content: isDeleted ? '' : comment.content,
         attachmentFileIds: isDeleted ? [] : (comment.attachments || []),

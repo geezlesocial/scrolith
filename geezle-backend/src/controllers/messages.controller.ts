@@ -18,6 +18,8 @@ import {
   SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL,
   withScrolithaAssetVersion
 } from '../services/scrolitha/scrolitha.platformIdentity';
+import { serializeProfessionalAvailability } from '../services/professionalAvailability.service';
+import { serializeClientHiringStatus } from '../services/clientHiringStatus.service';
 
 const nowIso = () => new Date().toISOString();
 export const MAX_DIRECT_MESSAGE_WORDS = 500;
@@ -250,6 +252,8 @@ const participantUserSelect: any = {
   presenceVisibility: true,
   lastSeenVisibility: true,
   readReceiptsEnabled: true,
+  professionalAvailability: true,
+  clientHiringStatus: true,
   profile: {
     select: {
       gender: true
@@ -352,6 +356,8 @@ const formatParticipant = (participant: any) => {
           SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL
       )
     : contentFromFileId || avatarFromRaw || '';
+  const availability = serializeProfessionalAvailability(participant.user?.professionalAvailability, { publicOnly: true });
+  const hiring = serializeClientHiringStatus(participant.user?.clientHiringStatus, { publicOnly: true });
 
   return {
     id: participant.user.id,
@@ -398,6 +404,12 @@ const formatParticipant = (participant: any) => {
     isScrolitha,
     is_verified: Boolean(participant.user?.isVerified) || isScrolitha,
     isVerified: Boolean(participant.user?.isVerified) || isScrolitha,
+    availability,
+    professionalAvailability: availability,
+    hiring,
+    clientHiringStatus: hiring,
+    availableForHire: Boolean(availability),
+    weAreHiring: Boolean(hiring),
     system_label: isScrolitha ? 'AI assistant' : undefined,
     systemLabel: isScrolitha ? 'AI assistant' : undefined
   };
