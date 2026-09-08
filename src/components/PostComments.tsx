@@ -19,6 +19,12 @@ type CommentAuthor = {
   name?: string;
   username?: string;
   avatar?: string | null;
+  availability?: any;
+  hiring?: any;
+  professionalAvailability?: any;
+  clientHiringStatus?: any;
+  availableForHire?: boolean;
+  weAreHiring?: boolean;
 };
 
 type PostComment = {
@@ -925,6 +931,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
               src={commentAuthorAvatar}
               name={commentAuthorName}
               user={{
+                ...comment.author,
                 id: comment.userId || comment.author?.id,
                 username: commentAuthorUsername,
                 name: commentAuthorName

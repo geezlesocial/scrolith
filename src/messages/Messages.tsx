@@ -315,6 +315,7 @@ const Messages = () => {
   const shouldAutoScrollRef = useRef(true);
   const messagesScrollMetricsRef = useRef({ scrollHeight: 0, scrollTop: 0, clientHeight: 0 });
   const activeConvoIdRef = useRef<string | null>(null);
+  const deepLinkHydrationRef = useRef<string | null>(null);
   const chatAppearanceRequestRef = useRef({ generation: 0, conversationId: '' });
   const lastPreloadConvoRef = useRef<string | null>(null);
   const [showJumpToUnread, setShowJumpToUnread] = useState(false);
@@ -787,9 +788,33 @@ const Messages = () => {
               }
           } else {
               setActiveConvoId(conversationId);
+              if (deepLinkHydrationRef.current !== conversationId) {
+                  deepLinkHydrationRef.current = conversationId;
+                  void MessagingService.getConversationById(conversationId)
+                      .then((deepLinked) => {
+                          if (!deepLinked?.id) return;
+                          setConversations((previous) => {
+                              const existingIndex = previous.findIndex((entry) => entry.id === deepLinked.id);
+                              if (existingIndex < 0) return [deepLinked, ...previous];
+                              return previous.map((entry) => entry.id === deepLinked.id ? { ...entry, ...deepLinked } : entry);
+                          });
+                          setActiveConvoId(deepLinked.id);
+                      })
+                      .catch(() => undefined);
+              }
           }
       } else {
           setActiveConvoId(conversationId);
+          if (deepLinkHydrationRef.current !== conversationId) {
+              deepLinkHydrationRef.current = conversationId;
+              void MessagingService.getConversationById(conversationId)
+                  .then((deepLinked) => {
+                      if (!deepLinked?.id) return;
+                      setConversations((previous) => [deepLinked, ...previous.filter((entry) => entry.id !== deepLinked.id)]);
+                      setActiveConvoId(deepLinked.id);
+                  })
+                  .catch(() => undefined);
+          }
       }
   }, [conversationId, dedupedConversations.length, user, navigate]);
 

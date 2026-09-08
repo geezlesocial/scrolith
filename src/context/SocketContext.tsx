@@ -108,6 +108,8 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       { ev: 'community:post_updated', fn: forward('community:post_updated') },
       { ev: 'community:post_deleted', fn: forward('community:post_deleted') },
       { ev: 'community:post_comment_created', fn: forward('community:post_comment_created') },
+      { ev: 'profile:availability_updated', fn: forward('profile:availability_updated') },
+      { ev: 'profile:hiring_updated', fn: forward('profile:hiring_updated') },
       { ev: 'community:post_comment_updated', fn: forward('community:post_comment_updated') },
       { ev: 'community:post_comment_deleted', fn: forward('community:post_comment_deleted') },
       { ev: 'community:post_comment_like_toggled', fn: forward('community:post_comment_like_toggled') },

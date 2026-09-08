@@ -34,6 +34,10 @@ type PostHeaderAuthor = {
   kyc_status?: string | null;
   verificationStatus?: string | null;
   verification_status?: string | null;
+  availability?: any;
+  hiring?: any;
+  availableForHire?: boolean;
+  weAreHiring?: boolean;
   /** Optional professional headline / context line */
   headline?: string | null;
 };

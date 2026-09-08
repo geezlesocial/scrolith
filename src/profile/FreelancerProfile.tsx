@@ -1,6 +1,6 @@
 
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { MapPin, Star, PlayCircle, Briefcase, GraduationCap, Award, CheckCircle, ShieldCheck, TrendingUp, X, Users, Heart, Pin, Sparkles } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import { useNotification } from '../context/NotificationContext';
@@ -28,6 +28,11 @@ import EnterpriseAvatar from '../components/common/EnterpriseAvatar';
 import EnterpriseImage from '../components/common/EnterpriseImage';
 import AvailabilityAvatarBadge from '../components/common/AvailabilityAvatarBadge';
 import { isPubliclyActiveAvailability } from '../utils/publicAvailability';
+import {
+  buildMessagesConversationPath,
+  buildMessagingSoftOpenState,
+  prefetchMessagesWorkspace
+} from '../services/messagingSoftOpen';
 
 const EditProfile = lazy(() => import('./EditProfile'));
 
@@ -125,6 +130,7 @@ const isStoryActive = (story: any) => {
 
 const FreelancerProfile = () => {
   const { id, username } = useParams();
+  const navigate = useNavigate();
   const { user } = useUser();
   const { showNotification } = useNotification();
   const [activeTab, setActiveTab] = useState('overview');
@@ -572,6 +578,7 @@ const FreelancerProfile = () => {
   const handleContact = async () => {
       if (!user || !publicUser?.id) return;
       try {
+          prefetchMessagesWorkspace();
           const conversationId = await MessagingService.createConversation([
               { id: user.id, name: user.name || 'You', avatar: user.avatar, role: user.role },
               {
@@ -581,11 +588,33 @@ const FreelancerProfile = () => {
                 profilePhotoFileId: publicUser?.profilePhotoFileId || publicUser?.profile_photo_file_id
               }
           ]);
-          window.location.href = `/messages/${conversationId}`;
+          navigate(buildMessagesConversationPath(conversationId), {
+            state: buildMessagingSoftOpenState({ fromShellPath: window.location.pathname })
+          });
       } catch (error: any) {
           showNotification('error', 'Message failed', error?.message || 'Unable to start a conversation.');
       }
   };
+
+  useEffect(() => {
+    const targetId = String(publicUser?.id || '').trim();
+    if (!targetId) return;
+    const onStatusUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail || {};
+      if (String(detail.userId || detail.user_id || '').trim() !== targetId) return;
+      setProfile((current) => current ? {
+        ...current,
+        ...(detail.availability !== undefined ? { availability: detail.availability, professionalAvailability: detail.availability } : {}),
+        ...(detail.hiring !== undefined ? { hiring: detail.hiring, clientHiringStatus: detail.hiring } : {})
+      } : current);
+    };
+    window.addEventListener('profile:availability_updated', onStatusUpdated as EventListener);
+    window.addEventListener('profile:hiring_updated', onStatusUpdated as EventListener);
+    return () => {
+      window.removeEventListener('profile:availability_updated', onStatusUpdated as EventListener);
+      window.removeEventListener('profile:hiring_updated', onStatusUpdated as EventListener);
+    };
+  }, [publicUser?.id]);
 
   const openStory = async (story: any) => {
       setActiveStory(story);
