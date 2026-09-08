@@ -186,6 +186,8 @@ model User {
 
   // Social / OAuth providers
   authProviderAccounts AuthProviderAccount[]
+  passkeyCredentials PasskeyCredential[]
+  passkeyChallenges  PasskeyChallenge[]
 
   // Community posts, earnings, and ads relations
   communityPosts                     CommunityPost[]
@@ -7402,6 +7404,49 @@ model LoginApprovalAttempt {
 
   @@index([userId, status, expiresAt])
   @@index([requestedDeviceId])
+}
+
+// WebAuthn/passkey credentials. Private keys remain inside the user's
+// authenticator or credential provider; Scrolith stores only the public key
+// material required to verify assertions.
+model PasskeyCredential {
+  id                   String   @id @default(cuid())
+  userId               String
+  credentialId         String   @unique @map("credential_id")
+  publicKey            String   @map("public_key")
+  counter              Int      @default(0)
+  transports           String[] @default([])
+  deviceType           String?  @map("device_type")
+  backedUp             Boolean  @default(false) @map("backed_up")
+  aaguid               String?
+  label                String?
+  lastUsedAt           DateTime? @map("last_used_at")
+  revokedAt            DateTime? @map("revoked_at")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([lastUsedAt])
+}
+
+// Short-lived single-use WebAuthn ceremonies. Only a hash of the challenge
+// is persisted so a database read cannot be replayed as a valid ceremony.
+model PasskeyChallenge {
+  id            String   @id @default(cuid())
+  userId        String?
+  challengeHash String   @unique @map("challenge_hash")
+  purpose       String
+  expiresAt     DateTime @map("expires_at")
+  consumedAt    DateTime? @map("consumed_at")
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose, expiresAt])
+  @@index([expiresAt, consumedAt])
 }
 
 // Device tokens for mobile push notifications

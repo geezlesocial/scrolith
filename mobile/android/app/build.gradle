@@ -81,6 +81,11 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation 'androidx.recyclerview:recyclerview:1.4.0'
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    // Credential Manager is used by Android WebView's native WebAuthn bridge.
+    implementation 'androidx.credentials:credentials:1.6.0-beta02'
+    implementation 'androidx.credentials:credentials-play-services-auth:1.6.0-beta02'
+    // WebView WebAuthn/passkey support for the trusted Scrolith origin.
+    implementation "androidx.webkit:webkit:$androidxWebkitVersion"
     implementation platform('com.google.firebase:firebase-bom:34.8.0')
     implementation 'com.google.firebase:firebase-messaging'
     // Phase 25 — Play Integrity API client (server attestation wiring is Phase 25A/ops).

@@ -117,7 +117,7 @@ const safeFindUserByEmail = async (email: string) => {
   }
 };
 
-const safeFindUserById = async (id?: string | null) => {
+export const safeFindUserById = async (id?: string | null) => {
   if (!id) return null;
   try {
     return await prisma.user.findUnique({
@@ -141,7 +141,7 @@ const safeFindUserById = async (id?: string | null) => {
   }
 };
 
-const mapUserPayload = (user: any) => {
+export const mapUserPayload = (user: any) => {
   const pro = resolveUserProStatus(user);
   const kycStatus = user?.kycStatus ? user.kycStatus.toString().toLowerCase() : undefined;
   const toIso = (value?: Date | string | null) => {
@@ -206,8 +206,8 @@ const mapUserPayload = (user: any) => {
 };
 
 // JWT Secret from environment variables (fallback for development)
-const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+export const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret';
+export const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 const PASSWORD_RESET_TTL_MINUTES = Number(process.env.PASSWORD_RESET_TTL_MINUTES || 30);
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
@@ -223,14 +223,14 @@ const isMissingLoginField = (value: unknown) =>
 
 type ClientMeta = { ip?: string; userAgent?: string };
 
-const getClientMeta = (req: Request): ClientMeta => {
+export const getClientMeta = (req: Request): ClientMeta => {
   const forwarded = (req.headers['x-forwarded-for'] || '') as string;
   const ip = (forwarded.split(',')[0] || req.ip || '').trim();
   const userAgent = String(req.headers['user-agent'] || '');
   return { ip: ip || undefined, userAgent: userAgent || undefined };
 };
 
-const logAuthEvent = async (payload: { userId?: string | null; email?: string | null; event: string; meta?: any }, req?: Request) => {
+export const logAuthEvent = async (payload: { userId?: string | null; email?: string | null; event: string; meta?: any }, req?: Request) => {
   try {
     const meta = payload.meta || {};
     const client: ClientMeta = req ? getClientMeta(req) : {};

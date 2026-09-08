@@ -26,6 +26,8 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import androidx.webkit.WebSettingsCompat;
+import androidx.webkit.WebViewFeature;
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
@@ -307,6 +309,15 @@ public class MainActivity extends BridgeActivity {
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 settings.setSafeBrowsingEnabled(true);
+            }
+            // Allow WebAuthn/passkey ceremony inside the trusted production WebView.
+            // The web app still gates the feature with VITE_PASSKEYS_ENABLED; this
+            // only enables the platform capability for Android 9+ devices.
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) {
+                WebSettingsCompat.setWebAuthenticationSupport(
+                    settings,
+                    WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
+                );
             }
             // Use the normal validated cache online, but allow the last known SPA shell
             // to start when the device has no network. The web app still owns auth and

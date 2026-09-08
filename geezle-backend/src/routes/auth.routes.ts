@@ -26,6 +26,15 @@ import {
 import { authMiddleware } from '../middleware/auth.middleware';
 import { createRateLimiter } from '../middlewares/rateLimit';
 import {
+  beginPasskeyAuthentication,
+  beginPasskeyRegistration,
+  completePasskeyAuthentication,
+  completePasskeyRegistration,
+  listPasskeys,
+  renamePasskey,
+  revokePasskey
+} from '../controllers/passkey.controller';
+import {
   admin2faVerifyRateLimiter,
   forgotPasswordRateLimiter,
   loginRateLimiter,
@@ -56,6 +65,13 @@ router.post(
   exchangeOAuthCode
 );
 
+// WebAuthn/passkey ceremonies are feature-flagged server-side so the API can
+// ship ahead of controlled user exposure.
+const passkeyOptionsRateLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 20 });
+const passkeyVerifyRateLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 20 });
+router.post('/passkeys/authentication/options', passkeyOptionsRateLimiter, beginPasskeyAuthentication);
+router.post('/passkeys/authentication/verify', passkeyVerifyRateLimiter, completePasskeyAuthentication);
+
 // Protected routes
 router.get('/me', authMiddleware, getCurrentUser);
 router.get('/2fa/status', authMiddleware, getMy2FAStatus);
@@ -65,6 +81,11 @@ router.post('/2fa/disable', authMiddleware, disableMy2FA);
 router.get('/follow-onboarding', authMiddleware, getFollowOnboardingController);
 router.post('/follow-onboarding/complete', authMiddleware, completeFollowOnboardingController);
 router.post('/logout', authMiddleware, logout);
+router.post('/passkeys/registration/options', authMiddleware, passkeyOptionsRateLimiter, beginPasskeyRegistration);
+router.post('/passkeys/registration/verify', authMiddleware, passkeyVerifyRateLimiter, completePasskeyRegistration);
+router.get('/passkeys', authMiddleware, listPasskeys);
+router.patch('/passkeys/:id', authMiddleware, renamePasskey);
+router.delete('/passkeys/:id', authMiddleware, revokePasskey);
 
 // Phase 26 — language catalog + understood-language preferences
 router.get('/languages/catalog', getLanguageCatalogController);
