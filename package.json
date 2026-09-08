@@ -44,6 +44,7 @@
     "@capacitor/preferences": "^8.0.1",
     "@capacitor/push-notifications": "^8.0.0",
     "@prisma/client": "^5.22.0",
+    "@simplewebauthn/browser": "^14.0.0",
     "@tanstack/react-virtual": "^3.14.6",
     "axios": "^1.13.2",
     "bcrypt": "^6.0.0",

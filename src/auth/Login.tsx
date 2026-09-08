@@ -2,13 +2,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { AuthPagesConfig } from '../types';
-import { ArrowRight, Eye, EyeOff, Lock, Mail, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, KeyRound, Lock, Mail, ShieldCheck } from 'lucide-react';
 import { CMSService } from '../services/cms';
 import AuthSocialButtons from './AuthSocialButtons';
 import { useT } from '../i18n/useT';
 import { resolveAuthenticatedEntryPath } from '../utils/authRedirect';
 import { resolveOptimizedStaticImageUrl, resolveResponsiveAssetUrl } from '../utils/assetUrl';
 import ScrolithHumanVerification from '../components/human-verification/ScrolithHumanVerification';
+import { PasskeyService, passkeySupport } from '../services/passkeys';
 
 const IS_MOBILE_APP_BUILD = import.meta.env.VITE_SCROLITH_MOBILE_APP === 'true';
 const BRAND_LOGO_FALLBACK = '/logo-64.png';
@@ -87,6 +88,7 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [authConfig, setAuthConfig] = useState<AuthPagesConfig | null>(null);
   const [twoFAChallenge, setTwoFAChallenge] = useState<string | null>(null);
   const [twoFACode, setTwoFACode] = useState('');
@@ -152,6 +154,7 @@ const Login = () => {
     { width: 96, height: 96, fit: 'inside', quality: 72 }
   );
   const socialConfig = authConfig?.social_auth ?? (authConfig as any)?.socialAuth;
+  const passkeysAvailable = passkeySupport.available();
 
   const completePostLogin = () => {
     if (shouldUseMobilePostLoginRoute() && !isStoredAdminUser()) {
@@ -318,6 +321,32 @@ const Login = () => {
     }
   };
 
+  const handlePasskeyLogin = async () => {
+    if (loading || passkeyLoading || loginApproval) return;
+    setError('');
+    setPasskeyLoading(true);
+    try {
+      const result = await PasskeyService.authenticate();
+      try {
+        window.dispatchEvent(new Event('scrolith:auth-changed'));
+      } catch {
+        /* best effort */
+      }
+      const role = String(result.user.role || '').toLowerCase();
+      if (role.includes('admin')) {
+        window.location.assign('/admin/dashboard');
+        return;
+      }
+      completePostLogin();
+      window.location.assign(resolveAuthenticatedEntryPath(result.user as any));
+    } catch (err: any) {
+      const message = PasskeyService.getErrorMessage(err, 'Passkey sign-in was cancelled or could not be completed.');
+      if (!/cancel|abort|dismiss/i.test(message)) setError(message);
+    } finally {
+      setPasskeyLoading(false);
+    }
+  };
+
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto grid min-h-[calc(100vh-5rem)] max-w-6xl overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_24px_90px_rgba(15,23,42,0.12)] lg:grid-cols-[0.95fr_1.05fr]">
@@ -383,6 +412,24 @@ const Login = () => {
 
           <div className="space-y-6">
           <AuthSocialButtons mode="login" config={socialConfig || undefined} />
+          {passkeysAvailable && !twoFAChallenge && (
+            <>
+              <button
+                type="button"
+                onClick={handlePasskeyLogin}
+                disabled={loading || passkeyLoading || Boolean(loginApproval)}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3.5 text-sm font-bold text-blue-900 transition hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <KeyRound className="h-4 w-4" />
+                {passkeyLoading ? 'Waiting for passkey...' : 'Continue with a passkey'}
+              </button>
+              <div className="flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                <span className="h-px flex-1 bg-slate-200" />
+                <span>or use password</span>
+                <span className="h-px flex-1 bg-slate-200" />
+              </div>
+            </>
+          )}
           <form className="space-y-6" onSubmit={handleSubmit}>
           {resetSuccess && (
             <div className="rounded-xl border border-green-200 bg-green-50 p-4">

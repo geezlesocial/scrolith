@@ -23,6 +23,7 @@ import { clearLocalDeviceSecurityMaterial, DeviceSecurityService, getOrCreateDev
 import { listOnboardingLanguages } from '../../utils/supportedLanguages';
 import UserTwoFactorPanel from './UserTwoFactorPanel';
 import MessagingPrivacySettingsPanel from '../../components/messaging/MessagingPrivacySettingsPanel';
+import PasskeySettingsPanel from '../../components/security/PasskeySettingsPanel';
 
 type PendingLoginApproval = {
     id: string;
@@ -1079,6 +1080,8 @@ const SettingsModule = () => {
                                             )}
                                         </div>
                                     </section>
+
+                                    <PasskeySettingsPanel />
 
                                     <section className="mb-8 rounded-2xl border border-gray-200 bg-white p-5" aria-labelledby="trusted-devices-title">
                                         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
