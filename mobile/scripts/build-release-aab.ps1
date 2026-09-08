@@ -42,6 +42,9 @@ $env:VITE_SCROLITH_MOBILE_APP = 'true'
 $env:VITE_API_URL = 'https://api.scrolith.com/api'
 $env:VITE_API_BASE_URL = 'https://api.scrolith.com/api'
 $env:VITE_BACKEND_URL = 'https://api.scrolith.com'
+# Phase 1 Instant Graph is compiled into the candidate binary but remains
+# remotely gated by SCROLITH_INSTANT_GRAPH_ENABLED and rollout percent on Azure.
+$env:VITE_INSTANT_GRAPH_ENABLED = 'true'
 $env:VITE_NATIVE_PROD_API_URL = 'https://api.scrolith.com/api'
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null

@@ -36,6 +36,7 @@ import commerceRoutes from './routes/commerce';
 import searchRoutes from './routes/search';
 import enterpriseSearchRoutes from './routes/enterpriseSearch.routes';
 import discoveryV2Routes from './routes/discovery.v2.routes';
+import instantGraphRoutes from './routes/instantGraph.routes';
 import discoveryEngineRoutes from './routes/discoveryEngine.routes';
 import feedRoutes from './routes/feed';
 import topicsRoutes from './routes/topics.routes';
@@ -4585,6 +4586,7 @@ app.use('/api/search', searchRoutes);
 /** Enterprise Search v2 — foundation only; flags default OFF (Phase 9.2) */
 app.use('/api/search/v2', enterpriseSearchRoutes);
 app.use('/api/discovery', discoveryV2Routes);
+app.use('/api/instant-graph', instantGraphRoutes);
 app.use('/api/discovery-engine', discoveryEngineRoutes);
 app.use('/api/professional-discovery', professionalDiscoveryRoutes);
 app.use('/api/ai', aiRoutes);
