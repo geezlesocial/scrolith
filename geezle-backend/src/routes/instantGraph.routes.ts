@@ -106,15 +106,18 @@ router.get('/config', authMiddleware, (req, res) => {
     data: {
       enabled: isEnabledFor(req.user?.id),
       rolloutPercent: rolloutPercent(),
-      version: 'phase1.0.0',
+      version: 'phase1.1.0',
       feedTtlMs: 5 * 60 * 1000,
-      mediaBudgetBytes: 60 * 1024 * 1024
+      mediaBudgetBytes: 60 * 1024 * 1024,
+      mediaMaxEntries: 80,
+      videoCaching: 'posters_only'
     }
   });
 });
 
 router.get('/bootstrap', authMiddleware, async (req, res) => {
   setNoStore(res);
+  res.setHeader('X-Scrolith-Instant-Graph', 'phase1.1.0');
   const userId = String(req.user?.id || '').trim();
   if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
   if (!isEnabledFor(userId)) return res.status(404).json({ success: false, error: 'Instant Graph disabled' });
@@ -158,7 +161,7 @@ router.get('/admin/metrics', authMiddleware, adminMiddleware, (_req, res) => {
   return res.json({
     success: true,
     data: {
-      version: 'phase1.0.0',
+      version: 'phase1.1.0',
       enabled: configured(),
       rolloutPercent: rolloutPercent(),
       windowStartedAt: new Date(startedAt).toISOString(),
