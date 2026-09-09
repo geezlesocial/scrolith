@@ -1334,6 +1334,11 @@ export const AdminService = {
     return Boolean(response?.success);
   },
 
+  async restoreMarketplaceCategory(id: string): Promise<boolean> {
+    const response = await adminRequest<MarketplaceCategory>('post', '/marketplace/categories/' + id + '/restore');
+    return Boolean(response?.success);
+  },
+
   async getMarketplaceListings(filters?: {
     status?: string;
     reviewStatus?: string;

@@ -434,7 +434,10 @@ const MarketplaceManagement: React.FC = () => {
         ...categoryDraft,
         name: String(categoryDraft.name || '').trim(),
         slug: String(categoryDraft.slug || '').trim(),
-        description: String(categoryDraft.description || '').trim() || null
+        description: String(categoryDraft.description || '').trim() || null,
+        sortOrder: Number(categoryDraft.sortOrder || 0),
+        parentId: String(categoryDraft.parentId || '').trim() || null,
+        requiresApproval: Boolean(categoryDraft.requiresApproval)
       };
       const ok = categoryDraft.id
         ? await AdminService.updateMarketplaceCategory(categoryDraft.id, payload)
@@ -451,6 +454,8 @@ const MarketplaceManagement: React.FC = () => {
   };
 
   const deleteCategory = async (id: string) => {
+    const category = categories.find((item) => item.id === id);
+    if (!category || !window.confirm('Disable “' + category.name + '”? Existing listings will remain intact, but this category will stop appearing in the marketplace.')) return;
     setSaving(true);
     try {
       const ok = await AdminService.deleteMarketplaceCategory(id);
@@ -460,6 +465,20 @@ const MarketplaceManagement: React.FC = () => {
       await loadAll();
     } catch (error: any) {
       showNotification('error', 'Category delete failed', error?.message || 'Unable to delete category.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const restoreCategory = async (id: string) => {
+    setSaving(true);
+    try {
+      const ok = await AdminService.restoreMarketplaceCategory(id);
+      if (!ok) throw new Error('Category restore failed');
+      showNotification('success', 'Category restored', 'Marketplace category is active again.');
+      await loadAll();
+    } catch (error: any) {
+      showNotification('error', 'Category restore failed', error?.message || 'Unable to restore category.');
     } finally {
       setSaving(false);
     }
@@ -871,7 +890,12 @@ const MarketplaceManagement: React.FC = () => {
                 <div key={category.id} className="rounded-2xl border border-slate-200 p-4">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <p className="font-semibold text-slate-950">{category.name}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-slate-950">{category.name}</p>
+                        {category.isActive === false && (
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">Inactive</span>
+                        )}
+                      </div>
                       <p className="text-xs text-slate-500">{category.slug || category.id}</p>
                       <p className="mt-2 text-sm text-slate-600">{category.description || 'No description provided.'}</p>
                     </div>
@@ -883,13 +907,23 @@ const MarketplaceManagement: React.FC = () => {
                       >
                         Edit
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => deleteCategory(category.id)}
-                        className="rounded-full border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700"
-                      >
-                        Delete
-                      </button>
+                      {category.isActive === false ? (
+                        <button
+                          type="button"
+                          onClick={() => void restoreCategory(category.id)}
+                          className="rounded-full border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700"
+                        >
+                          Restore
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void deleteCategory(category.id)}
+                          className="rounded-full border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700"
+                        >
+                          Disable
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -905,7 +939,21 @@ const MarketplaceManagement: React.FC = () => {
               <Input label="Slug" value={categoryDraft.slug || ''} onChange={(value) => setCategoryDraft((prev) => ({ ...prev, slug: value }))} />
               <Input label="Description" value={String(categoryDraft.description || '')} onChange={(value) => setCategoryDraft((prev) => ({ ...prev, description: value }))} multiline />
               <div className="grid gap-4 sm:grid-cols-2">
-                <Input label="Parent ID" value={String(categoryDraft.parentId || '')} onChange={(value) => setCategoryDraft((prev) => ({ ...prev, parentId: value || null }))} />
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-slate-900">Parent category</span>
+                  <select
+                    value={String(categoryDraft.parentId || '')}
+                    onChange={(event) => setCategoryDraft((prev) => ({ ...prev, parentId: event.target.value || null }))}
+                    className="input w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
+                  >
+                    <option value="">Root category</option>
+                    {categories
+                      .filter((category) => category.id !== categoryDraft.id && category.isActive !== false)
+                      .map((category) => (
+                        <option key={category.id} value={category.id}>{category.name}</option>
+                      ))}
+                  </select>
+                </label>
                 <Input label="Sort order" type="number" value={String(categoryDraft.sortOrder ?? 0)} onChange={(value) => setCategoryDraft((prev) => ({ ...prev, sortOrder: Number(value || 0) }))} />
               </div>
               <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
