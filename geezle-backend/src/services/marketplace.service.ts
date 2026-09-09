@@ -2307,11 +2307,26 @@ export const adminResolveMarketplaceReport = async (reportId: string, actor: Use
 
 export const adminListMarketplaceCategories = async () => {
   await ensureMarketplaceCategoriesSeeded();
-  return prisma.category.findMany({
-    where: { type: { in: ['MARKETPLACE', 'BOTH'] as any } },
-    orderBy: [{ order: 'asc' }, { name: 'asc' }],
-    include: { children: true }
+  const [categories, settings] = await Promise.all([
+    prisma.category.findMany({
+      where: { type: { in: ['MARKETPLACE', 'BOTH'] as any } },
+      orderBy: [{ order: 'asc' }, { name: 'asc' }],
+      include: { children: true }
+    }),
+    getMarketplaceSettings()
+  ]);
+  const approvalIds = new Set(toStringArray(settings?.categoriesRequireApproval));
+  const normalize = (row: any): any => ({
+    ...row,
+    sortOrder: row.order ?? 0,
+    sort_order: row.order ?? 0,
+    is_active: row.isActive,
+    parent_id: row.parentId,
+    requiresApproval: approvalIds.has(String(row.id)),
+    requires_approval: approvalIds.has(String(row.id)),
+    children: Array.isArray(row.children) ? row.children.map(normalize) : []
   });
+  return categories.map(normalize);
 };
 
 export const adminUpsertMarketplaceCategory = async (input: any, actor: User, categoryId?: string) => {
@@ -2322,6 +2337,42 @@ export const adminUpsertMarketplaceCategory = async (input: any, actor: User, ca
     (error as any).status = 400;
     throw error;
   }
+  if (!slug) {
+    const error = new Error('Category slug is required');
+    (error as any).status = 400;
+    throw error;
+  }
+  const duplicate = await prisma.category.findFirst({
+    where: {
+      OR: [{ name }, { slug }],
+      ...(categoryId ? { NOT: { id: categoryId } } : {})
+    },
+    select: { id: true, name: true, slug: true }
+  });
+  if (duplicate) {
+    const error = new Error(
+      duplicate.slug === slug ? 'A category with this slug already exists' : 'A category with this name already exists'
+    );
+    (error as any).status = 409;
+    throw error;
+  }
+  const parentId = String(input?.parentId || input?.parent_id || '').trim() || null;
+  if (parentId && parentId === categoryId) {
+    const error = new Error('A category cannot be its own parent');
+    (error as any).status = 400;
+    throw error;
+  }
+  if (parentId) {
+    const parent = await prisma.category.findUnique({
+      where: { id: parentId },
+      select: { id: true, type: true, isActive: true }
+    });
+    if (!parent || !['MARKETPLACE', 'BOTH'].includes(String(parent.type)) || !parent.isActive) {
+      const error = new Error('Parent category is not an active marketplace category');
+      (error as any).status = 400;
+      throw error;
+    }
+  }
   const data = {
     name,
     slug,
@@ -2329,12 +2380,18 @@ export const adminUpsertMarketplaceCategory = async (input: any, actor: User, ca
     description: String(input?.description || '').trim() || null,
     type: String(input?.type || 'MARKETPLACE').trim().toUpperCase() as any,
     isActive: input?.isActive !== false,
-    order: toInt(input?.order, 0),
-    parentId: String(input?.parentId || '').trim() || null
+    order: toInt(input?.sortOrder ?? input?.sort_order ?? input?.order, 0),
+    parentId
   };
   const row = categoryId
     ? await prisma.category.update({ where: { id: categoryId }, data })
     : await prisma.category.create({ data });
+
+  const settings = await getMarketplaceSettings();
+  const approvalIds = new Set(toStringArray(settings?.categoriesRequireApproval));
+  if (input?.requiresApproval === true || input?.requires_approval === true) approvalIds.add(row.id);
+  if (input?.requiresApproval === false || input?.requires_approval === false) approvalIds.delete(row.id);
+  await updateMarketplaceSettings({ categoriesRequireApproval: Array.from(approvalIds) }, actor.id);
 
   await prisma.marketplaceAuditLog.create({
     data: {
@@ -2348,13 +2405,44 @@ export const adminUpsertMarketplaceCategory = async (input: any, actor: User, ca
 };
 
 export const adminDeleteMarketplaceCategory = async (categoryId: string, actor: User) => {
+  const existing = await prisma.category.findUnique({ where: { id: categoryId } });
+  if (!existing || !['MARKETPLACE', 'BOTH'].includes(String(existing.type))) {
+    const error = new Error('Marketplace category not found');
+    (error as any).status = 404;
+    throw error;
+  }
   const row = await prisma.category.update({
     where: { id: categoryId },
     data: { isActive: false }
   });
+  const settings = await getMarketplaceSettings();
+  await updateMarketplaceSettings({
+    categoriesRequireApproval: toStringArray(settings?.categoriesRequireApproval).filter((id) => id !== categoryId)
+  }, actor.id);
   await prisma.marketplaceAuditLog.create({
     data: {
       action: 'admin.category.disable',
+      actorId: actor.id,
+      payload: row as JsonValue
+    }
+  }).catch(() => null);
+  return row;
+};
+
+export const adminRestoreMarketplaceCategory = async (categoryId: string, actor: User) => {
+  const existing = await prisma.category.findUnique({ where: { id: categoryId } });
+  if (!existing || !['MARKETPLACE', 'BOTH'].includes(String(existing.type))) {
+    const error = new Error('Marketplace category not found');
+    (error as any).status = 404;
+    throw error;
+  }
+  const row = await prisma.category.update({
+    where: { id: categoryId },
+    data: { isActive: true }
+  });
+  await prisma.marketplaceAuditLog.create({
+    data: {
+      action: 'admin.category.restore',
       actorId: actor.id,
       payload: row as JsonValue
     }

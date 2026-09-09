@@ -9,6 +9,7 @@ import {
   adminListMarketplaceReports,
   adminRejectMarketplaceListing,
   adminResolveMarketplaceReport,
+  adminRestoreMarketplaceCategory,
   adminRestoreMarketplaceListing,
   adminSuspendMarketplaceListing,
   adminUpsertMarketplaceCategory,
@@ -81,6 +82,15 @@ router.delete('/categories/:id', async (req, res) => {
     return res.json({ success: true, data });
   } catch (error: any) {
     return handleError(res, error, 'Failed to delete marketplace category');
+  }
+});
+
+router.post('/categories/:id/restore', async (req, res) => {
+  try {
+    const data = await adminRestoreMarketplaceCategory(String(req.params.id || '').trim(), req.user as any);
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    return handleError(res, error, 'Failed to restore marketplace category');
   }
 });
 
