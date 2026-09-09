@@ -326,7 +326,7 @@ const Login = () => {
     setError('');
     setPasskeyLoading(true);
     try {
-      const result = await PasskeyService.authenticate();
+      const result = await PasskeyService.authenticate(email);
       try {
         window.dispatchEvent(new Event('scrolith:auth-changed'));
       } catch {
@@ -423,6 +423,9 @@ const Login = () => {
                 <KeyRound className="h-4 w-4" />
                 {passkeyLoading ? 'Waiting for passkey...' : 'Continue with a passkey'}
               </button>
+              <p className="text-center text-xs leading-5 text-slate-500">
+                Enter your email above to look for that account&apos;s passkey. New to passkeys? Sign in with your password first, then add one in Settings.
+              </p>
               <div className="flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                 <span className="h-px flex-1 bg-slate-200" />
                 <span>or use password</span>

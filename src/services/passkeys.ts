@@ -57,9 +57,13 @@ export const PasskeyService = {
     return true;
   },
 
-  async authenticate() {
+  async authenticate(email?: string) {
     if (!passkeySupport.available()) throw new Error('Passkeys are not enabled on this device.');
-    const optionsResponse = await api.post('/auth/passkeys/authentication/options', { platform: 'web' });
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const optionsResponse = await api.post('/auth/passkeys/authentication/options', {
+      platform: 'web',
+      ...(normalizedEmail ? { email: normalizedEmail } : {})
+    });
     const optionsPayload = {
       data: optionsResponse?.data?.data,
       challengeId: String(optionsResponse?.data?.challengeId || ''),
@@ -100,6 +104,14 @@ export const PasskeyService = {
   },
 
   getErrorMessage(error: unknown, fallback = 'Passkey operation failed.') {
+    const typedError = error as any;
+    const name = String(typedError?.name || '').trim();
+    if (name === 'NotAllowedError' || name === 'AbortError') {
+      return 'No matching Scrolith passkey was selected. If you have not added one yet, sign in with your password first, then open Settings > Passkeys to add this device.';
+    }
+    if (name === 'InvalidStateError') {
+      return 'This device could not use the selected passkey. Try another passkey or add this device again from Settings > Passkeys.';
+    }
     return errorMessage(error, fallback);
   },
 };
