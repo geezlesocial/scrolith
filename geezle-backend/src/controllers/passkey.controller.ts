@@ -15,6 +15,7 @@ import {
   getClientMeta,
   logAuthEvent,
   mapUserPayload,
+  safeFindUserByEmail,
   safeFindUserById
 } from './auth.controller';
 import {
@@ -197,9 +198,33 @@ export const completePasskeyRegistration = async (req: Request, res: Response) =
 
 export const beginPasskeyAuthentication = async (req: Request, res: Response) => {
   if (!passkeysEnabled()) return disabled(res);
+  const email = String(req.body?.email || '').trim().toLowerCase().slice(0, 320);
+  let allowCredentials;
+
+  // When the user has already entered an email, narrow the discoverable
+  // credential lookup to that account. If the hint is absent or does not have
+  // a registered passkey, retain the usernameless flow so we never disclose
+  // whether an account or credential exists.
+  if (email) {
+    const hintedUser = await safeFindUserByEmail(email);
+    if (hintedUser?.id && hintedUser.isActive !== false) {
+      const credentials = await prisma.passkeyCredential.findMany({
+        where: { userId: hintedUser.id, revokedAt: null },
+        select: { credentialId: true, transports: true }
+      });
+      if (credentials.length > 0) {
+        allowCredentials = credentials.map((credential) => ({
+          id: credential.credentialId,
+          transports: credential.transports
+        }));
+      }
+    }
+  }
+
   const options = await generateAuthenticationOptions({
     rpID: RP_ID,
-    userVerification: 'required'
+    userVerification: 'required',
+    ...(allowCredentials ? { allowCredentials } : {})
   });
   const challenge = await createPasskeyChallenge({
     challenge: options.challenge,

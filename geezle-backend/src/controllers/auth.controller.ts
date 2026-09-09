@@ -94,7 +94,7 @@ const fullUserSelect = {
   employerPlanExpiresAt: true
 };
 
-const safeFindUserByEmail = async (email: string) => {
+export const safeFindUserByEmail = async (email: string) => {
   try {
     return await prisma.user.findUnique({
       where: { email },
