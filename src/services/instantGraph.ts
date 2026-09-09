@@ -8,7 +8,7 @@
 import api from './api';
 import { resolveAssetUrl } from '../utils/assetUrl';
 
-export const INSTANT_GRAPH_VERSION = 'phase1.0.0';
+export const INSTANT_GRAPH_VERSION = 'phase1.1.0';
 export const INSTANT_GRAPH_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const INSTANT_GRAPH_FRESH_TTL_MS = 5 * 60 * 1000;
 export const INSTANT_GRAPH_MAX_BYTES = 5 * 1024 * 1024;
@@ -66,6 +66,7 @@ const DEFAULT_CONFIG: InstantGraphConfig = {
 };
 
 let configPromise: Promise<InstantGraphConfig> | null = null;
+let configFetchedAt = 0;
 let config: InstantGraphConfig = DEFAULT_CONFIG;
 let dbPromise: Promise<IDBDatabase | null> | null = null;
 const metricCounts = new Map<InstantGraphMetricName, number>();
@@ -279,7 +280,10 @@ export const isInstantGraphEnabled = () => config.enabled && BUILD_ENABLED;
 
 export const getInstantGraphConfig = async (): Promise<InstantGraphConfig> => {
   if (!BUILD_ENABLED) return DEFAULT_CONFIG;
-  if (configPromise) return configPromise;
+  // Refresh the remote gate periodically so an operator can stop the feature
+  // without waiting for users to restart the app. Offline sessions continue
+  // using the last safe local configuration.
+  if (configPromise && Date.now() - configFetchedAt < 60_000) return configPromise;
   configPromise = api
     .get('/instant-graph/config', { timeout: 8000, __skipRetry: true } as any)
     .then((response) => {
@@ -290,10 +294,12 @@ export const getInstantGraphConfig = async (): Promise<InstantGraphConfig> => {
         enabled: Boolean(remote.enabled) && BUILD_ENABLED,
         rolloutPercent: Math.max(0, Math.min(100, Number(remote.rolloutPercent ?? DEFAULT_CONFIG.rolloutPercent)))
       };
+      configFetchedAt = Date.now();
       return config;
     })
     .catch(() => {
-      config = DEFAULT_CONFIG;
+      config = configFetchedAt > 0 ? config : DEFAULT_CONFIG;
+      configFetchedAt = Date.now();
       return config;
     });
   return configPromise;
@@ -330,6 +336,14 @@ export const warmInstantGraphMedia = async (
   if (!url || !canWarmMedia(url) || options?.signal?.aborted) return false;
   if (!(await hasStorageHeadroom(512 * 1024))) return false;
   try {
+    if (typeof caches !== 'undefined') {
+      const cache = await caches.open(INSTANT_GRAPH_MEDIA_CACHE_NAME);
+      const cached = await cache.match(url);
+      if (cached) {
+        trackInstantGraphMetric('cache_hit');
+        return true;
+      }
+    }
     const response = await fetch(url, {
       method: 'GET',
       cache: 'force-cache',

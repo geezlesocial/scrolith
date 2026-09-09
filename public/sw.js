@@ -2,11 +2,15 @@
  * Scope is intentionally limited to public navigation/media caching. Authenticated
  * API responses and private message media are never cached here.
  */
-const VERSION = 'scrolith-instant-shell-v1';
+const VERSION = 'scrolith-instant-shell-v2';
 const MEDIA_CACHE = 'scrolith-instant-media-v1';
+const MEDIA_META_CACHE = 'scrolith-instant-media-meta-v1';
 const MEDIA_LIMIT = 80;
-const STATIC_CACHE = 'scrolith-static-v15-20260612-cache-reset';
-const API_CACHE = 'scrolith-api-v15-20260612-cache-reset';
+const MEDIA_MAX_BYTES = 60 * 1024 * 1024;
+const MEDIA_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const STATIC_CACHE = 'scrolith-static-v16-instant-delivery';
+const API_CACHE = 'scrolith-api-v16-instant-delivery';
+const SHELL_CACHE = 'scrolith-shell-v2';
 const FEED_PATH_HINTS = ['/api/community/feed', '/api/community/stories/feed', '/api/scroll/feed'];
 const OFFLINE_DOCUMENT = `<!doctype html>
 <html lang="en">
@@ -64,14 +68,19 @@ const OFFLINE_DOCUMENT = `<!doctype html>
 </html>`;
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(self.skipWaiting());
+  event.waitUntil((async () => {
+    const cache = await caches.open(SHELL_CACHE);
+    await Promise.all(['/','/index.html','/manifest.webmanifest','/preloader-logo-64.png']
+      .map((url) => cache.add(url).catch(() => undefined)));
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => Promise.all(
       keys
-        .filter((key) => key !== STATIC_CACHE && key !== API_CACHE && key !== MEDIA_CACHE)
+        .filter((key) => ![STATIC_CACHE, API_CACHE, MEDIA_CACHE, MEDIA_META_CACHE, SHELL_CACHE].includes(key))
         .map((key) => caches.delete(key))
     )).then(() => self.clients.claim())
   );
@@ -113,10 +122,69 @@ const networkFirst = async (request, cacheName) => {
   }
 };
 
+const mediaMetaRequest = (request) => new Request(
+  `${self.location.origin}/__scrolith_media_meta__?key=${encodeURIComponent(request.url)}`
+);
+
+const readMediaMeta = async (request) => {
+  try {
+    const metaCache = await caches.open(MEDIA_META_CACHE);
+    const response = await metaCache.match(mediaMetaRequest(request));
+    return response ? await response.json() : null;
+  } catch {
+    return null;
+  }
+};
+
+const writeMediaMeta = async (request, byteSize, previous) => {
+  try {
+    const metaCache = await caches.open(MEDIA_META_CACHE);
+    await metaCache.put(mediaMetaRequest(request), new Response(JSON.stringify({
+      byteSize: Math.max(0, Number(byteSize) || Number(previous?.byteSize) || 262144),
+      createdAt: Number(previous?.createdAt) || Date.now(),
+      lastAccessAt: Date.now()
+    }), { headers: { 'content-type': 'application/json' } }));
+  } catch {
+    // Cache metadata is advisory; media delivery must remain functional.
+  }
+};
+
+const deleteMediaEntry = async (cache, request) => {
+  await cache.delete(request);
+  try {
+    const metaCache = await caches.open(MEDIA_META_CACHE);
+    await metaCache.delete(mediaMetaRequest(request));
+  } catch {
+    // ignore metadata cleanup failures
+  }
+};
+
 const trimMediaCache = async (cache) => {
   const requests = await cache.keys();
-  if (requests.length <= MEDIA_LIMIT) return;
-  await Promise.all(requests.slice(0, requests.length - MEDIA_LIMIT).map((request) => cache.delete(request)));
+  const now = Date.now();
+  const entries = [];
+  for (const request of requests) {
+    const meta = await readMediaMeta(request);
+    entries.push({
+      request,
+      byteSize: Math.max(0, Number(meta?.byteSize) || 262144),
+      createdAt: Number(meta?.createdAt) || now,
+      lastAccessAt: Number(meta?.lastAccessAt) || 0
+    });
+  }
+  const expired = entries.filter((entry) => now - entry.createdAt > MEDIA_TTL_MS);
+  const survivors = entries.filter((entry) => !expired.includes(entry));
+  let totalBytes = survivors.reduce((sum, entry) => sum + entry.byteSize, 0);
+  const evict = [...expired, ...survivors.sort((a, b) => a.lastAccessAt - b.lastAccessAt)];
+  const toDelete = [];
+  for (const entry of evict) {
+    if (toDelete.includes(entry)) continue;
+    const survivorCount = survivors.length - toDelete.filter((item) => survivors.includes(item)).length;
+    if (survivorCount <= MEDIA_LIMIT && totalBytes <= MEDIA_MAX_BYTES && !expired.includes(entry)) break;
+    toDelete.push(entry);
+    totalBytes -= entry.byteSize;
+  }
+  await Promise.all(toDelete.map((entry) => deleteMediaEntry(cache, entry.request)));
 };
 
 self.addEventListener('fetch', (event) => {
@@ -128,11 +196,17 @@ self.addEventListener('fetch', (event) => {
     event.respondWith((async () => {
       const cache = await caches.open(MEDIA_CACHE);
       const cached = await cache.match(request);
-      if (cached) return cached;
+      const cachedMeta = cached ? await readMediaMeta(request) : null;
+      const cachedIsFresh = cached && Date.now() - Number(cachedMeta?.createdAt || 0) <= MEDIA_TTL_MS;
+      if (cachedIsFresh) {
+        event.waitUntil(writeMediaMeta(request, cachedMeta?.byteSize, cachedMeta));
+        return cached;
+      }
       try {
         const response = await fetch(request);
         if (response.ok) {
           await cache.put(request, response.clone());
+          await writeMediaMeta(request, response.headers.get('content-length'), cachedMeta);
           await trimMediaCache(cache);
         }
         return response;
@@ -144,10 +218,20 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (request.mode === 'navigate') {
-    event.respondWith(fetch(request).catch(() => new Response(OFFLINE_DOCUMENT, {
-      status: 503,
-      headers: { 'Content-Type': 'text/html; charset=UTF-8', 'Cache-Control': 'no-store' }
-    })));
+    event.respondWith((async () => {
+      const shell = await caches.open(SHELL_CACHE);
+      try {
+        const response = await fetch(request);
+        if (response?.ok) await shell.put('/index.html', response.clone());
+        return response;
+      } catch {
+        const cached = await shell.match(request) || await shell.match('/index.html') || await shell.match('/');
+        return cached || new Response(OFFLINE_DOCUMENT, {
+          status: 503,
+          headers: { 'Content-Type': 'text/html; charset=UTF-8', 'Cache-Control': 'no-store' }
+        });
+      }
+    })());
     return;
   }
   if (isFeedRequest(url)) {
