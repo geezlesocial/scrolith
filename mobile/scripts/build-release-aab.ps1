@@ -14,6 +14,26 @@ $AndroidRoot = Join-Path $MobileRoot 'android'
 $OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.3.7'
 $VersionCode = 118
 $VersionName = '1.3.7'
+
+# A release AAB must never silently fall back to an unsigned bundle. The
+# signing material is intentionally local-only and is never committed.
+$KeyPropertiesFile = Join-Path $AndroidRoot 'key.properties'
+if (-not (Test-Path -LiteralPath $KeyPropertiesFile)) {
+  throw "Release signing configuration missing: $KeyPropertiesFile"
+}
+$StoreFileEntry = Get-Content -LiteralPath $KeyPropertiesFile | Where-Object { $_ -match '^\s*storeFile\s*=' } | Select-Object -First 1
+if (-not $StoreFileEntry) {
+  throw "Release signing configuration does not declare storeFile: $KeyPropertiesFile"
+}
+$StoreFileValue = ($StoreFileEntry -replace '^\s*storeFile\s*=\s*', '').Trim()
+$StoreFilePath = if ([System.IO.Path]::IsPathRooted($StoreFileValue)) {
+  $StoreFileValue
+} else {
+  Join-Path $AndroidRoot $StoreFileValue
+}
+if (-not (Test-Path -LiteralPath $StoreFilePath)) {
+  throw "Release keystore missing: $StoreFilePath"
+}
 $WebCommit = (git -C $GeezleRoot rev-parse HEAD 2>$null)
 if (-not $WebCommit) { $WebCommit = 'unknown' }
 
@@ -130,6 +150,13 @@ if (-not (Test-Path $AabSrc)) { throw "AAB not found at $AabSrc" }
 $AabName = "Scrolith-$VersionName-$VersionCode-release.aab"
 $AabDest = Join-Path $OutDir $AabName
 Copy-Item -Force $AabSrc $AabDest
+
+# Verify the artifact itself, not only the Gradle task result.
+$signatureOutput = & jarsigner -verify -verbose -certs $AabDest 2>&1
+if ($LASTEXITCODE -ne 0 -or (($signatureOutput -join "`n") -notmatch 'jar verified')) {
+  $signatureOutput | Select-Object -Last 20
+  throw "Release AAB signature validation failed: $AabDest"
+}
 
 $MappingSrc = Join-Path $AndroidRoot 'app\build\outputs\mapping\release\mapping.txt'
 if (Test-Path $MappingSrc) {
