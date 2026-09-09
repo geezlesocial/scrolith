@@ -1339,6 +1339,24 @@ export const AdminService = {
     return Boolean(response?.success);
   },
 
+  async bulkDisableMarketplaceCategories(ids: string[]): Promise<{ updated: string[]; failed: Array<{ id: string; error: string }>; count: number }> {
+    const response = await adminRequest<{ updated?: string[]; failed?: Array<{ id: string; error: string }>; count?: number }>('post', '/marketplace/categories/bulk-disable', { ids });
+    return {
+      updated: Array.isArray(response?.data?.updated) ? response.data.updated : [],
+      failed: Array.isArray(response?.data?.failed) ? response.data.failed : [],
+      count: Number(response?.data?.count || 0)
+    };
+  },
+
+  async bulkRestoreMarketplaceCategories(ids: string[]): Promise<{ updated: string[]; failed: Array<{ id: string; error: string }>; count: number }> {
+    const response = await adminRequest<{ updated?: string[]; failed?: Array<{ id: string; error: string }>; count?: number }>('post', '/marketplace/categories/bulk-restore', { ids });
+    return {
+      updated: Array.isArray(response?.data?.updated) ? response.data.updated : [],
+      failed: Array.isArray(response?.data?.failed) ? response.data.failed : [],
+      count: Number(response?.data?.count || 0)
+    };
+  },
+
   async getMarketplaceListings(filters?: {
     status?: string;
     reviewStatus?: string;
@@ -1373,6 +1391,15 @@ export const AdminService = {
   async deleteMarketplaceListing(id: string): Promise<boolean> {
     const response = await adminRequest<{ id: string }>('delete', `/marketplace/listings/${id}`);
     return Boolean(response?.success);
+  },
+
+  async bulkDeleteMarketplaceListings(ids: string[]): Promise<{ updated: string[]; failed: Array<{ id: string; error: string }>; count: number }> {
+    const response = await adminRequest<{ updated?: string[]; failed?: Array<{ id: string; error: string }>; count?: number }>('post', '/marketplace/listings/bulk-delete', { ids });
+    return {
+      updated: Array.isArray(response?.data?.updated) ? response.data.updated : [],
+      failed: Array.isArray(response?.data?.failed) ? response.data.failed : [],
+      count: Number(response?.data?.count || 0)
+    };
   },
 
   async approveMarketplaceListing(id: string): Promise<boolean> {
