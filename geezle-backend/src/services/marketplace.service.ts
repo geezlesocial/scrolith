@@ -2247,6 +2247,129 @@ export const adminDeleteMarketplaceListing = async (listingId: string, actor: Us
   return normalizeListing(updated, actor.id);
 };
 
+const normalizeAdminBulkIds = (value: unknown, label: string) => {
+  const ids = Array.from(
+    new Set(
+      (Array.isArray(value) ? value : [])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean)
+    )
+  );
+  if (!ids.length) {
+    const error = new Error(`Select at least one ${label}`);
+    (error as any).status = 400;
+    throw error;
+  }
+  if (ids.length > 100) {
+    const error = new Error(`You can update at most 100 ${label}s at a time`);
+    (error as any).status = 400;
+    throw error;
+  }
+  return ids;
+};
+
+export const adminBulkUpdateMarketplaceCategories = async (
+  categoryIds: unknown,
+  actor: User,
+  active: boolean
+) => {
+  const ids = normalizeAdminBulkIds(categoryIds, 'category');
+  const existing = await prisma.category.findMany({
+    where: { id: { in: ids }, type: { in: ['MARKETPLACE', 'BOTH'] as any } },
+    select: { id: true, name: true, isActive: true }
+  });
+  const foundIds = new Set(existing.map((category) => category.id));
+  const failed = ids
+    .filter((id) => !foundIds.has(id))
+    .map((id) => ({ id, error: 'Marketplace category not found' }));
+
+  if (existing.length) {
+    const updatedAt = new Date();
+    await prisma.$transaction(async (tx) => {
+      await tx.category.updateMany({
+        where: { id: { in: existing.map((category) => category.id) } },
+        data: { isActive: active }
+      });
+      await tx.marketplaceAuditLog.createMany({
+        data: existing.map((category) => ({
+          actorId: actor.id,
+          action: active ? 'admin.category.bulk_restore' : 'admin.category.bulk_disable',
+          payload: {
+            categoryId: category.id,
+            categoryName: category.name,
+            previousIsActive: category.isActive,
+            isActive: active,
+            updatedAt: updatedAt.toISOString()
+          } as JsonValue
+        }))
+      });
+    });
+  }
+
+  if (!active && existing.length) {
+    const settings = await getMarketplaceSettings();
+    const disabledIds = new Set(existing.map((category) => category.id));
+    await updateMarketplaceSettings({
+      categoriesRequireApproval: toStringArray(settings?.categoriesRequireApproval).filter((id) => !disabledIds.has(id))
+    }, actor.id);
+  }
+
+  return {
+    updated: existing.map((category) => category.id),
+    failed,
+    count: existing.length
+  };
+};
+
+export const adminBulkDeleteMarketplaceListings = async (listingIds: unknown, actor: User) => {
+  const ids = normalizeAdminBulkIds(listingIds, 'listing');
+  const existing = await prisma.marketplaceListing.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, title: true, slug: true, sellerId: true, status: true }
+  });
+  const foundIds = new Set(existing.map((listing) => listing.id));
+  const failed = ids
+    .filter((id) => !foundIds.has(id))
+    .map((id) => ({ id, error: 'Marketplace listing not found' }));
+
+  if (existing.length) {
+    const removedAt = new Date();
+    await prisma.$transaction(async (tx) => {
+      await tx.marketplaceListing.updateMany({
+        where: { id: { in: existing.map((listing) => listing.id) } },
+        data: { status: 'removed', removedAt }
+      });
+      await tx.marketplaceAuditLog.createMany({
+        data: existing.map((listing) => ({
+          listingId: listing.id,
+          actorId: actor.id,
+          action: 'admin.bulk_remove',
+          payload: {
+            listingId: listing.id,
+            previousStatus: listing.status,
+            removedAt: removedAt.toISOString()
+          } as JsonValue
+        }))
+      });
+    });
+
+    for (const listing of existing) {
+      notifyUser(listing.sellerId, {
+        type: 'marketplace.listing.removed',
+        title: `${listing.title} was removed`,
+        body: 'Your marketplace listing was removed by admin review.',
+        link: '/marketplace/my-listings'
+      });
+    }
+  }
+
+  return {
+    updated: existing.map((listing) => listing.id),
+    failed,
+    count: existing.length
+  };
+};
+
 export const adminListMarketplaceReports = async (params: { page?: number; pageSize?: number; status?: string; search?: string }) => {
   const page = Math.max(1, toInt(params.page, 1));
   const pageSize = Math.min(100, Math.max(1, toInt(params.pageSize, 24)));

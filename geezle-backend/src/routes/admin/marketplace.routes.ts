@@ -1,6 +1,8 @@
 import express from 'express';
 import {
   adminApproveMarketplaceListing,
+  adminBulkDeleteMarketplaceListings,
+  adminBulkUpdateMarketplaceCategories,
   adminDeleteMarketplaceCategory,
   adminDeleteMarketplaceListing,
   adminFeatureMarketplaceListing,
@@ -64,6 +66,24 @@ router.post('/categories', async (req, res) => {
     return res.status(201).json({ success: true, data });
   } catch (error: any) {
     return handleError(res, error, 'Failed to create marketplace category');
+  }
+});
+
+router.post('/categories/bulk-disable', async (req, res) => {
+  try {
+    const data = await adminBulkUpdateMarketplaceCategories(req.body?.ids, req.user as any, false);
+    return res.json({ success: data.failed.length === 0, data });
+  } catch (error: any) {
+    return handleError(res, error, 'Failed to disable marketplace categories');
+  }
+});
+
+router.post('/categories/bulk-restore', async (req, res) => {
+  try {
+    const data = await adminBulkUpdateMarketplaceCategories(req.body?.ids, req.user as any, true);
+    return res.json({ success: data.failed.length === 0, data });
+  } catch (error: any) {
+    return handleError(res, error, 'Failed to restore marketplace categories');
   }
 });
 
@@ -148,6 +168,15 @@ router.delete('/listings/:id', async (req, res) => {
     return res.json({ success: true, data });
   } catch (error: any) {
     return handleError(res, error, 'Failed to delete marketplace listing');
+  }
+});
+
+router.post('/listings/bulk-delete', async (req, res) => {
+  try {
+    const data = await adminBulkDeleteMarketplaceListings(req.body?.ids, req.user as any);
+    return res.json({ success: data.failed.length === 0, data });
+  } catch (error: any) {
+    return handleError(res, error, 'Failed to remove marketplace listings');
   }
 });
 
