@@ -7,6 +7,7 @@ import android.os.Vibrator;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.widget.Toast;
+import androidx.webkit.WebViewFeature;
 
 import org.json.JSONObject;
 
@@ -19,7 +20,7 @@ import org.json.JSONObject;
  */
 final class ScrolithNativeBridge {
     static final String NAME = "ScrolithNative";
-    static final String VERSION = "2";
+    static final String VERSION = "3";
 
     interface Host {
         boolean isTrustedCurrentPage();
@@ -75,6 +76,7 @@ final class ScrolithNativeBridge {
             capabilities.put("nativeNotifications", NativeFeatureFlags.isNativeNotificationsEnabled(context));
             capabilities.put("nativeMessagesList", NativeFeatureFlags.isNativeMessagesListEnabled(context));
             capabilities.put("nativeNavigationPilot", NativeFeatureFlags.isNativeNavigationEnabled(context));
+            capabilities.put("passkeys", isWebAuthnSupported());
             capabilities.put("events", new org.json.JSONArray()
                 .put("scrolith:native-network")
                 .put("scrolith:native-insets")
@@ -90,6 +92,12 @@ final class ScrolithNativeBridge {
         } catch (Throwable ignored) {
             return "{}";
         }
+    }
+
+    @JavascriptInterface
+    public boolean isWebAuthnSupported() {
+        if (!isTrusted()) return false;
+        return WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION);
     }
 
     @JavascriptInterface

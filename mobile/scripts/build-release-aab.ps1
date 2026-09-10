@@ -11,9 +11,9 @@ $GeezleRoot = if ($env:SCROLITH_RELEASE_GEEZLE_ROOT) {
   $DefaultGeezleRoot
 }
 $AndroidRoot = Join-Path $MobileRoot 'android'
-$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.3.8'
-$VersionCode = 119
-$VersionName = '1.3.8'
+$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.3.9'
+$VersionCode = 120
+$VersionName = '1.3.9'
 $WebCommit = (git -C $GeezleRoot rev-parse HEAD 2>$null)
 if (-not $WebCommit) { $WebCommit = 'unknown' }
 
@@ -38,6 +38,7 @@ $env:VITE_FORCE_MOBILE_API_OVERRIDE = 'false'
 $env:VITE_MOBILE_API_URL = 'https://api.scrolith.com/api'
 $env:VITE_MOBILE_API_BASE_URL = 'https://api.scrolith.com/api'
 $env:VITE_SCROLITH_MOBILE_APP = 'true'
+$env:VITE_PASSKEYS_ENABLED = 'true'
 # Match production web / Cloud Run FE (Phase 29.7)
 $env:VITE_API_URL = 'https://api.scrolith.com/api'
 $env:VITE_API_BASE_URL = 'https://api.scrolith.com/api'
@@ -51,7 +52,7 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $LogDir = Join-Path $OutDir 'logs'
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $ReleaseWebDir = Join-Path $OutDir 'web-dist'
-$RelativeReleaseWebDir = 'release-artifacts/android-1.3.8/web-dist'
+$RelativeReleaseWebDir = 'release-artifacts/android-1.3.9/web-dist'
 $env:SCROLITH_CAPACITOR_WEB_DIR = $RelativeReleaseWebDir
 
 # npm/vite write warnings to stderr; do not treat native stderr as terminating errors.
@@ -164,7 +165,7 @@ $meta = @{
   webCommit = $WebCommit
   minifyEnabled = $true
   shrinkResources = $true
-  phase = 'instant-delivery-foundation-phase1'
+  phase = 'create-center-passkeys-phase1'
   targetSdk = 36
   compileSdk = 36
   minSdk = 24
