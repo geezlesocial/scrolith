@@ -1611,18 +1611,35 @@ const Navbar = () => {
   );
 
   const createMenuItems = useMemo(() => {
-    // Only surface create actions already available on the platform via existing routes.
-    const items: Array<{ id: string; label: string; url: string; roles?: string[] }> = [
-      { id: "create-post", label: "Post", url: "/post/create" },
-      { id: "create-job", label: "Job", url: "/create-job", roles: ["employer", "admin"] },
-      { id: "create-gig", label: "Gig", url: "/create-gig", roles: ["freelancer", "admin"] },
-      { id: "create-marketplace", label: "Marketplace listing", url: "/marketplace/create" }
+    // Keep the complete create center visible. Existing route guards and API
+    // permissions remain the source of truth for role-specific workflows.
+    return [
+      {
+        id: "create-post",
+        label: "Post",
+        description: "Share an update, photo, video, or article.",
+        url: "/post/create"
+      },
+      {
+        id: "create-job",
+        label: "Job",
+        description: "Create a professional job post.",
+        url: "/create-job"
+      },
+      {
+        id: "create-gig",
+        label: "Gig",
+        description: "Publish a service or freelance offer.",
+        url: "/create-gig"
+      },
+      {
+        id: "create-marketplace",
+        label: "Marketplace listing",
+        description: "Sell a product or offer on Scrolith.",
+        url: "/marketplace/create"
+      }
     ];
-    return items.filter((item) => {
-      if (!item.roles || item.roles.length === 0) return true;
-      return item.roles.includes(normalizedUserRole) || normalizedUserRole === "admin";
-    });
-  }, [normalizedUserRole]);
+  }, []);
 
   const renderCreateControl = () => {
     if (!isAuthenticated || createMenuItems.length === 0) return null;
@@ -1663,7 +1680,8 @@ const Navbar = () => {
                   navigate(item.url);
                 }}
               >
-                {item.label}
+                <span className="block">{item.label}</span>
+                <span className="mt-0.5 block text-[11px] font-normal text-slate-500">{item.description}</span>
               </button>
             ))}
           </div>

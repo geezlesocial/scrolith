@@ -16,6 +16,20 @@ export type PasskeyRecord = {
 
 const isEnabled = () => String(import.meta.env.VITE_PASSKEYS_ENABLED || '').toLowerCase() === 'true';
 
+const getPasskeyPlatform = (): 'web' | 'android' | 'ios' => {
+  if (typeof window === 'undefined') return 'web';
+  try {
+    const capacitor = (window as any).Capacitor;
+    if (typeof capacitor?.isNativePlatform === 'function' && capacitor.isNativePlatform()) {
+      return capacitor.getPlatform?.() === 'ios' ? 'ios' : 'android';
+    }
+    if ((window as any).ScrolithNative?.getBridgeVersion) return 'android';
+  } catch {
+    // Browser fallback remains the safe default.
+  }
+  return 'web';
+};
+
 const unwrap = <T,>(response: any): T => {
   if (response?.data?.data !== undefined) return response.data.data as T;
   return response?.data as T;
@@ -39,7 +53,7 @@ export const PasskeyService = {
     const optionsResponse = await api.post('/auth/passkeys/registration/options', {
       label: label.trim() || 'Scrolith passkey',
       currentPassword: currentPassword || undefined,
-      platform: 'web',
+      platform: getPasskeyPlatform(),
     });
     const optionsPayload = {
       data: optionsResponse?.data?.data,
@@ -61,7 +75,7 @@ export const PasskeyService = {
     if (!passkeySupport.available()) throw new Error('Passkeys are not enabled on this device.');
     const normalizedEmail = String(email || '').trim().toLowerCase();
     const optionsResponse = await api.post('/auth/passkeys/authentication/options', {
-      platform: 'web',
+      platform: getPasskeyPlatform(),
       ...(normalizedEmail ? { email: normalizedEmail } : {})
     });
     const optionsPayload = {

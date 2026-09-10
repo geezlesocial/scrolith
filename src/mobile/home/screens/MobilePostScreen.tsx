@@ -49,6 +49,7 @@ import {
 import { buildAttachmentCaptionMap, resolveFirstAttachmentCaption } from '../../../utils/videoCaption';
 import { resolvePostAttachmentMediaPair } from '../../../utils/postAttachmentMedia';
 import type { PreviewMedia } from '../../../components/media/MediaPreviewModal';
+import { DEFAULT_MEMBER_HOME_LOCATIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../../../constants/defaultAudienceOptions';
 
 const LocationPicker = React.lazy(() => import('../../../components/common/LocationPicker'));
 const MediaPreviewModal = React.lazy(() => import('../../../components/media/MediaPreviewModal'));
@@ -105,10 +106,12 @@ const postAiActions: Array<{ mode: PostEnhanceMode; label: string }> = [
 
 export default function MobilePostScreen({
   mobileLayout,
-  onClose
+  onClose,
+  initialMediaIntent
 }: {
   mobileLayout?: any;
   onClose?: () => void;
+  initialMediaIntent?: 'photo' | 'video' | null;
 } = {}) {
   const ctx = useOutletContext<any>();
   const routerLocation = useLocation();
@@ -182,13 +185,13 @@ export default function MobilePostScreen({
 
   const suggestedTopics = useMemo(() => {
     const raw = composer.topics || composer.topicList || composer.topic_list;
-    const list = Array.isArray(raw) ? raw : [];
+    const list = Array.isArray(raw) && raw.length ? raw : DEFAULT_MEMBER_HOME_TOPICS;
     return Array.from(new Set(list.map((t: any) => String(t || '').trim()).filter(Boolean)));
   }, [composer.topics, composer.topicList, composer.topic_list]);
 
   const suggestedLocations = useMemo(() => {
     const raw = composer.locations || composer.locationList || composer.location_list;
-    const list = Array.isArray(raw) ? raw : [];
+    const list = Array.isArray(raw) && raw.length ? raw : DEFAULT_MEMBER_HOME_LOCATIONS;
     return Array.from(new Set(list.map((t: any) => String(t || '').trim()).filter(Boolean)));
   }, [composer.locations, composer.locationList, composer.location_list]);
 
@@ -307,7 +310,18 @@ export default function MobilePostScreen({
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const videoInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (isEditing || !initialMediaIntent) return undefined;
+    const timer = window.setTimeout(() => {
+      const target = initialMediaIntent === 'photo' ? photoInputRef.current : videoInputRef.current;
+      target?.click();
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [initialMediaIntent, isEditing]);
 
   const uploadingCount = media.filter((m) => m.uploading).length;
   const canPost =
@@ -740,7 +754,10 @@ export default function MobilePostScreen({
     <div className={MOBILE_PAGE_SECTION_CLASS}>
       <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">
-          <div className="text-sm font-semibold text-slate-900">{isEditing ? 'Edit post' : 'Create post'}</div>
+          <div>
+            <div className="text-sm font-semibold text-slate-900">{isEditing ? 'Edit post' : 'Create post'}</div>
+            {!isEditing ? <p className="mt-1 text-xs text-slate-500">Share a clear update with the people and opportunities that matter to you.</p> : null}
+          </div>
           {isEditing ? (
             <button
               type="button"
@@ -890,7 +907,7 @@ export default function MobilePostScreen({
               value={topic}
               onChange={(e) => setTopic(String(e.target.value || ''))}
               list="mobile_post_topics"
-              placeholder="Select or type"
+              placeholder="Select or type a topic"
               className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
               disabled={busy || loadingPost}
             />
@@ -904,7 +921,7 @@ export default function MobilePostScreen({
                 setLocationDetails(null);
               }}
               list="mobile_post_locations"
-              placeholder="Region / country / city"
+              placeholder="Select or type a location"
               className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
               disabled={busy || loadingPost}
             />
@@ -1100,6 +1117,21 @@ export default function MobilePostScreen({
             type="file"
             multiple
             accept="image/*,video/*"
+            className="hidden"
+            onChange={handleInputFiles}
+          />
+          <input
+            ref={photoInputRef}
+            type="file"
+            multiple
+            accept="image/*"
+            className="hidden"
+            onChange={handleInputFiles}
+          />
+          <input
+            ref={videoInputRef}
+            type="file"
+            accept="video/*"
             className="hidden"
             onChange={handleInputFiles}
           />

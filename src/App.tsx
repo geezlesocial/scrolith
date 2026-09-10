@@ -1556,6 +1556,9 @@ const AppContent = () => {
         !shouldRenderForcedMobileHome &&
         // Phase 20.7 patch: full /messages workspace replaces floating dock (unmount, not hide).
         !isMessagesRoute &&
+        !['/post/create', '/create-job', '/create-gig', '/marketplace/create'].includes(
+          (location.pathname || '').replace(/\/+$/, '') || '/'
+        ) &&
         !isFollowOnboardingRoute &&
         nonCriticalUiReady && (
           <Suspense fallback={null}>

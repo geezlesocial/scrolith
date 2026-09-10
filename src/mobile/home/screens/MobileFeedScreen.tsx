@@ -21,7 +21,7 @@ export default function MobileFeedScreen({
   onOpenScroll?: (scroll: ScrollVideo) => void;
   onOpenPostVideoScroll?: (source: PendingPostVideoScrollViewerSource) => void;
   onOpenScrollSeries?: (seriesId: string, scrollId?: string | null) => void;
-  onOpenPost?: () => void;
+  onOpenPost?: (intent?: 'text' | 'photo' | 'video') => void;
 } = {}) {
   const ctx = useOutletContext<any>();
   const layout = mobileLayout ?? ctx?.mobileLayout ?? null;
@@ -40,14 +40,14 @@ export default function MobileFeedScreen({
               </div>
               <button
                 type="button"
-                onClick={onOpenPost}
+                onClick={() => onOpenPost?.('text')}
                 className="min-h-9 flex-1 rounded-full border border-slate-200 bg-slate-50 px-3 text-left text-[13px] text-slate-500 transition-colors active:bg-slate-100"
               >
                 What's on your mind?
               </button>
               <button
                 type="button"
-                onClick={onOpenPost}
+                onClick={() => onOpenPost?.('text')}
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-700 transition-colors active:bg-slate-100"
                 aria-label="Create a post"
               >
@@ -55,10 +55,10 @@ export default function MobileFeedScreen({
               </button>
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2 border-t border-slate-100 pt-2">
-              <button type="button" onClick={onOpenPost} className="flex min-h-7 items-center justify-center gap-1.5 rounded-lg text-[11px] font-semibold text-emerald-700 active:bg-emerald-50">
+              <button type="button" onClick={() => onOpenPost?.('photo')} className="flex min-h-7 items-center justify-center gap-1.5 rounded-lg text-[11px] font-semibold text-emerald-700 active:bg-emerald-50">
                 <Camera className="h-3.5 w-3.5" /> Photo
               </button>
-              <button type="button" onClick={onOpenPost} className="flex min-h-7 items-center justify-center gap-1.5 rounded-lg text-[11px] font-semibold text-indigo-700 active:bg-indigo-50">
+              <button type="button" onClick={() => onOpenPost?.('video')} className="flex min-h-7 items-center justify-center gap-1.5 rounded-lg text-[11px] font-semibold text-indigo-700 active:bg-indigo-50">
                 <Video className="h-3.5 w-3.5" /> Video
               </button>
             </div>

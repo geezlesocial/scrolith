@@ -90,6 +90,9 @@ type MobileHomeSheetsProps = {
   onLogout: () => void;
   onSwitchUserMode: () => void;
   onCreatePost: () => void;
+  onCreateJob: () => void;
+  onCreateGig: () => void;
+  onCreateMarketplace: () => void;
   onBrowseJobs: () => void;
   onBrowseGigs: () => void;
   onMatch: () => void;
@@ -348,6 +351,9 @@ export default function MobileHomeSheets({
   onLogout,
   onSwitchUserMode,
   onCreatePost,
+  onCreateJob,
+  onCreateGig,
+  onCreateMarketplace,
   onBrowseJobs,
   onBrowseGigs,
   onMatch,
@@ -479,12 +485,36 @@ export default function MobileHomeSheets({
       ? {
           id: 'quick-create-post',
           icon: <Plus className="h-4 w-4" />,
-          label: 'Create post',
-          description: 'Publish updates, media, and thought leadership quickly.',
+          label: 'Post',
+          description: 'Create an update with text, photos, videos, or an article.',
           tone: 'green',
           onClick: onCreatePost
         }
       : null,
+    {
+      id: 'quick-create-job',
+      icon: <Briefcase className="h-4 w-4" />,
+      label: 'Job',
+      description: 'Create a professional job post for your next hire.',
+      tone: 'indigo',
+      onClick: onCreateJob
+    },
+    {
+      id: 'quick-create-gig',
+      icon: <Star className="h-4 w-4" />,
+      label: 'Gig',
+      description: 'Publish a service or freelance offer.',
+      tone: 'amber',
+      onClick: onCreateGig
+    },
+    {
+      id: 'quick-create-marketplace',
+      icon: <ShoppingCart className="h-4 w-4" />,
+      label: 'Marketplace listing',
+      description: 'Sell a product through the Scrolith Marketplace.',
+      tone: 'green',
+      onClick: onCreateMarketplace
+    },
     quickMenu.projectBrief !== false
       ? {
           id: 'quick-project-briefs',
@@ -498,10 +528,10 @@ export default function MobileHomeSheets({
       : null,
     quickMenu.gigCreation !== false && isFreelancerMode
       ? {
-          id: 'quick-gig-creation',
-          icon: <Star className="h-4 w-4" />,
-          label: 'Scrolith Gig Creation',
-          description: 'Use guided workflow to publish a new offer.',
+          id: 'quick-gig-ai',
+          icon: <Sparkles className="h-4 w-4" />,
+          label: 'Gig with Scrolitha AI',
+          description: 'Use the guided workflow to draft a new offer.',
           badge: 'AI',
           tone: 'indigo',
           onClick: onGigCreation

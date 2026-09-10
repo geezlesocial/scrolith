@@ -32,6 +32,12 @@ export const isMessagingDockExcludedPath = (pathname: string | null | undefined)
   // Phase 26B — onboarding must not be blocked by floating messaging launcher.
   if (path === '/auth/follow-onboarding') return true;
   if (path.startsWith('/auth/follow-onboarding/')) return true;
+  // Creation workspaces are focused forms. Do not cover their submit area with
+  // the floating inbox launcher on desktop; the full inbox remains available
+  // from the header/navigation.
+  if (path === '/post/create' || path === '/create-job' || path === '/create-gig' || path === '/marketplace/create') {
+    return true;
+  }
   return false;
 };
 

@@ -1803,6 +1803,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [previewMedia, setPreviewMedia] = useState<PreviewMedia | null>(null);
   const [expandedPost, setExpandedPost] = useState<any | null>(null);
   const postMediaInputRef = useRef<HTMLInputElement | null>(null);
+  const postPhotoInputRef = useRef<HTMLInputElement | null>(null);
+  const postVideoInputRef = useRef<HTMLInputElement | null>(null);
   const postCameraInputRef = useRef<HTMLInputElement | null>(null);
   const postTitleInputRef = useRef<HTMLInputElement | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -2322,7 +2324,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         composerInputRef.current?.focus();
       }
       if (desktopComposerIntent === 'photo' || desktopComposerIntent === 'video') {
-        postMediaInputRef.current?.click();
+        const input = desktopComposerIntent === 'photo' ? postPhotoInputRef.current : postVideoInputRef.current;
+        input?.click();
       }
     }, 140);
     return () => window.clearTimeout(timer);
@@ -4821,7 +4824,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       files.forEach((file) => {
         void uploadPostFile(file);
       });
-      if (postMediaInputRef.current) postMediaInputRef.current.value = '';
+      event.currentTarget.value = '';
     },
     [uploadPostFile]
   );
@@ -7578,7 +7581,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               className={composerEntryTrigger}
               aria-haspopup="dialog"
             >
-              Start a post
+              Share an update with your network
             </button>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -7926,7 +7929,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             value={postDraft.topic}
                             onChange={(event) => setPostDraft((prev) => ({ ...prev, topic: event.target.value }))}
                             list="member_home_topics"
-                            placeholder="Topic (optional)"
+                            placeholder="Select or type a topic"
                             className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
                           />
                         </label>
@@ -7989,7 +7992,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                               setPostLocationDetails(null);
                             }}
                             list="member_home_locations"
-                            placeholder={user?.location || user?.country || 'Location (optional)'}
+                            placeholder={user?.location || user?.country || 'Select or type a location'}
                             className="mt-3 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-slate-400"
                           />
                           {postLocationPickerOpen ? (
@@ -11061,6 +11064,21 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         type="file"
         multiple
         accept={COMPOSER_UPLOAD_ACCEPT}
+        className="hidden"
+        onChange={handlePostMedia}
+      />
+      <input
+        ref={postPhotoInputRef}
+        type="file"
+        multiple
+        accept="image/*"
+        className="hidden"
+        onChange={handlePostMedia}
+      />
+      <input
+        ref={postVideoInputRef}
+        type="file"
+        accept="video/*"
         className="hidden"
         onChange={handlePostMedia}
       />

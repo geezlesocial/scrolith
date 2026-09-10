@@ -293,6 +293,7 @@ const MobileHome = () => {
   const [activePanelTab, setActivePanelTab] = useState<Exclude<MobileTabKey, 'home' | 'messages'> | null>(
     isMobileOverlayTab(routeTab) ? routeTab : null
   );
+  const [postMediaIntent, setPostMediaIntent] = useState<'photo' | 'video' | null>(null);
   const [scrollOverlay, setScrollOverlay] = useState<{
     key: number;
     initialItems: ScrollVideo[];
@@ -545,6 +546,12 @@ const MobileHome = () => {
   );
 
   const onTabChange = useCallback((tab: MobileTabKey) => {
+    if (tab === 'post') {
+      // The primary Post action is an action center, matching the web create
+      // button. The actual post composer remains one tap away inside it.
+      setQuickMenuOpen(true);
+      return;
+    }
     if (tab === activeTab) {
       window.dispatchEvent(
         new CustomEvent('mobile-home:tab-reselected', {
@@ -717,6 +724,7 @@ const MobileHome = () => {
   const closeActivePanel = useMemo(
     () => () => {
       dismissShellLayers();
+      setPostMediaIntent(null);
       if (location.pathname !== '/m/home') {
         navigate('/m/home', { replace: true });
       }
@@ -770,7 +778,13 @@ const MobileHome = () => {
             }
           >
             {activePanelTab === 'network' ? <MobileNetworkScreen /> : null}
-            {activePanelTab === 'post' ? <MobilePostScreen mobileLayout={layout} onClose={closeActivePanel} /> : null}
+            {activePanelTab === 'post' ? (
+              <MobilePostScreen
+                mobileLayout={layout}
+                initialMediaIntent={postMediaIntent}
+                onClose={closeActivePanel}
+              />
+            ) : null}
             {activePanelTab === 'notifications' ? (
               <MobileNotificationsScreen
                 onNavigate={navigateFromShell}
@@ -858,7 +872,10 @@ const MobileHome = () => {
               onOpenScroll={handleOpenScrollOverlay}
               onOpenPostVideoScroll={handleOpenPostVideoScroll}
               onOpenScrollSeries={handleOpenScrollSeries}
-              onOpenPost={() => onTabChange('post')}
+              onOpenPost={(intent) => {
+                setPostMediaIntent(intent === 'photo' || intent === 'video' ? intent : null);
+                openPanelFromShell('post');
+              }}
             />
           </Suspense>
         )}
@@ -1006,6 +1023,9 @@ const MobileHome = () => {
               if (location.pathname !== '/m/home') navigate('/m/home');
             }}
             onCreatePost={() => openPanelFromShell('post')}
+            onCreateJob={() => navigateFromShell('/create-job')}
+            onCreateGig={() => navigateFromShell('/create-gig')}
+            onCreateMarketplace={() => navigateFromShell('/marketplace/create')}
             onBrowseJobs={() => openPanelFromShell('jobs')}
             onBrowseGigs={() => navigateFromShell('/browse')}
             onMatch={() => navigateFromShell('/match')}
