@@ -421,10 +421,10 @@ const Login = () => {
                 className="flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3.5 text-sm font-bold text-blue-900 transition hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <KeyRound className="h-4 w-4" />
-                {passkeyLoading ? 'Waiting for passkey...' : 'Continue with a passkey'}
+                {passkeyLoading ? 'Waiting for passkey...' : 'Sign in with a saved passkey'}
               </button>
               <p className="text-center text-xs leading-5 text-slate-500">
-                Enter your email above to look for that account&apos;s passkey. New to passkeys? Sign in with your password first, then add one in Settings.
+                Enter your email in the form below to narrow the account selection, or leave it blank to choose any saved Scrolith passkey. New to passkeys? Sign in with your password first, then add one in Settings.
               </p>
               <div className="flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                 <span className="h-px flex-1 bg-slate-200" />

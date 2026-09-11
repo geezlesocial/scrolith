@@ -3599,7 +3599,9 @@ const CommunityHome = () => {
                     isVerified: post.author?.isVerified,
                     isPro: post.author?.isPro,
                     kycStatus: post.author?.kycStatus ?? post.author?.kyc_status,
-                    verificationStatus: post.author?.verificationStatus ?? post.author?.verification_status
+                    verificationStatus: post.author?.verificationStatus ?? post.author?.verification_status,
+                    availableForHire: Boolean(post.author?.availableForHire ?? post.author?.available_for_hire ?? post.availableForHire ?? post.available_for_hire),
+                    weAreHiring: Boolean(post.author?.weAreHiring ?? post.author?.we_are_hiring ?? post.weAreHiring ?? post.we_are_hiring)
                   };
                   const followTargetId =
                     String(resolvedAuthor.type || '').toLowerCase() === 'user'

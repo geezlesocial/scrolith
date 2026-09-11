@@ -30,6 +30,29 @@ const getPasskeyPlatform = (): 'web' | 'android' | 'ios' => {
   return 'web';
 };
 
+const isNativePlatform = () => {
+  if (typeof window === 'undefined') return false;
+  try {
+    const capacitor = (window as any).Capacitor;
+    return Boolean(capacitor?.isNativePlatform?.() || (window as any).ScrolithNative?.getBridgeVersion);
+  } catch {
+    return false;
+  }
+};
+
+const isNativeWebAuthnAvailable = () => {
+  if (!isNativePlatform()) return true;
+  try {
+    const bridge = (window as any).ScrolithNative;
+    // Older app releases do not expose the capability method. Let the browser
+    // capability check below decide for them, while new releases fail closed
+    // when Android WebView reports that WebAuthn is unavailable.
+    return typeof bridge?.isWebAuthnSupported !== 'function' || bridge.isWebAuthnSupported() === true;
+  } catch {
+    return false;
+  }
+};
+
 const unwrap = <T,>(response: any): T => {
   if (response?.data?.data !== undefined) return response.data.data as T;
   return response?.data as T;
@@ -44,7 +67,8 @@ export const passkeySupport = {
     isEnabled() &&
     typeof window !== 'undefined' &&
     typeof window.PublicKeyCredential !== 'undefined' &&
-    typeof navigator !== 'undefined',
+    typeof navigator !== 'undefined' &&
+    isNativeWebAuthnAvailable(),
 };
 
 export const PasskeyService = {
@@ -66,7 +90,7 @@ export const PasskeyService = {
       challengeId: optionsPayload.challengeId,
       response: credential,
       label: label.trim() || 'Scrolith passkey',
-      platform: 'web',
+      platform: getPasskeyPlatform(),
     });
     return true;
   },
@@ -88,7 +112,7 @@ export const PasskeyService = {
     const verifiedResponse = await api.post('/auth/passkeys/authentication/verify', {
       challengeId: optionsPayload.challengeId,
       response: credential,
-      platform: 'web',
+      platform: getPasskeyPlatform(),
     });
     const payload = verifiedResponse?.data || {};
     const user = payload?.user as User | undefined;
@@ -119,6 +143,13 @@ export const PasskeyService = {
 
   getErrorMessage(error: unknown, fallback = 'Passkey operation failed.') {
     const typedError = error as any;
+    const code = String(typedError?.response?.data?.code || '').trim();
+    if (code === 'PASSKEYS_DISABLED') {
+      return 'Passkeys are temporarily unavailable. Please use another sign-in method and try again shortly.';
+    }
+    if (code === 'PASSKEY_NOT_FOUND') {
+      return 'This passkey is not registered with Scrolith. Sign in with your password, then add this device from Settings > Passkeys.';
+    }
     const name = String(typedError?.name || '').trim();
     if (name === 'NotAllowedError' || name === 'AbortError') {
       return 'No matching Scrolith passkey was selected. If you have not added one yet, sign in with your password first, then open Settings > Passkeys to add this device.';

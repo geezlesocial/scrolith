@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import FollowButton from './FollowButton';
 import VerifiedBadge from '../../components/common/VerifiedBadge';
 import EnterpriseAvatar from '../../components/common/EnterpriseAvatar';
+import PublicAvailabilityStatus from '../../components/common/PublicAvailabilityStatus';
 import {
   identityTrustStateLabel,
   resolveIdentityTrustState,
@@ -112,6 +113,10 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   const verificationLevel = resolveVerificationLevel(author);
   const identityTrustState = resolveIdentityTrustState(author);
   const authorHandle = String(author.username || '').trim().replace(/^@+/, '');
+  const normalizeIdentity = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  // Some API projections use a display name as the username fallback. Do not
+  // render that same identity twice in a compact post header.
+  const showAuthorHandle = Boolean(authorHandle) && normalizeIdentity(authorHandle) !== normalizeIdentity(authorName);
   const headline = String(author.headline || '').trim();
   const formattedCreatedAt = formatPostHeaderTimestamp(createdAt);
   const isBusinessAuthor = authorType === 'business' || authorType === 'page' || authorType === 'company';
@@ -131,6 +136,9 @@ const PostHeader: React.FC<PostHeaderProps> = ({
           user={author}
           name={authorName}
           src={author.avatarUrl}
+          availableForHire={author.availableForHire}
+          weAreHiring={author.weAreHiring}
+          accountType={author.type}
           size="lg"
           className="!h-full !w-full"
           alt={`${authorName} avatar`}
@@ -182,9 +190,15 @@ const PostHeader: React.FC<PostHeaderProps> = ({
                   Pro
                 </span>
               ) : null}
+              <PublicAvailabilityStatus
+                availableForHire={author.availableForHire}
+                weAreHiring={author.weAreHiring}
+                accountType={author.type}
+                compact
+              />
             </div>
 
-            {authorHandle ? (
+            {showAuthorHandle ? (
               <p className={`mt-0.5 max-w-full truncate ${postCardType.username}`} title={`@${authorHandle}`}>
                 @{authorHandle}
               </p>
