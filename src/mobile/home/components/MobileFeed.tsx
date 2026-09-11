@@ -3065,16 +3065,19 @@ export default function MobileFeed({
           const postId = String(post?.id || '');
           const author = post?.author || {};
           const authorName = author.displayName || post?.authorName || post?.authorUsername || 'Member';
-          const authorHandle = String(author?.username || post?.authorUsername || '').trim().replace(/^@+/, '');
-          const normalizedAuthorName = String(authorName).toLowerCase().replace(/[^a-z0-9]+/g, '');
-          const showAuthorHandle = Boolean(authorHandle) && authorHandle.toLowerCase().replace(/[^a-z0-9]+/g, '') !== normalizedAuthorName;
           const authorAvatar = resolvePostAttachmentMediaUrl(author.avatarUrl || post?.authorAvatar || null);
           const authorId = post?.authorUserId || post?.authorId;
           const createdAt = post?.createdAt;
           const isVerified = Boolean((author as any)?.isVerified || (post as any)?.authorIsVerified || (post as any)?.authorVerified);
           const isPro = Boolean((author as any)?.isPro || (post as any)?.authorIsPro || (post as any)?.authorPro);
-          const availableForHire = Boolean((author as any)?.availableForHire ?? (author as any)?.available_for_hire ?? post?.availableForHire ?? post?.available_for_hire);
-          const weAreHiring = Boolean((author as any)?.weAreHiring ?? (author as any)?.we_are_hiring ?? post?.weAreHiring ?? post?.we_are_hiring);
+          const publicAvailabilityFlags = resolvePublicAvailabilityFlags({
+            ...post,
+            ...author,
+            availability: (author as any)?.availability ?? (post as any)?.availability,
+            hiring: (author as any)?.hiring ?? (post as any)?.hiring,
+          });
+          const availableForHire = publicAvailabilityFlags.availableForHire;
+          const weAreHiring = publicAvailabilityFlags.weAreHiring;
           const verificationLevel = resolveVerificationLevel({
             verificationLevel:
               (author as any)?.verificationLevel ||
@@ -3184,14 +3187,6 @@ export default function MobileFeed({
                           compact
                         />
                       </div>
-                      {showAuthorHandle ? (
-                        <p
-                          className={`mt-0.5 max-w-full truncate ${postCardType.username}`}
-                          title={`@${authorHandle}`}
-                        >
-                          @{authorHandle}
-                        </p>
-                      ) : null}
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                         <span className={`font-medium ${postCardType.date}`}>{relativeTime(createdAt) || 'now'}</span>
                         {post?.visibility ? (

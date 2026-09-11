@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Sparkles, X } from "lucide-react";
+import { KeyRound, Sparkles, X } from "lucide-react";
 import AuthSocialButtons from "../../auth/AuthSocialButtons";
 import { useContent } from "../../context/ContentContext";
 import { useUser } from "../../context/UserContext";
@@ -16,6 +16,7 @@ import {
 } from "../../types";
 import { buildScrolithaPath } from "../../utils/scrolithaLaunch";
 import { resolveAuthenticatedEntryPath } from "../../utils/authRedirect";
+import { PasskeyService, passkeySupport } from "../../services/passkeys";
 
 type LoginApprovalState = { id: string; approvalToken: string; expiresAt?: string | null };
 
@@ -121,6 +122,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
   const [showSignupPassword, setShowSignupPassword] = React.useState(false);
   const [showSignupConfirm, setShowSignupConfirm] = React.useState(false);
   const [loginLoading, setLoginLoading] = React.useState(false);
+  const [passkeyLoading, setPasskeyLoading] = React.useState(false);
   const [signupLoading, setSignupLoading] = React.useState(false);
   const [loginError, setLoginError] = React.useState("");
   const [signupErrors, setSignupErrors] = React.useState<Record<string, string>>({});
@@ -258,6 +260,22 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
     }
   };
 
+  const handlePasskeyLogin = async () => {
+    if (loginLoading || passkeyLoading || loginApproval) return;
+    setLoginError("");
+    setPasskeyLoading(true);
+    try {
+      const result = await PasskeyService.authenticate(loginForm.email.trim());
+      window.dispatchEvent(new Event("scrolith:auth-changed"));
+      window.location.assign(resolveAuthenticatedEntryPath(result.user as any));
+    } catch (error: any) {
+      const message = PasskeyService.getErrorMessage(error, "Passkey sign-in was cancelled or could not be completed.");
+      if (!/cancel|abort|dismiss/i.test(message)) setLoginError(message);
+    } finally {
+      setPasskeyLoading(false);
+    }
+  };
+
   const handleSignupSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!validateSignup()) return;
@@ -349,6 +367,22 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
         <form className={formSpacingClass} onSubmit={handleLoginSubmit}>
           {content?.enableSocialLogin !== false ? (
             <AuthSocialButtons mode="login" config={socialConfig || undefined} redirectTo="/" />
+          ) : null}
+          {passkeySupport.available() ? (
+            <>
+              <button
+                type="button"
+                onClick={() => void handlePasskeyLogin()}
+                disabled={loginLoading || passkeyLoading || Boolean(loginApproval)}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-900 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <KeyRound className="h-4 w-4" aria-hidden="true" />
+                {passkeyLoading ? "Waiting for passkey..." : "Continue with a passkey"}
+              </button>
+              <p className="-mt-1 text-center text-xs leading-5 text-slate-500">
+                Use a saved Scrolith passkey. Leave email blank to choose from available accounts, or enter it to narrow the selection.
+              </p>
+            </>
           ) : null}
           {loginError ? (
             <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{loginError}</div>

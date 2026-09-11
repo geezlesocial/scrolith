@@ -3600,6 +3600,8 @@ const CommunityHome = () => {
                     isPro: post.author?.isPro,
                     kycStatus: post.author?.kycStatus ?? post.author?.kyc_status,
                     verificationStatus: post.author?.verificationStatus ?? post.author?.verification_status,
+                    availability: post.author?.availability ?? post.author?.professionalAvailability ?? post.availability ?? post.professionalAvailability,
+                    hiring: post.author?.hiring ?? post.author?.clientHiringStatus ?? post.hiring ?? post.clientHiringStatus,
                     availableForHire: Boolean(post.author?.availableForHire ?? post.author?.available_for_hire ?? post.availableForHire ?? post.available_for_hire),
                     weAreHiring: Boolean(post.author?.weAreHiring ?? post.author?.we_are_hiring ?? post.weAreHiring ?? post.we_are_hiring)
                   };

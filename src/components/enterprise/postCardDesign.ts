@@ -154,7 +154,7 @@ export const postCardHeaderClass = `flex min-w-0 items-start ${spacingClass.gap.
 
 export const postCardHeaderMainClass = 'min-w-0 flex-1 pt-0.5';
 
-export const postCardHeaderRowClass = `flex min-w-0 items-start justify-between ${spacingClass.gap.sm}`;
+export const postCardHeaderRowClass = `flex min-w-0 items-center justify-between ${spacingClass.gap.sm}`;
 
 export const postCardHeaderRightClass =
   `flex shrink-0 items-center ${spacingClass.gap.sm} self-start`;
