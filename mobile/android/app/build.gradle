@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 1.3.9 - create center, media picker intent, and production passkey bridge.
-        versionCode 120
-        versionName "1.3.9"
+        // 1.3.10 - identity headers, availability indicators, and passkey capability fix.
+        versionCode 121
+        versionName "1.3.10"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]
