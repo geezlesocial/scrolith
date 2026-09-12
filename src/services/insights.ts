@@ -835,6 +835,21 @@ class InsightsService {
     return extractData<OpportunityBriefResult>(response);
   }
 
+  static async recordOpportunityFeedback(input: {
+    entityType: 'job' | 'gig' | 'page' | string;
+    entityId: string;
+    action: 'click' | 'dismiss';
+    metadata?: Record<string, any>;
+  }): Promise<void> {
+    await api.post('/reco/feedback', {
+      surface: 'opportunity_studio',
+      entityType: input.entityType,
+      entityId: input.entityId,
+      action: input.action,
+      metadata: input.metadata || {}
+    });
+  }
+
   static async getPostPrediction(postId: string, force = false): Promise<any> {
     const query = force ? '?force=true' : '';
     const response = await api.get(`/insights/post/${encodeURIComponent(postId)}/prediction${query}`);

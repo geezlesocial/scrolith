@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, BriefcaseBusiness, Building2, ClipboardList, RefreshCw, Sparkles, Target, Wallet } from 'lucide-react';
+import { AlertTriangle, BriefcaseBusiness, Building2, ClipboardList, RefreshCw, Sparkles, Target, ThumbsDown, ThumbsUp, Wallet } from 'lucide-react';
 import { InsightsService, type OpportunityBriefResult, type OpportunityHubData } from '../../services/insights';
 
 type OpportunityStudioAudience = 'freelancer' | 'employer' | 'page';
@@ -63,8 +63,37 @@ const resolveLink = (match: any) => {
   return '';
 };
 
-const renderMatch = (match: any) => {
+const resolveMatchEntity = (match: any) => {
+  const targetType = String(match?.targetType || match?.type || '').toLowerCase();
+  const entityType = targetType === 'company' ? 'page' : targetType || (match?.clientName ? 'job' : match?.sellerName ? 'gig' : 'page');
+  const entityId = String(match?.targetId || match?.id || match?.target?.id || '').trim();
+  return { entityType, entityId };
+};
+
+const OpportunityMatchCard: React.FC<{ match: any }> = ({ match }) => {
   const href = resolveLink(match);
+  const [feedback, setFeedback] = React.useState<'positive' | 'negative' | null>(null);
+  const [feedbackBusy, setFeedbackBusy] = React.useState(false);
+  const reasons = Array.isArray(match?.reasons) ? match.reasons.filter(Boolean).slice(0, 3) : [];
+  const sendFeedback = async (action: 'click' | 'dismiss') => {
+    const target = resolveMatchEntity(match);
+    if (!target.entityId || feedbackBusy) return;
+    setFeedbackBusy(true);
+    try {
+      await InsightsService.recordOpportunityFeedback({
+        entityType: target.entityType,
+        entityId: target.entityId,
+        action,
+        metadata: { score: Number(match?.score || 0), reasons }
+      });
+      setFeedback(action === 'click' ? 'positive' : 'negative');
+    } catch {
+      // Feedback is non-blocking and must never prevent opening an opportunity.
+    } finally {
+      setFeedbackBusy(false);
+    }
+  };
+
   return (
     <div key={String(match?.id || href || match?.title || match?.name)} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
       <div className="flex items-start justify-between gap-2">
@@ -86,14 +115,18 @@ const renderMatch = (match: any) => {
           {Number(match?.score || 0).toFixed(0)}%
         </span>
       </div>
-      {Array.isArray(match?.reasons) && match.reasons.length ? (
-        <p className="mt-2 line-clamp-2 text-xs text-slate-600">{String(match.reasons[0])}</p>
+      {reasons.length ? (
+        <div className="mt-2 space-y-1 text-xs text-slate-600">
+          {reasons.map((reason: any, index: number) => <p key={`${String(reason)}-${index}`}>• {String(reason)}</p>)}
+        </div>
       ) : null}
-      {href ? (
-        <Link to={href} className="mt-2 inline-flex text-xs font-semibold text-indigo-600 hover:text-indigo-700">
-          Open
-        </Link>
-      ) : null}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        {href ? <Link to={href} onClick={() => void sendFeedback('click')} className="inline-flex text-xs font-semibold text-indigo-600 hover:text-indigo-700">Open</Link> : <span />}
+        <div className="flex items-center gap-1" aria-label="Recommendation feedback">
+          <button type="button" onClick={() => void sendFeedback('click')} disabled={feedbackBusy} aria-label="Relevant recommendation" title="Relevant" className={`rounded-lg p-1.5 transition ${feedback === 'positive' ? 'bg-emerald-100 text-emerald-700' : 'text-slate-400 hover:bg-emerald-50 hover:text-emerald-700'}`}><ThumbsUp className="h-3.5 w-3.5" /></button>
+          <button type="button" onClick={() => void sendFeedback('dismiss')} disabled={feedbackBusy} aria-label="Not relevant recommendation" title="Not relevant" className={`rounded-lg p-1.5 transition ${feedback === 'negative' ? 'bg-rose-100 text-rose-700' : 'text-slate-400 hover:bg-rose-50 hover:text-rose-700'}`}><ThumbsDown className="h-3.5 w-3.5" /></button>
+        </div>
+      </div>
     </div>
   );
 };
@@ -105,7 +138,7 @@ const renderBriefColumn = (title: string, matches: any[]) => (
       <span className="text-xs text-slate-400">{matches.length}</span>
     </div>
     <div className="mt-3 space-y-2">
-      {matches.length ? matches.map((match) => renderMatch(match)) : <p className="text-xs text-slate-500">No matches yet.</p>}
+      {matches.length ? matches.map((match) => <OpportunityMatchCard key={String(match?.id || match?.targetId || match?.title || match?.name)} match={match} />) : <p className="text-xs text-slate-500">No matches yet.</p>}
     </div>
   </div>
 );
