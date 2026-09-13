@@ -26,6 +26,7 @@ import KpiGrid, { KpiItem } from '../../components/dashboard/KpiGrid';
 import QuickActions from '../../components/dashboard/QuickActions';
 import ActivityPanel, { ActivityItem } from '../../components/dashboard/ActivityPanel';
 import OpportunityStudioPanel from '../../components/dashboard/OpportunityStudioPanel';
+import PayoutOrchestrationPanel from '../../components/dashboard/PayoutOrchestrationPanel';
 import RightRail, { RightRailAction, RightRailMetric } from '../../components/dashboard/RightRail';
 import GrowthPulseCard from '../../components/growth/GrowthPulseCard';
 import {
@@ -647,6 +648,7 @@ export default function EmployerOverview() {
           />
           <GrowthPulseCard />
           <EnterpriseWorkspacePanel />
+          <PayoutOrchestrationPanel />
           <OpportunityStudioPanel
             audience="employer"
             title="Hiring Opportunity Studio"
