@@ -4,6 +4,7 @@
  */
 import { ScrolithaAI } from './execute';
 import { loadAIFeatureFlags } from './config';
+import { isBetaAllowed } from './allowlist';
 import { getAIConsent } from './consent';
 import { getAIMemory } from './memory';
 import { inc } from './observability';
@@ -168,6 +169,15 @@ export async function scoreFeedCandidates(input: {
       enabled: false,
       authoritative: false,
       reason: !flags.feedScoringEnabled ? 'SURFACE_FLAG_DISABLED:feedScoringEnabled' : 'AI_DISABLED',
+      scores: [],
+      policy: { aiMayReorderFeed: false, deterministicRankingAuthoritative: true }
+    };
+  }
+  if (flags.betaAllowlistOnly && !(await isBetaAllowed(input.userId))) {
+    return {
+      enabled: false,
+      authoritative: false,
+      reason: 'USER_NOT_IN_BETA_ALLOWLIST',
       scores: [],
       policy: { aiMayReorderFeed: false, deterministicRankingAuthoritative: true }
     };

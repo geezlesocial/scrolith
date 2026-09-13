@@ -5,6 +5,7 @@
 import { randomUUID } from 'crypto';
 import { ScrolithaAI } from './execute';
 import { loadAIFeatureFlags } from './config';
+import { isBetaAllowed } from './allowlist';
 import { getAIConsent } from './consent';
 import { getAIMemory } from './memory';
 import { applyLearningSignal } from './memory';
@@ -133,6 +134,14 @@ export async function getRecommendations(input: {
     return {
       enabled: false,
       reason: 'SURFACE_FLAG_DISABLED:recommendationsEnabled',
+      items: [],
+      policy: { autoAct: false, userMustConfirm: true }
+    };
+  }
+  if (flags.betaAllowlistOnly && !(await isBetaAllowed(input.userId))) {
+    return {
+      enabled: false,
+      reason: 'USER_NOT_IN_BETA_ALLOWLIST',
       items: [],
       policy: { autoAct: false, userMustConfirm: true }
     };
@@ -278,6 +287,9 @@ export async function submitRecoFeedback(input: {
   const flags = await loadAIFeatureFlags();
   if (!flags.recommendationFeedbackEnabled) {
     return { ok: false, reason: 'SURFACE_FLAG_DISABLED:recommendationFeedbackEnabled' };
+  }
+  if (flags.betaAllowlistOnly && !(await isBetaAllowed(input.userId))) {
+    return { ok: false, reason: 'USER_NOT_IN_BETA_ALLOWLIST' };
   }
 
   if (input.action === 'useful') inc('recoFeedbackUseful');

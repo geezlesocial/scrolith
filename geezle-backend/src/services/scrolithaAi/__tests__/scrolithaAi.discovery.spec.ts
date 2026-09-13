@@ -43,7 +43,8 @@ async function enableDiscovery() {
     INTEREST_INFERENCE: true,
     SEMANTIC_SEARCH_PREPARATION: true,
     NOTIFICATION_PRIORITIZATION: true,
-    notificationAiHooks: true
+    notificationAiHooks: true,
+    betaAllowlistOnly: false
   });
   await updateAIConsent(USER, {
     aiFeaturesEnabled: true,
@@ -194,6 +195,23 @@ describe('Phase 33.2 recommendations', () => {
       topic: 'react'
     });
     expect(fb.ok).toBe(true);
+  });
+
+  it('blocks recommendation surfaces outside the beta allowlist', async () => {
+    await setAIFeatureFlags({ betaAllowlistOnly: true });
+    const user = 'user-discovery-not-allowlisted-332';
+    const recommendations = await getRecommendations({ userId: user, limit: 4 });
+    expect(recommendations.enabled).toBe(false);
+    expect(recommendations.reason).toBe('USER_NOT_IN_BETA_ALLOWLIST');
+    const feedback = await submitRecoFeedback({
+      userId: user,
+      entityType: 'community',
+      entityId: 'seed-comm-1',
+      action: 'not_interested'
+    });
+    expect(feedback.ok).toBe(false);
+    expect(feedback.reason).toBe('USER_NOT_IN_BETA_ALLOWLIST');
+    await setAIFeatureFlags({ betaAllowlistOnly: false });
   });
 });
 
