@@ -34,9 +34,10 @@ ENV COMPAT_ASSET_ORIGINS=${COMPAT_ASSET_ORIGINS}
 # .env.production is copied with the source tree and otherwise overrides the
 # Docker build arguments when Vite loads mode-specific environment files.
 RUN if [ -f .env.production ]; then \
-      sed -i "s|^VITE_API_URL=.*|VITE_API_URL=${VITE_API_URL}|" .env.production && \
+    sed -i "s|^VITE_API_URL=.*|VITE_API_URL=${VITE_API_URL}|" .env.production && \
       sed -i "s|^VITE_API_BASE_URL=.*|VITE_API_BASE_URL=${VITE_API_BASE_URL}|" .env.production && \
-      sed -i "s|^VITE_BACKEND_URL=.*|VITE_BACKEND_URL=${VITE_BACKEND_URL}|" .env.production; \
+      sed -i "s|^VITE_BACKEND_URL=.*|VITE_BACKEND_URL=${VITE_BACKEND_URL}|" .env.production && \
+      sed -i "s|^VITE_PASSKEYS_ENABLED=.*|VITE_PASSKEYS_ENABLED=${VITE_PASSKEYS_ENABLED}|" .env.production; \
     fi
 
 RUN npm run build
