@@ -116,6 +116,16 @@ export type ScrolithaChatContext = {
 };
 
 export class ScrolithaService {
+  static async analyzeProfile(): Promise<any> {
+    const response = await api.post('/scrolitha/profile/analyze', {}, { timeout: SCROLITHA_CHAT_TIMEOUT_MS });
+    return extractData<any>(response);
+  }
+
+  static async applyProfileImprovements(payload: { profileVersion?: string; changes: Record<string, unknown> }): Promise<any> {
+    const response = await api.post('/scrolitha/profile/apply', payload, { timeout: SCROLITHA_EXECUTE_TIMEOUT_MS });
+    return extractData<any>(response);
+  }
+
   static async chat(payload: {
     message: string;
     context?: ScrolithaChatContext;

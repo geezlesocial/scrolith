@@ -27,6 +27,7 @@ import {
   ScrolithaAssistantService,
   type AssistantResult
 } from '../../services/scrolithaAssistant';
+import { ScrolithaService } from '../../services/scrolitha';
 import { useNotification } from '../../context/NotificationContext';
 import { useUser } from '../../context/UserContext';
 
@@ -87,6 +88,9 @@ const ScrolithaAssistantPage: React.FC = () => {
   const [searchDomain, setSearchDomain] = useState('jobs');
   const [searchQuery, setSearchQuery] = useState('');
   const [historyQ, setHistoryQ] = useState('');
+  const [profileReview, setProfileReview] = useState<any>(null);
+  const [profileReviewLoading, setProfileReviewLoading] = useState(false);
+  const [profileApplying, setProfileApplying] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   const loadStatus = useCallback(async () => {
@@ -307,6 +311,34 @@ const ScrolithaAssistantPage: React.FC = () => {
       } else setToolOut(result.reason || 'Failed');
     } finally {
       setSending(false);
+    }
+  };
+
+  const reviewProfile = async () => {
+    setProfileReviewLoading(true);
+    setLive('Analyzing your profile with a privacy-bounded snapshot…');
+    try {
+      const result = await ScrolithaService.analyzeProfile();
+      setProfileReview(result);
+      setLive('Profile recommendations ready. Nothing was changed.');
+    } catch (err: any) {
+      showNotification('alert', 'Profile review', err?.message || 'Profile review failed');
+    } finally {
+      setProfileReviewLoading(false);
+    }
+  };
+
+  const applyProfileSuggestion = async (suggestion: any) => {
+    if (!suggestion?.field || suggestion.suggestedValue === undefined) return;
+    setProfileApplying(suggestion.id);
+    try {
+      const result = await ScrolithaService.applyProfileImprovements({ profileVersion: profileReview?.profileVersion, changes: { [suggestion.field]: suggestion.suggestedValue } });
+      setProfileReview((current: any) => ({ ...current, profileVersion: result.profileVersion, suggestions: (current?.suggestions || []).filter((item: any) => item.id !== suggestion.id) }));
+      showNotification('success', 'Profile updated', 'The approved improvement was applied.');
+    } catch (err: any) {
+      showNotification('alert', 'Profile update', err?.message || 'Could not apply improvement');
+    } finally {
+      setProfileApplying(null);
     }
   };
 
@@ -542,6 +574,24 @@ const ScrolithaAssistantPage: React.FC = () => {
 
         {tab === 'tools' && (
           <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <section className="rounded-xl border border-violet-200 bg-violet-50/60 p-4" aria-labelledby="profile-review-title">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 id="profile-review-title" className="font-semibold text-slate-900">Profile improvement review</h2>
+                  <p className="mt-1 text-xs text-slate-600">Scrolitha reviews only your allowed professional profile fields. It never changes your profile without approval.</p>
+                </div>
+                <button type="button" onClick={reviewProfile} disabled={profileReviewLoading} className="rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">
+                  {profileReviewLoading ? 'Analyzing…' : 'Analyze my profile'}
+                </button>
+              </div>
+              {profileReview?.suggestions?.length ? <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {profileReview.suggestions.map((suggestion: any) => <article key={suggestion.id} className="rounded-lg border border-violet-100 bg-white p-3">
+                  <div className="flex items-start justify-between gap-2"><h3 className="text-sm font-medium text-slate-900">{suggestion.title}</h3><span className="text-[10px] uppercase text-violet-700">{suggestion.priority}</span></div>
+                  <p className="mt-1 text-xs text-slate-600">{suggestion.reason}</p>
+                  {suggestion.suggestedValue !== undefined ? <button type="button" onClick={() => applyProfileSuggestion(suggestion)} disabled={profileApplying === suggestion.id} className="mt-2 rounded-md border border-violet-300 px-2 py-1 text-xs font-medium text-violet-700 disabled:opacity-50">{profileApplying === suggestion.id ? 'Applying…' : 'Apply approved suggestion'}</button> : null}
+                </article>)}
+              </div> : profileReview ? <p className="mt-3 text-xs text-slate-600">No high-priority improvements found. Your profile snapshot is already complete for this review.</p> : null}
+            </section>
             <label className="block text-sm font-medium text-slate-800" htmlFor="tool-input">
               Source text
             </label>
