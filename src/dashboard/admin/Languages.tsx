@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNotification } from '../../context/NotificationContext';
 import { I18nService, I18nConfig, TextOverrideRow, TranslationKeyRow, TranslationValueRow } from '../../services/i18n';
 import ContentTranslationPanel from './ContentTranslationPanel';
+import LocalizationHubPanel from '../../components/dashboard/LocalizationHubPanel';
 
 type TabId = 'settings' | 'keys' | 'editor' | 'overrides' | 'import_export' | 'content_translation';
 
@@ -171,6 +172,7 @@ const LanguagesAdmin: React.FC = () => {
   return (
     <div className="p-6 bg-white rounded-xl shadow-sm space-y-4">
       <h2 className="text-xl font-bold">Language Module (SSOT)</h2>
+      <LocalizationHubPanel />
       <div className="flex flex-wrap gap-2">
         {tabs.map((item) => (
           <button key={item.id} onClick={() => setTab(item.id)} className={`px-3 py-1.5 rounded ${tab === item.id ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}>
