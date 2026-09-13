@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Sparkles, X } from "lucide-react";
+import { KeyRound, Sparkles, X } from "lucide-react";
 import AuthSocialButtons from "../../auth/AuthSocialButtons";
 import { useContent } from "../../context/ContentContext";
 import { useUser } from "../../context/UserContext";
@@ -16,6 +16,7 @@ import {
 } from "../../types";
 import { buildScrolithaPath } from "../../utils/scrolithaLaunch";
 import { resolveAuthenticatedEntryPath } from "../../utils/authRedirect";
+import { PasskeyService, passkeySupport } from "../../services/passkeys";
 
 type LoginApprovalState = { id: string; approvalToken: string; expiresAt?: string | null };
 
@@ -121,6 +122,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
   const [showSignupPassword, setShowSignupPassword] = React.useState(false);
   const [showSignupConfirm, setShowSignupConfirm] = React.useState(false);
   const [loginLoading, setLoginLoading] = React.useState(false);
+  const [passkeyLoading, setPasskeyLoading] = React.useState(false);
   const [signupLoading, setSignupLoading] = React.useState(false);
   const [loginError, setLoginError] = React.useState("");
   const [signupErrors, setSignupErrors] = React.useState<Record<string, string>>({});
@@ -134,6 +136,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
   const embeddedModalSurface = hideStandaloneLinks;
   const formSpacingClass = embeddedModalSurface ? "space-y-3" : "space-y-4";
   const inputPaddingClass = embeddedModalSurface && !compactSurface ? "py-2.5" : "py-3";
+  const passkeysAvailable = passkeySupport.available();
 
   React.useEffect(() => {
     setActiveTab(normalizeGuestAuthTab(defaultTab || content?.defaultTab));
@@ -258,6 +261,25 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
     }
   };
 
+  const handlePasskeyLogin = async () => {
+    if (loginLoading || passkeyLoading || loginApproval) return;
+    setLoginError("");
+    setPasskeyLoading(true);
+    try {
+      const result = await PasskeyService.authenticate(loginForm.email);
+      window.dispatchEvent(new Event("scrolith:auth-changed"));
+      window.location.assign(resolveAuthenticatedEntryPath(result.user as any));
+    } catch (error: any) {
+      const message = PasskeyService.getErrorMessage(
+        error,
+        "Passkey sign-in was cancelled or could not be completed."
+      );
+      if (!/cancel|abort|dismiss/i.test(message)) setLoginError(message);
+    } finally {
+      setPasskeyLoading(false);
+    }
+  };
+
   const handleSignupSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!validateSignup()) return;
@@ -349,6 +371,22 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
         <form className={formSpacingClass} onSubmit={handleLoginSubmit}>
           {content?.enableSocialLogin !== false ? (
             <AuthSocialButtons mode="login" config={socialConfig || undefined} redirectTo="/" />
+          ) : null}
+          {passkeysAvailable ? (
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={handlePasskeyLogin}
+                disabled={loginLoading || passkeyLoading || Boolean(loginApproval)}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-900 transition hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <KeyRound className="h-4 w-4" />
+                {passkeyLoading ? "Waiting for passkey..." : "Continue with a passkey"}
+              </button>
+              <p className="text-center text-xs leading-5 text-slate-500">
+                Use a saved Scrolith passkey on this device. You can optionally enter your email first.
+              </p>
+            </div>
           ) : null}
           {loginError ? (
             <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{loginError}</div>

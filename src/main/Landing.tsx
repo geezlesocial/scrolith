@@ -633,8 +633,6 @@ const Landing = () => {
       return Number(a.position || 0) - Number(b.position || 0);
     });
 
-    if (!compactMode) return ranked;
-
     const deduped: HomepageSection[] = [];
     const seenTypes = new Set<string>();
     ranked.forEach((section) => {
@@ -643,7 +641,7 @@ const Landing = () => {
       seenTypes.add(type);
       deduped.push(section);
     });
-    return deduped.slice(0, maxSections);
+    return compactMode ? deduped.slice(0, maxSections) : deduped;
   }, [activeSections, user]);
 
   const hasMemberHome = useMemo(

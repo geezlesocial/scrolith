@@ -601,7 +601,7 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
                 Work · Market · AI · Community
               </span>
             </div>
-            <h1 className="max-w-[14ch] text-[2rem] font-extrabold leading-[1.03] tracking-[-0.04em] text-slate-900 sm:max-w-none sm:text-3xl lg:text-4xl xl:text-[3.3rem]">
+            <h1 className="max-w-[16ch] text-balance text-[clamp(1.85rem,3.7vw,2.9rem)] font-extrabold leading-[0.98] tracking-[-0.045em] text-slate-950 sm:max-w-[18ch] lg:max-w-[16ch]">
               {content?.headline || 'Build your next opportunity on Scrolith'}
             </h1>
             {content?.subheadline ? (
