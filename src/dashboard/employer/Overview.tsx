@@ -31,6 +31,7 @@ import GrowthPulseCard from '../../components/growth/GrowthPulseCard';
 import {
   WorkspaceFocusPanel,
   WorkspaceStatusStrip,
+  EnterpriseWorkspacePanel,
   type WorkspaceFocusItem,
   type StatusChip
 } from '../../components/workspace';
@@ -645,6 +646,7 @@ export default function EmployerOverview() {
             emptyLabel="No urgent hiring items. Post a job or invite talent to build pipeline."
           />
           <GrowthPulseCard />
+          <EnterpriseWorkspacePanel />
           <OpportunityStudioPanel
             audience="employer"
             title="Hiring Opportunity Studio"

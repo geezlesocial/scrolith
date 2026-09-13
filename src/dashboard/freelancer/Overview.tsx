@@ -30,6 +30,7 @@ import GrowthPulseCard from '../../components/growth/GrowthPulseCard';
 import {
   WorkspaceFocusPanel,
   WorkspaceStatusStrip,
+  EnterpriseWorkspacePanel,
   type WorkspaceFocusItem,
   type StatusChip
 } from '../../components/workspace';
@@ -646,6 +647,7 @@ export const Overview: React.FC = () => {
             emptyLabel="No urgent delivery items. Browse jobs or polish a gig to keep pipeline warm."
           />
           <GrowthPulseCard />
+          <EnterpriseWorkspacePanel />
           <OpportunityStudioPanel
             audience="freelancer"
             title="Freelancer Opportunity Studio"
