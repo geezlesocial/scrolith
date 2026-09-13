@@ -10,6 +10,7 @@ import { detectIntentLocal } from '../services/scrolithaAi/providers/nativeProvi
 import { ScrolithaAI } from '../services/scrolithaAi';
 import { loadAIFeatureFlags } from '../services/scrolithaAi/config';
 import type { CopilotSurface } from '../services/scrolithaAi/types';
+import prisma from '../utils/prismaClient';
 
 const userIdOf = (req: Request) =>
   String((req as any).user?.id || (req as any).userId || '').trim() || null;
@@ -164,9 +165,45 @@ export async function getAllowlist(req: Request, res: Response) {
 export async function putAllowlist(req: Request, res: Response) {
   try {
     if (!isAdminOf(req)) return res.status(403).json({ success: false, error: 'Admin required' });
-    const ids = Array.isArray(req.body?.userIds) ? req.body.userIds : [];
-    const userIds = await setBetaAllowlist(ids, userIdOf(req) || undefined);
-    return res.json({ success: true, data: { userIds } });
+    const ids = Array.isArray(req.body?.userIds) ? req.body.userIds.map(String) : [];
+    const identifiers = Array.isArray(req.body?.identifiers)
+      ? req.body.identifiers.map((value: unknown) => String(value).trim()).filter(Boolean)
+      : [];
+    let resolved: Array<{ id: string; identifier: string }> = [];
+    if (identifiers.length) {
+      const normalized = identifiers.map((value: string) => value.replace(/^@+/, '').trim());
+      const users = await prisma.user.findMany({
+        where: {
+          OR: normalized.flatMap((value) => [
+            { username: { equals: value, mode: 'insensitive' as const } },
+            { email: { equals: value, mode: 'insensitive' as const } }
+          ])
+        },
+        select: { id: true, username: true, email: true }
+      });
+      const byIdentifier = new Map<string, string>();
+      users.forEach((user) => {
+        if (user.username) byIdentifier.set(user.username.toLowerCase(), user.id);
+        if (user.email) byIdentifier.set(user.email.toLowerCase(), user.id);
+      });
+      resolved = normalized
+        .filter((value) => byIdentifier.has(value.toLowerCase()))
+        .map((value) => ({ id: byIdentifier.get(value.toLowerCase()) as string, identifier: value }));
+    }
+    const existing = await getBetaAllowlist();
+    const userIds = await setBetaAllowlist(
+      [...existing, ...ids, ...resolved.map((entry) => entry.id)],
+      userIdOf(req) || undefined
+    );
+    const resolvedSet = new Set(resolved.map((entry) => entry.identifier.toLowerCase()));
+    return res.json({
+      success: true,
+      data: {
+        userIds,
+        resolvedCount: resolved.length,
+        unresolved: identifiers.map((value: string) => value.replace(/^@+/, '').trim()).filter((value: string) => !resolvedSet.has(value.toLowerCase()))
+      }
+    });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || 'allowlist_update_failed' });
   }
