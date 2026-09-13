@@ -15,6 +15,10 @@ import {
   assertScrolithaAccess,
   isScrolithaUserFacingAccessAllowed
 } from '../services/scrolitha/scrolitha.rollout';
+import { analyzeMyProfile, applyApprovedProfileImprovements } from '../services/scrolitha/scrolitha.profileAdvisor';
+import { getOpsMetricsSnapshot, recordRequestOutcome } from '../services/scrolitha/scrolitha.opsMetrics';
+import { streamOrFallback } from '../services/scrolitha/scrolitha.streaming';
+import { newIntelligenceRequestId } from '../services/scrolitha/scrolitha.observability';
 
 const unauthorized = (res: Response) =>
   res.status(401).json({
@@ -48,6 +52,67 @@ export const scrolithaChatController = async (req: Request, res: Response) => {
       logLabel: 'chat error'
     });
   }
+};
+
+export const scrolithaStreamController = async (req: Request, res: Response) => {
+  const started = Date.now();
+  try {
+    if (!req.user?.id) return unauthorized(res);
+    const actor = resolveActorFromRequest(req);
+    await assertScrolithaAccess(actor, 'Scrolitha streaming');
+    const requestId = newIntelligenceRequestId([actor.id, String(req.body?.conversationId || ''), String(Date.now())]);
+    res.status(200).set({ 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+    res.flushHeaders?.();
+    const send = (event: any) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(event)}\n\n`); };
+    const result = await streamOrFallback(
+      { requestId, userPrompt: String(req.body?.message || '').slice(0, 4000), preferTokenStream: true },
+      async (event) => send(event),
+      async () => {
+        const data = await scrolithaChat({ message: req.body?.message, context: req.body?.context, conversationId: req.body?.conversationId }, actor, req.app);
+        return { text: String(data?.reply || ''), provider: String((data as any)?.responseMode || 'scrolitha') };
+      }
+    );
+    recordRequestOutcome({ ok: true, latencyMs: Date.now() - started });
+    send({ type: 'complete', requestId, conversationId: result.requestId, streamingMode: result.streamingMode });
+    return undefined;
+  } catch (error: any) {
+    recordRequestOutcome({ ok: false, latencyMs: Date.now() - started });
+    if (!res.headersSent) return sendScrolithaPublicError(res, 'Scrolitha stream failed', error, { statusMode: 'chat', logLabel: 'stream error' });
+    if (!res.writableEnded) res.write(`data: ${JSON.stringify({ type: 'error', error: String(error?.message || 'stream failed').slice(0, 240) })}\n\n`);
+    return undefined;
+  } finally {
+    if (!res.writableEnded) res.end();
+  }
+};
+
+export const scrolithaProfileAnalyzeController = async (req: Request, res: Response) => {
+  try {
+    if (!req.user?.id) return unauthorized(res);
+    const started = Date.now();
+    const data = await analyzeMyProfile(resolveActorFromRequest(req));
+    recordRequestOutcome({ ok: true, latencyMs: Date.now() - started });
+    return res.json({ success: true, data, message: 'Profile analysis ready' });
+  } catch (error: any) {
+    recordRequestOutcome({ ok: false, latencyMs: 0 });
+    return sendScrolithaPublicError(res, 'Profile analysis failed', error, { statusMode: 'chat', logLabel: 'profile analysis error' });
+  }
+};
+
+export const scrolithaProfileApplyController = async (req: Request, res: Response) => {
+  try {
+    if (!req.user?.id) return unauthorized(res);
+    const data = await applyApprovedProfileImprovements(resolveActorFromRequest(req), { profileVersion: req.body?.profileVersion, changes: req.body?.changes });
+    return res.json({ success: true, data, message: 'Approved profile improvements applied' });
+  } catch (error: any) {
+    return sendScrolithaPublicError(res, 'Profile improvements could not be applied', error, { statusMode: 'execute', logLabel: 'profile apply error' });
+  }
+};
+
+export const scrolithaOpsMetricsController = async (req: Request, res: Response) => {
+  if (!req.user?.id) return unauthorized(res);
+  const actor = resolveActorFromRequest(req);
+  if (!actor.isAdmin) return res.status(403).json({ success: false, message: 'Administrator access required' });
+  return res.json({ success: true, data: getOpsMetricsSnapshot() });
 };
 
 export const scrolithaExecuteController = async (req: Request, res: Response) => {

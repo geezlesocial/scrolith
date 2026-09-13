@@ -2,6 +2,10 @@ import express from 'express';
 import { authMiddleware, optionalAuthMiddleware } from '../middleware/auth.middleware';
 import {
   scrolithaChatController,
+  scrolithaStreamController,
+  scrolithaProfileAnalyzeController,
+  scrolithaProfileApplyController,
+  scrolithaOpsMetricsController,
   scrolithaContextualAskController,
   scrolithaContextualRetryController,
   scrolithaContextualStatusController,
@@ -62,6 +66,10 @@ router.get('/message-security', optionalAuthMiddleware, scrolithaMessageSecurity
 router.use(authMiddleware);
 
 router.post('/chat', scrolithaChatController);
+router.post('/stream', scrolithaStreamController);
+router.post('/profile/analyze', scrolithaProfileAnalyzeController);
+router.post('/profile/apply', scrolithaProfileApplyController);
+router.get('/ops/metrics', scrolithaOpsMetricsController);
 router.post('/execute', scrolithaExecuteController);
 router.post('/work-os/plan', scrolithaWorkOsPlanController);
 router.post('/rewrite', scrolithaRewriteController);
