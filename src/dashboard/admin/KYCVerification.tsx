@@ -28,7 +28,10 @@ const normalizeDocument = (doc: any): KYCDocument => ({
   uploadedAt: doc.uploadedAt ?? doc.uploaded_at,
   secureView: Boolean(doc.secureView ?? doc.secure_view),
   scanStatus: doc.scanStatus ?? doc.scan_status,
-  quarantineStatus: doc.quarantineStatus ?? doc.quarantine_status
+  quarantineStatus: doc.quarantineStatus ?? doc.quarantine_status,
+  contentType: doc.contentType ?? doc.content_type,
+  sizeBytes: doc.sizeBytes ?? doc.size_bytes,
+  metadataStripped: Boolean(doc.metadataStripped ?? doc.metadata_stripped)
 });
 
 const normalizeSubmission = (raw: any): KYCRequest => ({
@@ -315,22 +318,26 @@ const KYCTab = () => {
 
   const handleSecureView = async (documentId: string) => {
     setViewingDocId(documentId);
+    const previewWindow = typeof window !== 'undefined' ? window.open('about:blank', '_blank') : null;
     try {
       const view = await kycApi.viewDocumentSecure(documentId);
       if (view.signedUrl) {
         // Short-lived URL only in memory; open and do not persist
-        window.open(view.signedUrl, '_blank', 'noopener,noreferrer');
+        if (previewWindow) previewWindow.location.replace(view.signedUrl);
+        else window.open(view.signedUrl, '_blank', 'noopener,noreferrer');
       } else if (view.streamPath) {
         // Authenticated stream path relative to API — open via API base not public media
-        showNotification(
-          'info',
-          'Secure stream',
-          'Signed URL unavailable; use stream mode from an authorized session.'
-        );
+        const blob = await kycApi.streamDocumentSecure(documentId);
+        const objectUrl = URL.createObjectURL(blob);
+        if (previewWindow) previewWindow.location.replace(objectUrl);
+        else window.open(objectUrl, '_blank', 'noopener,noreferrer');
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
       } else {
+        previewWindow?.close();
         showNotification('error', 'Unavailable', 'Document is not available through the secure viewer.');
       }
     } catch (error: any) {
+      previewWindow?.close();
       const status = Number(error?.response?.status || 0);
       const code = String(error?.response?.data?.code || '');
       if (status === 403 || code === 'FORBIDDEN') {
@@ -882,7 +889,14 @@ const KYCTab = () => {
                     >
                       <div>
                         <div className="font-medium text-gray-900">{prettifyType(doc.type)}</div>
-                        <div className="text-xs text-gray-500">{doc.status}</div>
+                        <div className="text-xs text-gray-500">
+                          {doc.status}
+                          {doc.contentType ? ` · ${doc.contentType}` : ''}
+                          {doc.sizeBytes != null ? ` · ${Math.max(1, Math.round(Number(doc.sizeBytes) / 1024))} KB` : ''}
+                        </div>
+                        <div className="text-[11px] text-gray-400">
+                          Scan: {doc.quarantineStatus || doc.scanStatus || 'not reported'}
+                        </div>
                       </div>
                       {doc.secureView || doc.id ? (
                         <button

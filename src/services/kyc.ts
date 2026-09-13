@@ -465,6 +465,15 @@ export const kycApi = {
     return handleApiResponse(response);
   },
 
+  /** Fetch a private KYC document through the authenticated backend stream. */
+  streamDocumentSecure: async (documentId: string): Promise<Blob> => {
+    const response = await api.get<Blob>(
+      `/admin/kyc/documents/${encodeURIComponent(documentId)}/view?mode=stream`,
+      { responseType: 'blob' }
+    );
+    return response.data;
+  },
+
   updateKYCStatus: async (
     id: string,
     status: string,
