@@ -254,7 +254,10 @@ function normalizeProviderConfig(config: ProviderConfigState): ProviderConfigSta
     ...config,
     NATIVE: {
       ...config.NATIVE,
-      enabled: isExplicitNativeProviderEnabled() && config.NATIVE?.enabled !== false
+      // The deployment flag is an explicit operator override. This prevents
+      // an older persisted local-only config from keeping the safe provider
+      // hidden after the feature is intentionally activated.
+      enabled: isExplicitNativeProviderEnabled()
     },
     OLLAMA: { ...config.OLLAMA, enabled: true, model: SCROLITHA_LOCAL_MODEL },
     GEMINI: { ...config.GEMINI, enabled: false },
