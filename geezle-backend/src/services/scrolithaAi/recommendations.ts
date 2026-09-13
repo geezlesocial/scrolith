@@ -12,6 +12,7 @@ import { applyLearningSignal } from './memory';
 import { inc } from './observability';
 import { writeAIAudit } from './audit';
 import prisma from '../../utils/prismaClient';
+import { applyQualityAdjustment, getRecommendationQualityProfile, recordRecommendationEvent } from './recommendationQuality';
 import type {
   DashboardSectionId,
   RecoEntityType,
@@ -129,6 +130,7 @@ export async function getRecommendations(input: {
   limit?: number;
   locale?: string;
 }): Promise<RecoBundle> {
+  const startedAt = Date.now();
   const flags = await loadAIFeatureFlags();
   if (!flags.masterEnabled || flags.killSwitch || !flags.recommendationsEnabled) {
     return {
@@ -157,6 +159,7 @@ export async function getRecommendations(input: {
   }
 
   const memory = await getAIMemory(input.userId);
+  const qualityProfile = await getRecommendationQualityProfile();
   const types = input.types?.length ? new Set(input.types) : null;
   const limit = Math.min(30, Math.max(1, input.limit || 12));
 
@@ -165,6 +168,10 @@ export async function getRecommendations(input: {
     .filter((c) => (types ? types.has(c.entityType) : true))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
+
+  items = items
+    .map((item) => ({ ...item, score: applyQualityAdjustment(item.score, item.entityType, item.reasons[0]?.replace(/^Interest: /, ''), qualityProfile) }))
+    .sort((a, b) => b.score - a.score);
 
   // Optional AI reason refinement (MOCK path when provider calls off)
   if (flags.RECOMMENDATION_REASONING && items[0]) {
@@ -195,6 +202,22 @@ export async function getRecommendations(input: {
   }
 
   inc('recommendationsIssued', items.length);
+  const latencyMs = Date.now() - startedAt;
+  await Promise.all(
+    items.map((item, position) =>
+      recordRecommendationEvent({
+        userId: input.userId,
+        eventType: 'impression',
+        entityType: item.entityType,
+        entityId: item.entityId,
+        recommendationId: item.id,
+        position,
+        relevanceScore: item.score,
+        latencyMs,
+        surface: 'recommendations'
+      })
+    )
+  );
   return {
     enabled: true,
     items,
@@ -330,6 +353,15 @@ export async function submitRecoFeedback(input: {
     action: 'reco.feedback',
     actorUserId: input.userId,
     metadata: { action: input.action, entityType: input.entityType, entityId: input.entityId }
+  });
+
+  await recordRecommendationEvent({
+    userId: input.userId,
+    eventType: 'feedback',
+    entityType: String(input.entityType),
+    entityId: input.entityId,
+    recommendationId: input.recommendationId,
+    surface: 'recommendations'
   });
 
   return { ok: true };

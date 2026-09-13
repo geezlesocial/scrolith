@@ -61,6 +61,7 @@ export {
 export { assistSearchQuery } from './semanticSearch';
 export { recordLearningSignal } from './learning';
 export { getDiscoveryAnalytics } from './discoveryAnalytics';
+export { recordRecommendationEvent, getRecommendationQualityProfile, applyQualityAdjustment } from './recommendationQuality';
 export { runCopilot, copilotStatus } from './copilot';
 export { listSkills, runSkills, pickPrimarySkill } from './skills';
 export { planToolsFromIntent, invokePlatformTools } from './orchestration';

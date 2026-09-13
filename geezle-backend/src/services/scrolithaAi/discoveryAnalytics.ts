@@ -19,6 +19,7 @@ export async function getDiscoveryAnalytics() {
   const circuits = getCircuitSnapshot();
 
   let feedbackRows: any[] = [];
+  let eventRows: any[] = [];
   let signalCount = 0;
   try {
     feedbackRows =
@@ -34,6 +35,16 @@ export async function getDiscoveryAnalytics() {
       (await (prisma as any).aILearningSignal?.count?.()) || metrics.learningSignals || 0;
   } catch {
     signalCount = metrics.learningSignals || 0;
+  }
+  try {
+    eventRows =
+      (await (prisma as any).aIRecommendationEvent?.findMany?.({
+        where: { createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } },
+        select: { eventType: true, latencyMs: true },
+        take: 5000
+      })) || [];
+  } catch (err) {
+    if (!isMissing(err)) eventRows = [];
   }
 
   const useful = feedbackRows.filter((r) => r.action === 'useful').length;
@@ -74,6 +85,23 @@ export async function getDiscoveryAnalytics() {
       notInterested,
       hideSimilar: hide,
       sampleSize: feedbackRows.length
+    },
+    quality: {
+      impressions: eventRows.filter((r) => r.eventType === 'impression').length || metrics.recoImpressions,
+      opens: eventRows.filter((r) => r.eventType === 'open').length || metrics.recoOpens,
+      openRate:
+        (eventRows.filter((r) => r.eventType === 'impression').length || metrics.recoImpressions) > 0
+          ? (eventRows.filter((r) => r.eventType === 'open').length || metrics.recoOpens) /
+            (eventRows.filter((r) => r.eventType === 'impression').length || metrics.recoImpressions)
+          : 0,
+      averageLatencyMs: eventRows.filter((r) => Number.isFinite(r.latencyMs)).length
+        ? Math.round(eventRows.filter((r) => Number.isFinite(r.latencyMs)).reduce((sum, r) => sum + Number(r.latencyMs), 0) / eventRows.filter((r) => Number.isFinite(r.latencyMs)).length)
+        : metrics.recoImpressions > 0 ? Math.round(metrics.recoLatencyTotalMs / metrics.recoImpressions) : 0,
+      persistedEvents: eventRows.length,
+      telemetryWriteFailures: metrics.recoTelemetryWriteFailures,
+      qualityReadFailures: metrics.recoQualityReadFailures,
+      rankingPolicy: 'bounded_feedback_calibration',
+      calibrationWindowDays: 30
     },
     diversity: {
       byEntityType: byType,

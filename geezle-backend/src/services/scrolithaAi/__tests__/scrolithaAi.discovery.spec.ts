@@ -198,7 +198,13 @@ describe('Phase 33.2 recommendations', () => {
   });
 
   it('blocks recommendation surfaces outside the beta allowlist', async () => {
-    await setAIFeatureFlags({ betaAllowlistOnly: true });
+    await enableDiscovery();
+    await setAIFeatureFlags({
+      masterEnabled: true,
+      recommendationsEnabled: true,
+      recommendationFeedbackEnabled: true,
+      betaAllowlistOnly: true
+    });
     const user = 'user-discovery-not-allowlisted-332';
     const recommendations = await getRecommendations({ userId: user, limit: 4 });
     expect(recommendations.enabled).toBe(false);

@@ -20,6 +20,7 @@ import { getDiscoveryAnalytics } from '../services/scrolithaAi/discoveryAnalytic
 import { loadAIFeatureFlags } from '../services/scrolithaAi/config';
 import { getAIConsent } from '../services/scrolithaAi/consent';
 import { suggestNotificationPriorities } from '../services/scrolithaAi/notificationHooks';
+import { recordRecommendationEvent } from '../services/scrolithaAi/recommendationQuality';
 
 const userIdOf = (req: Request) =>
   String((req as any).user?.id || (req as any).userId || '').trim() || null;
@@ -140,6 +141,33 @@ export async function postRecoFeedback(req: Request, res: Response) {
     return res.status(201).json({ success: true, data: result });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || 'feedback_failed' });
+  }
+}
+
+export async function postRecommendationEvent(req: Request, res: Response) {
+  try {
+    const userId = userIdOf(req);
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const eventType = String(req.body?.eventType || '').trim();
+    if (!['impression', 'open', 'feedback'].includes(eventType)) {
+      return res.status(400).json({ success: false, error: 'Invalid recommendation event type' });
+    }
+    const entityId = String(req.body?.entityId || '').trim();
+    if (!entityId) return res.status(400).json({ success: false, error: 'entityId is required' });
+    await recordRecommendationEvent({
+      userId,
+      eventType: eventType as any,
+      entityType: String(req.body?.entityType || 'unknown'),
+      entityId,
+      recommendationId: req.body?.recommendationId,
+      position: req.body?.position,
+      relevanceScore: req.body?.relevanceScore,
+      latencyMs: req.body?.latencyMs,
+      surface: req.body?.surface || 'recommendations'
+    });
+    return res.status(201).json({ success: true, data: { recorded: true } });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'recommendation_event_failed' });
   }
 }
 

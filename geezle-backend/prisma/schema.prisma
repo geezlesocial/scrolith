@@ -8153,6 +8153,27 @@ model AIRecommendationFeedback {
   @@index([entityType, entityId])
 }
 
+/// Phase 33.4 — privacy-minimized recommendation quality telemetry.
+/// Stores event metadata only; never stores prompts, content, or raw request payloads.
+model AIRecommendationEvent {
+  id               String   @id @default(cuid())
+  userId           String
+  eventType        String
+  entityType       String
+  entityId         String
+  recommendationId String?
+  position         Int?
+  relevanceScore   Float?
+  latencyMs        Int?
+  surface          String?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+
+  @@index([eventType, createdAt])
+  @@index([userId, createdAt])
+  @@index([entityType, entityId, createdAt])
+}
+
 model AILearningSignal {
   id         String   @id @default(cuid())
   userId     String

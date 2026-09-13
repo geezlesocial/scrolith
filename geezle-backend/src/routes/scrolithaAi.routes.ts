@@ -41,6 +41,7 @@ import {
   getRecos,
   getDashboardRecos,
   postRecoFeedback,
+  postRecommendationEvent,
   postSearchAssist,
   getMemory,
   patchMemory,
@@ -104,6 +105,7 @@ router.post('/discovery/feed-scores', authMiddleware, postFeedScores);
 router.get('/discovery/recommendations', authMiddleware, getRecos);
 router.get('/discovery/dashboard', authMiddleware, getDashboardRecos);
 router.post('/discovery/feedback', authMiddleware, postRecoFeedback);
+router.post('/discovery/events', authMiddleware, postRecommendationEvent);
 router.post('/discovery/search-assist', authMiddleware, postSearchAssist);
 router.get('/discovery/memory', authMiddleware, getMemory);
 router.patch('/discovery/memory', authMiddleware, patchMemory);

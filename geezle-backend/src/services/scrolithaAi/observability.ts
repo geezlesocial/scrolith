@@ -36,6 +36,12 @@ export type AIMetricCounters = {
   recoFeedbackUseful: number;
   recoFeedbackNotInterested: number;
   recoFeedbackHideSimilar: number;
+  recoImpressions: number;
+  recoOpens: number;
+  recoEvents: number;
+  recoLatencyTotalMs: number;
+  recoTelemetryWriteFailures: number;
+  recoQualityReadFailures: number;
   learningSignals: number;
   semanticExpansions: number;
   memoryUpdates: number;
@@ -75,6 +81,12 @@ const counters: AIMetricCounters = {
   recoFeedbackUseful: 0,
   recoFeedbackNotInterested: 0,
   recoFeedbackHideSimilar: 0,
+  recoImpressions: 0,
+  recoOpens: 0,
+  recoEvents: 0,
+  recoLatencyTotalMs: 0,
+  recoTelemetryWriteFailures: 0,
+  recoQualityReadFailures: 0,
   learningSignals: 0,
   semanticExpansions: 0,
   memoryUpdates: 0,
