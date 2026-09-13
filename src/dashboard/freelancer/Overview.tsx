@@ -25,6 +25,7 @@ import KpiGrid, { KpiItem } from '../../components/dashboard/KpiGrid';
 import QuickActions from '../../components/dashboard/QuickActions';
 import ActivityPanel, { ActivityItem } from '../../components/dashboard/ActivityPanel';
 import OpportunityStudioPanel from '../../components/dashboard/OpportunityStudioPanel';
+import CreatorCommercePanel from '../../components/dashboard/CreatorCommercePanel';
 import RightRail, { RightRailAction, RightRailMetric } from '../../components/dashboard/RightRail';
 import GrowthPulseCard from '../../components/growth/GrowthPulseCard';
 import {
@@ -648,6 +649,7 @@ export const Overview: React.FC = () => {
           />
           <GrowthPulseCard />
           <EnterpriseWorkspacePanel />
+          <CreatorCommercePanel />
           <OpportunityStudioPanel
             audience="freelancer"
             title="Freelancer Opportunity Studio"
