@@ -646,17 +646,19 @@ const Landing = () => {
       return Number(a.position || 0) - Number(b.position || 0);
     });
 
-    if (!compactMode) return ranked;
-
     const deduped: HomepageSection[] = [];
     const seenTypes = new Set<string>();
     ranked.forEach((section) => {
       const type = String(section.type || '');
-      if (seenTypes.has(type)) return;
+      // A guest hero owns the auth card and Scrolitha panel. Rendering more
+      // than one hero creates duplicate signup surfaces and repeated banners.
+      const shouldDeduplicate = type === 'guest_hero_auth' || type === 'hero';
+      if (shouldDeduplicate && seenTypes.has(type)) return;
+      if (shouldDeduplicate) seenTypes.add(type);
       seenTypes.add(type);
       deduped.push(section);
     });
-    return deduped.slice(0, maxSections);
+    return (compactMode ? deduped.slice(0, maxSections) : deduped);
   }, [activeSections, user]);
 
   const hasMemberHome = useMemo(

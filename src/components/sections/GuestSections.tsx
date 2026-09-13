@@ -474,12 +474,20 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
     subtitle: ["Live signal", "Verified flow", "Enterprise-ready"][index] || "Live signal",
     accent: ["from-sky-500 to-cyan-500", "from-violet-500 to-fuchsia-500", "from-emerald-500 to-lime-500"][index] || "from-slate-500 to-slate-700"
   }));
-  const displayedBanners = (sideBanners.length
+  const bannerSource = sideBanners.length
     ? sideBanners
     : [
         { title: 'Smart Hiring Pipeline', subtitle: 'Post, screen, and hire with automated workflows.' },
         { title: 'Creator Growth Engine', subtitle: 'Publish once and distribute across network, stories, and scroll.' }
-      ]).slice(0, compactMode ? 2 : 3);
+      ];
+  const displayedBanners = Array.from(
+    new Map(
+      bannerSource.map((banner: any, index: number) => [
+        `${String(banner?.title || '').trim().toLowerCase()}|${String(banner?.subtitle || '').trim().toLowerCase()}` || `banner-${index}`,
+        banner
+      ])
+    ).values()
+  ).slice(0, compactMode ? 2 : 3);
 
   React.useEffect(() => {
     let mounted = true;
@@ -601,9 +609,22 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
                 Work · Market · AI · Community
               </span>
             </div>
-            <h1 className="max-w-[14ch] text-[2rem] font-extrabold leading-[1.03] tracking-[-0.04em] text-slate-900 sm:max-w-none sm:text-3xl lg:text-4xl xl:text-[3.3rem]">
-              {content?.headline || 'Build your next opportunity on Scrolith'}
-            </h1>
+            <div className="relative max-w-3xl">
+              <div className="mb-3 flex items-center gap-3 text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500 sm:text-[11px]">
+                <span className="h-px w-8 bg-gradient-to-r from-indigo-500 to-cyan-400 sm:w-10" aria-hidden="true" />
+                <span>One connected ecosystem</span>
+              </div>
+              <h1 className="max-w-[15ch] text-balance text-[clamp(2rem,4.5vw,3.6rem)] font-black leading-[1.02] tracking-[-0.045em] text-slate-950">
+                <span className="bg-gradient-to-br from-slate-950 via-indigo-950 to-blue-700 bg-clip-text text-transparent">
+                  {content?.headline || 'Build your next opportunity on Scrolith'}
+                </span>
+              </h1>
+              <div className="mt-4 flex items-center gap-2" aria-hidden="true">
+                <span className="h-1 w-12 rounded-full bg-gradient-to-r from-indigo-600 to-cyan-400" />
+                <span className="h-1 w-2 rounded-full bg-cyan-300" />
+                <span className="h-1 w-1 rounded-full bg-indigo-200" />
+              </div>
+            </div>
             {content?.subheadline ? (
               <p className="mt-4 max-w-2xl text-[15px] leading-7 text-slate-600 sm:text-base sm:leading-8">{content.subheadline}</p>
             ) : (
