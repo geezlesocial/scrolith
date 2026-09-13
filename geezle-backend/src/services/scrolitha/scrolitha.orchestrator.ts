@@ -24,6 +24,7 @@ import {
   saveConversationFeedback
 } from './scrolitha.memory';
 import { getScrolithaToolDefinition, listScrolithaTools } from './scrolitha.tools';
+import { toStructuredChatResponse } from './scrolitha.phase2';
 import type {
   ScrolithaActor,
   ScrolithaAgentPlanPreview,
@@ -989,6 +990,19 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
       allowPreparedActionPhrase: Boolean(classified.allowTools && actionPlans.length)
     });
   const reply = sanitizeUserFacingReply(rawReply, sanitizeOpts);
+  const responseMode = llmReply ? 'llm' : 'fallback';
+  const structuredOutput = toStructuredChatResponse({
+    intent: classified.intent,
+    reply,
+    responseMode,
+    confidence: classified.confidence,
+    suggestedActions: actionPlans.map((entry) => ({
+      actionId: entry.actionId,
+      toolKey: entry.toolKey,
+      summary: String(entry.summary || ''),
+      requiresConfirmation: Boolean(entry.requiresConfirmation)
+    }))
+  });
 
   await appendConversationMessage({
     conversationId: conversation.id,
@@ -1071,7 +1085,8 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
     reply,
     suggestedActions: actionPlans,
     needsConfirmation: actionPlans.some((entry) => entry.requiresConfirmation),
-    responseMode: llmReply ? 'llm' : 'fallback',
+    responseMode,
+    structuredOutput,
     followUpPrompts,
     knowledgeHighlights,
     draftChanges: actionPlans[0]?.paramsPreview || null,
