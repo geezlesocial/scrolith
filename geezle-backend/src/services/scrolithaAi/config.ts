@@ -10,7 +10,10 @@ import {
 
 const FLAG_KEY = 'scrolitha_ai_feature_flags';
 const PROVIDER_KEY = 'scrolitha_ai_provider_config';
-export const SCROLITHA_LOCAL_MODEL = 'llama3.2:3b';
+// qwen3:8b is the largest model selected for the current 8 GiB Core
+// container budget. It provides materially better reasoning while leaving
+// headroom for Ollama and the HTTP runtime.
+export const SCROLITHA_LOCAL_MODEL = 'qwen3:8b';
 
 let flagsCache: AIFeatureFlags = { ...DEFAULT_AI_FEATURE_FLAGS };
 let flagsLoadedAt = 0;
@@ -196,6 +199,12 @@ export async function setProviderConfig(
 export function isProviderEnabled(id: AIProviderId, cfg: ProviderConfigState): boolean {
   if (id === 'DISABLED') return false;
   if (isScrolithaLocalOnly()) {
+    // NATIVE is a deterministic, network-free safety provider. Keep it
+    // available only when explicitly enabled so local-only production still
+    // cannot accidentally broaden the provider surface.
+    if (id === 'NATIVE') {
+      return isExplicitNativeProviderEnabled() && cfg.NATIVE?.enabled !== false;
+    }
     if (id !== 'OLLAMA') return false;
     if (String(process.env.SCROLITHA_AI_OLLAMA_ENABLED || 'true').toLowerCase() === 'false') return false;
     return cfg.OLLAMA?.enabled !== false;
@@ -205,6 +214,9 @@ export function isProviderEnabled(id: AIProviderId, cfg: ProviderConfigState): b
       .split(',')
       .map((value) => value.trim().toUpperCase())
       .filter(Boolean);
+    if (id === 'NATIVE') {
+      return isExplicitNativeProviderEnabled() && cfg.NATIVE?.enabled !== false;
+    }
     if (id !== 'OLLAMA') return false;
     if (!allowed.includes('OLLAMA')) return false;
     if (String(process.env.SCROLITHA_AI_OLLAMA_ENABLED || 'true').toLowerCase() === 'false') return false;
@@ -225,11 +237,25 @@ export function isScrolithaLocalOnly(): boolean {
   );
 }
 
+/**
+ * Explicit opt-in for the deterministic native provider. This provider does
+ * not make network calls, but it is still kept behind a production flag so
+ * administrators can disable it independently of the Ollama runtime.
+ */
+export function isExplicitNativeProviderEnabled(): boolean {
+  return ['1', 'true', 'yes', 'on'].includes(
+    String(process.env.SCROLITHA_AI_NATIVE_PROVIDER_ENABLED || '').trim().toLowerCase()
+  );
+}
+
 function normalizeProviderConfig(config: ProviderConfigState): ProviderConfigState {
   if (!isScrolithaLocalOnly()) return config;
   return {
     ...config,
-    NATIVE: { ...config.NATIVE, enabled: false },
+    NATIVE: {
+      ...config.NATIVE,
+      enabled: isExplicitNativeProviderEnabled() && config.NATIVE?.enabled !== false
+    },
     OLLAMA: { ...config.OLLAMA, enabled: true, model: SCROLITHA_LOCAL_MODEL },
     GEMINI: { ...config.GEMINI, enabled: false },
     OPENAI: { ...config.OPENAI, enabled: false },

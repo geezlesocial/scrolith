@@ -11,7 +11,7 @@ describe('Phase 33.4 production provider policy', () => {
     });
 
     expect(route.provider).toBe('OLLAMA');
-    expect(route.model).toBe('llama3.2:3b');
+    expect(route.model).toBe('qwen3:8b');
     expect(route.fallbackChain).toEqual([]);
   });
 
@@ -59,7 +59,7 @@ describe('Phase 33.4 production provider policy', () => {
       privacyLevel: 'PERSONAL',
       externalConsent: true,
       requireOllama: true
-    })).toMatchObject({ provider: 'OLLAMA', model: 'llama3.2:3b', fallbackChain: [] });
+    })).toMatchObject({ provider: 'OLLAMA', model: 'qwen3:8b', fallbackChain: [] });
 
     if (previous === undefined) delete process.env.SCROLITHA_AI_LOCAL_ONLY;
     else process.env.SCROLITHA_AI_LOCAL_ONLY = previous;

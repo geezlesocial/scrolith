@@ -36,7 +36,7 @@ export const SCROLITHA_UNAVAILABLE_MESSAGE =
   'Scrolitha is temporarily unavailable. Please try again shortly.';
 export const SCROLITHA_PRODUCTION_ENDPOINT_WARNING =
   'Scrolitha Core endpoint is not configured for production.';
-const DEFAULT_SCROLITHA_MODEL = 'llama3.2:3b';
+const DEFAULT_SCROLITHA_MODEL = 'qwen3:8b';
 
 const OLLAMA_MODEL_PULL_TIMEOUT_MS = 240_000;
 const ollamaPullsInFlight = new Map<string, Promise<void>>();
