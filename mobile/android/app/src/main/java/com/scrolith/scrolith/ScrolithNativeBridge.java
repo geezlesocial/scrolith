@@ -19,7 +19,7 @@ import org.json.JSONObject;
  */
 final class ScrolithNativeBridge {
     static final String NAME = "ScrolithNative";
-    static final String VERSION = "2";
+    static final String VERSION = "3";
 
     interface Host {
         boolean isTrustedCurrentPage();
@@ -75,6 +75,15 @@ final class ScrolithNativeBridge {
             capabilities.put("nativeNotifications", NativeFeatureFlags.isNativeNotificationsEnabled(context));
             capabilities.put("nativeMessagesList", NativeFeatureFlags.isNativeMessagesListEnabled(context));
             capabilities.put("nativeNavigationPilot", NativeFeatureFlags.isNativeNavigationEnabled(context));
+            capabilities.put("offlineFirst", true);
+            capabilities.put("offlineSyncQueue", true);
+            capabilities.put("unifiedOpportunityInbox", true);
+            capabilities.put("scrolithaCopilot", true);
+            capabilities.put("trustAndVerification", true);
+            capabilities.put("creatorBusinessTools", true);
+            capabilities.put("personalizedDiscovery", true);
+            capabilities.put("safetyPrivacyObservability", true);
+            capabilities.put("maxOfflineQueueItems", 100);
             capabilities.put("events", new org.json.JSONArray()
                 .put("scrolith:native-network")
                 .put("scrolith:native-insets")
@@ -111,6 +120,28 @@ final class ScrolithNativeBridge {
         } else {
             vibrator.vibrate(duration);
         }
+    }
+
+    /** Queue only an offline-safe envelope; credentials and arbitrary URLs are rejected. */
+    @JavascriptInterface
+    public String enqueueOfflineAction(String envelope) {
+        if (!isTrusted() || envelope == null || envelope.length() > 32768) return "{}";
+        try {
+            JSONObject input = new JSONObject(envelope);
+            String path = input.optString("path", "");
+            if (!isSafeAppPath(path)) return "{}";
+            return OfflineSyncStore.enqueue(context, input).toString();
+        } catch (Throwable ignored) { return "{}"; }
+    }
+
+    @JavascriptInterface
+    public String getOfflineActions() {
+        return isTrusted() ? OfflineSyncStore.snapshot(context).toString() : "[]";
+    }
+
+    @JavascriptInterface
+    public void clearOfflineActions() {
+        if (isTrusted()) OfflineSyncStore.clear(context);
     }
 
     @JavascriptInterface
