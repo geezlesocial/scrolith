@@ -19,6 +19,7 @@ import { analyzeMyProfile, applyApprovedProfileImprovements } from '../services/
 import { getOpsMetricsSnapshot, recordRequestOutcome } from '../services/scrolitha/scrolitha.opsMetrics';
 import { streamOrFallback } from '../services/scrolitha/scrolitha.streaming';
 import { newIntelligenceRequestId } from '../services/scrolitha/scrolitha.observability';
+import { assignPhase4Arm, getPhase4TaskCatalog, runPhase4Evaluation } from '../services/scrolitha/scrolitha.phase4';
 
 const unauthorized = (res: Response) =>
   res.status(401).json({
@@ -113,6 +114,25 @@ export const scrolithaOpsMetricsController = async (req: Request, res: Response)
   const actor = resolveActorFromRequest(req);
   if (!actor.isAdmin) return res.status(403).json({ success: false, message: 'Administrator access required' });
   return res.json({ success: true, data: getOpsMetricsSnapshot() });
+};
+
+export const scrolithaEvaluationController = async (req: Request, res: Response) => {
+  if (!req.user?.id) return unauthorized(res);
+  const actor = resolveActorFromRequest(req);
+  if (!actor.isAdmin) return res.status(403).json({ success: false, message: 'Administrator access required' });
+  const subjectId = String(req.query.subjectId || '').trim();
+  const experiment = String(req.query.experiment || '').trim() || undefined;
+  return res.json({
+    success: true,
+    data: {
+      evaluation: runPhase4Evaluation({
+        model: String(req.query.model || '').trim() || undefined,
+        forceRefresh: String(req.query.refresh || '').toLowerCase() === 'true'
+      }),
+      taskCatalog: getPhase4TaskCatalog(),
+      assignment: subjectId ? assignPhase4Arm(subjectId, experiment) : null
+    }
+  });
 };
 
 export const scrolithaExecuteController = async (req: Request, res: Response) => {

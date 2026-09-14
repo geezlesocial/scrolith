@@ -6,6 +6,7 @@ import {
   scrolithaProfileAnalyzeController,
   scrolithaProfileApplyController,
   scrolithaOpsMetricsController,
+  scrolithaEvaluationController,
   scrolithaContextualAskController,
   scrolithaContextualRetryController,
   scrolithaContextualStatusController,
@@ -70,6 +71,7 @@ router.post('/stream', scrolithaStreamController);
 router.post('/profile/analyze', scrolithaProfileAnalyzeController);
 router.post('/profile/apply', scrolithaProfileApplyController);
 router.get('/ops/metrics', scrolithaOpsMetricsController);
+router.get('/ops/evaluation', scrolithaEvaluationController);
 router.post('/execute', scrolithaExecuteController);
 router.post('/work-os/plan', scrolithaWorkOsPlanController);
 router.post('/rewrite', scrolithaRewriteController);
