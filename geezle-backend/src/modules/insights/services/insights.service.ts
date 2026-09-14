@@ -1831,6 +1831,175 @@ const buildOpportunityActions = (input: {
   return Array.from(new Set(actions)).slice(0, 5);
 };
 
+export type OpportunityActionRecommendation = {
+  id: string;
+  category: 'trust' | 'profile' | 'creator' | 'hiring' | 'matching' | 'delivery';
+  priority: 'high' | 'medium' | 'low';
+  title: string;
+  description: string;
+  actionLabel: string;
+  actionUrl: string;
+  approvalRequired: boolean;
+  explanation: {
+    summary: string;
+    signals: string[];
+    privacyNote: string;
+  };
+};
+
+const buildActionCenterRecommendations = (input: {
+  role: string;
+  profileCompleteness: number;
+  kycVerified: boolean;
+  portfolioProofs: number;
+  activeGigs: number;
+  activeJobs: number;
+  activePages: number;
+  activeContracts: number;
+  matchesCount: number;
+  ratingsCount: number;
+}): OpportunityActionRecommendation[] => {
+  const role = normalizeRoleLabel(input.role);
+  const recommendations: OpportunityActionRecommendation[] = [];
+  const privacyNote = 'Built from your Scrolith activity and profile signals. No private messages or documents are used.';
+
+  if (!input.kycVerified) {
+    recommendations.push({
+      id: 'verify-identity',
+      category: 'trust',
+      priority: 'high',
+      title: 'Strengthen your trust signal',
+      description: 'Complete identity verification to increase confidence across hiring, marketplace, and delivery workflows.',
+      actionLabel: 'Review verification',
+      actionUrl: '/kyc',
+      approvalRequired: true,
+      explanation: {
+        summary: 'Verification is incomplete, so trust-aware surfaces cannot show your strongest available signal.',
+        signals: ['Verification status: incomplete'],
+        privacyNote
+      }
+    });
+  }
+
+  if (input.profileCompleteness < 80) {
+    recommendations.push({
+      id: 'complete-profile',
+      category: 'profile',
+      priority: input.profileCompleteness < 55 ? 'high' : 'medium',
+      title: 'Complete your professional profile',
+      description: 'Add the missing professional context that helps matching, discovery, and trusted introductions.',
+      actionLabel: 'Improve profile',
+      actionUrl: '/profile/edit',
+      approvalRequired: true,
+      explanation: {
+        summary: 'Profile completeness is below the recommended level for high-confidence matching.',
+        signals: [`Profile completeness: ${Math.round(input.profileCompleteness)}%`],
+        privacyNote
+      }
+    });
+  }
+
+  if (input.portfolioProofs === 0) {
+    recommendations.push({
+      id: 'add-proof-of-work',
+      category: 'trust',
+      priority: 'medium',
+      title: 'Add proof of work',
+      description: 'Share portfolio evidence so clients and collaborators can evaluate your delivery capability faster.',
+      actionLabel: 'Add portfolio proof',
+      actionUrl: '/profile/edit',
+      approvalRequired: true,
+      explanation: {
+        summary: 'No portfolio proof is currently available to support your capability and delivery signals.',
+        signals: ['Portfolio proofs: 0'],
+        privacyNote
+      }
+    });
+  }
+
+  if (role === 'FREELANCER' && input.activeGigs === 0) {
+    recommendations.push({
+      id: 'publish-service',
+      category: 'creator',
+      priority: 'medium',
+      title: 'Package a service offer',
+      description: 'Create a clear, bookable service so matching can connect buyer demand to your skills.',
+      actionLabel: 'Create a gig',
+      actionUrl: '/create-gig',
+      approvalRequired: true,
+      explanation: {
+        summary: 'You have no active service offer available for marketplace discovery.',
+        signals: ['Active gigs: 0', `Opportunity matches: ${input.matchesCount}`],
+        privacyNote
+      }
+    });
+  }
+
+  if ((role === 'EMPLOYER' || role === 'CLIENT') && input.activeJobs === 0) {
+    recommendations.push({
+      id: 'publish-hiring-brief',
+      category: 'hiring',
+      priority: 'medium',
+      title: 'Publish a structured hiring brief',
+      description: 'Turn your need into a searchable job post and receive relevant, trust-aware proposals.',
+      actionLabel: 'Create a job',
+      actionUrl: '/create-job',
+      approvalRequired: true,
+      explanation: {
+        summary: 'No active job is available to start a qualified proposal pipeline.',
+        signals: ['Active jobs: 0'],
+        privacyNote
+      }
+    });
+  }
+
+  if (input.matchesCount < 3) {
+    recommendations.push({
+      id: 'expand-opportunity-graph',
+      category: 'matching',
+      priority: 'medium',
+      title: 'Expand your opportunity graph',
+      description: 'Review personalized discovery and add the profile context needed for more precise opportunities.',
+      actionLabel: 'Explore discovery',
+      actionUrl: '/discovery',
+      approvalRequired: false,
+      explanation: {
+        summary: 'There are fewer than three active recommendations, which limits the range of next-best opportunities.',
+        signals: [`Active matches: ${input.matchesCount}`],
+        privacyNote
+      }
+    });
+  }
+
+  if (input.activeContracts > 0 || input.ratingsCount < 3) {
+    recommendations.push({
+      id: 'review-delivery-momentum',
+      category: 'delivery',
+      priority: input.activeContracts > 0 ? 'high' : 'low',
+      title: input.activeContracts > 0 ? 'Keep active delivery moving' : 'Build verified delivery momentum',
+      description:
+        input.activeContracts > 0
+          ? 'Review active workstreams, milestones, and responses before a delivery needs attention.'
+          : 'Complete and collect feedback from more verified deliveries to strengthen your reputation.',
+      actionLabel: 'Open workspaces',
+      actionUrl: getDashboardBase(role),
+      approvalRequired: false,
+      explanation: {
+        summary:
+          input.activeContracts > 0
+            ? 'Active delivery workstreams need regular review to protect response and reliability signals.'
+            : 'A stronger verified delivery history improves trust-aware ranking and buyer confidence.',
+        signals: [`Active contracts: ${input.activeContracts}`, `Ratings: ${input.ratingsCount}`],
+        privacyNote
+      }
+    });
+  }
+
+  return recommendations
+    .sort((left, right) => getWorkroomPriorityRank(left.priority) - getWorkroomPriorityRank(right.priority))
+    .slice(0, 6);
+};
+
 type WorkroomPriority = 'high' | 'medium' | 'low';
 
 const normalizeRoleLabel = (value: string) => String(value || '').trim().toUpperCase();
@@ -2225,7 +2394,22 @@ export const getOpportunityHubForUser = async (input: {
       activeContracts,
       matchesCount: Array.isArray(matches) ? matches.length : 0,
       ratingsCount: metrics.ratingsCount
-    })
+    }),
+    actionCenter: {
+      generatedAt: new Date().toISOString(),
+      recommendations: buildActionCenterRecommendations({
+        role: String(user.role || 'USER'),
+        profileCompleteness: metrics.profileCompleteness,
+        kycVerified: metrics.kycVerified,
+        portfolioProofs,
+        activeGigs,
+        activeJobs,
+        activePages,
+        activeContracts,
+        matchesCount: Array.isArray(matches) ? matches.length : 0,
+        ratingsCount: metrics.ratingsCount
+      })
+    }
   };
 };
 
