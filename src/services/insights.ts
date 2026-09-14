@@ -556,6 +556,24 @@ export type OpportunityHubData = {
     }>;
   };
   actions: string[];
+  actionCenter?: {
+    generatedAt: string;
+    recommendations: Array<{
+      id: string;
+      category: 'trust' | 'profile' | 'creator' | 'hiring' | 'matching' | 'delivery';
+      priority: 'high' | 'medium' | 'low';
+      title: string;
+      description: string;
+      actionLabel: string;
+      actionUrl: string;
+      approvalRequired: boolean;
+      explanation: {
+        summary: string;
+        signals: string[];
+        privacyNote: string;
+      };
+    }>;
+  };
 };
 
 export type OpportunityBriefResult = {

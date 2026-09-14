@@ -3670,7 +3670,12 @@ export default function InsightsQuickPanel({
             >
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Opportunity actions</p>
-                <span className="text-[11px] text-slate-400">{hub.actions.length} live</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-slate-400">{hub.actions.length} live</span>
+                  <Link to="/opportunities" className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-700">
+                    Action center
+                  </Link>
+                </div>
               </div>
               <ul className="mt-2 space-y-1">
                 {hub.actions.slice(0, compact ? 3 : 5).map((action) => (

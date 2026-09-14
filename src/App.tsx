@@ -422,6 +422,7 @@ const NotificationSettings = React.lazy(() => import('./pages/settings/Notificat
 const AISettings = React.lazy(() => import('./pages/settings/AISettings'));
 const ScrolithaAssistantPage = React.lazy(() => import('./pages/assistant/ScrolithaAssistantPage'));
 const PersonalizedDiscovery = React.lazy(() => import('./pages/discovery/PersonalizedDiscovery'));
+const OpportunityActionCenter = React.lazy(() => import('./pages/OpportunityActionCenter'));
 const ScrolithMatch = React.lazy(() => import('./pages/MatchPage'));
 const MobileJobsScreen = React.lazy(() => import('./mobile/home/screens/MobileJobsScreen'));
 const MobileBriefsScreen = React.lazy(() => import('./mobile/home/screens/MobileBriefsScreen'));
@@ -808,6 +809,7 @@ const MOBILE_STANDALONE_ROUTE_RULES = [
   '/support',
   '/contact',
   '/affiliate-program',
+  '/opportunities',
   '/match*'
 ];
 
@@ -1607,6 +1609,7 @@ const AppContent = () => {
                 <Route path="notifications" element={<MobileNotificationsScreen />} />
                 <Route path="jobs" element={<MobileJobsScreen />} />
                 <Route path="briefs" element={<MobileBriefsScreen />} />
+                <Route path="opportunities" element={<OpportunityActionCenter />} />
                 <Route path="marketplace" element={<MarketplacePage />} />
                 <Route path="marketplace/create" element={<MarketplacePage />} />
                 <Route path="marketplace/sell" element={<MarketplacePage />} />
@@ -1728,6 +1731,14 @@ const AppContent = () => {
                  element={
                    <ProtectedRoute>
                      <PersonalizedDiscovery />
+                   </ProtectedRoute>
+                 }
+               />
+               <Route
+                 path="/opportunities"
+                 element={
+                   <ProtectedRoute>
+                     {renderResponsiveMobilePage('Opportunity Action Center', <OpportunityActionCenter />)}
                    </ProtectedRoute>
                  }
                />
