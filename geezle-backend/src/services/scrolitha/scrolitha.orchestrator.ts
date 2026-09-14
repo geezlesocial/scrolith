@@ -25,6 +25,7 @@ import {
 } from './scrolitha.memory';
 import { getScrolithaToolDefinition, listScrolithaTools } from './scrolitha.tools';
 import { toStructuredChatResponse } from './scrolitha.phase2';
+import { routeScrolithaModel } from './scrolitha.phase3';
 import type {
   ScrolithaActor,
   ScrolithaAgentPlanPreview,
@@ -441,6 +442,7 @@ const buildScrolithaSystemPrompt = (params: {
   plannedActions: Array<{ summary: string; toolKey: string; requiresConfirmation: boolean }>;
   knowledgeContext?: string | null;
   learningContext?: string | null;
+  domainPromptPack?: string | null;
 }) => {
   const role = String(params.actor.role || 'user');
   const scope = String(params.actor.scope || 'user');
@@ -474,6 +476,7 @@ const buildScrolithaSystemPrompt = (params: {
     actions ? `planned_actions:\n${actions}` : 'planned_actions: none',
     params.knowledgeContext ? `knowledge:\n${params.knowledgeContext}` : '',
     params.learningContext ? `learning:\n${params.learningContext}` : '',
+    params.domainPromptPack ? `domain_guidance:\n${params.domainPromptPack}` : '',
     `[/INTERNAL_CONTEXT_DO_NOT_ECHO]`
   ]
     .filter(Boolean)
@@ -493,6 +496,7 @@ const buildLlmReply = async (input: {
   actor: ScrolithaActor;
   conversationId: string;
   userMessage: string;
+  intent?: string | null;
   pageContext?: string | null;
   accountContext?: string | null;
   messagingFastPath?: boolean;
@@ -502,6 +506,15 @@ const buildLlmReply = async (input: {
   const runtime = await resolveScrolithaLlmRuntime(input.actor.scope);
   if (!runtime.enabled || runtime.provider === 'disabled' || !runtime.runtimeConfigured) return null;
   const messagingFastPath = Boolean(input.messagingFastPath);
+  const routing = routeScrolithaModel({
+    runtime,
+    message: input.userMessage,
+    intent: input.intent,
+    page: input.pageContext,
+    messagingFastPath,
+    hasActions: input.actionPlans.length > 0,
+    safeMode: Boolean(input.config.safeMode)
+  });
 
   const knowledgeContext = buildScrolithaKnowledgeContext({
     actor: input.actor,
@@ -524,7 +537,8 @@ const buildLlmReply = async (input: {
         accountContext: input.accountContext,
         plannedActions: input.actionPlans,
         knowledgeContext,
-        learningContext
+        learningContext,
+        domainPromptPack: routing.promptPack
       })
     },
     ...history.map((msg) => ({
@@ -536,10 +550,10 @@ const buildLlmReply = async (input: {
   try {
     const result = await ollamaChat({
       host: runtime.host,
-      model: runtime.model,
+      model: routing.model,
       messages,
-      maxTokens: messagingFastPath ? Math.min(runtime.maxTokens, 512) : runtime.maxTokens,
-      temperature: runtime.temperature,
+      maxTokens: routing.maxTokens,
+      temperature: routing.temperature,
       topP: runtime.topP,
       timeoutMs: messagingFastPath ? Math.min(runtime.timeoutMs, 45_000) : runtime.timeoutMs,
       allowNodeFallback: !messagingFastPath
@@ -967,6 +981,7 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
       actor,
       conversationId: conversation.id,
       userMessage: message,
+      intent: classified.intent,
       pageContext,
       accountContext,
       messagingFastPath:
