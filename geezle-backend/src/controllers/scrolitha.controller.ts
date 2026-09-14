@@ -20,6 +20,9 @@ import { getOpsMetricsSnapshot, recordRequestOutcome } from '../services/scrolit
 import { streamOrFallback } from '../services/scrolitha/scrolitha.streaming';
 import { newIntelligenceRequestId } from '../services/scrolitha/scrolitha.observability';
 import { assignPhase4Arm, getPhase4TaskCatalog, runPhase4Evaluation } from '../services/scrolitha/scrolitha.phase4';
+import { getCalibrationSnapshot, recordCalibrationSignal, type CalibrationSignal } from '../services/scrolitha/scrolitha.phase5';
+import { assignPhase6Arm, buildPhase6Context, personalizeWithCalibration } from '../services/scrolitha/scrolitha.phase6';
+import type { RecommendationItem } from '../services/scrolitha/scrolitha.recommendationEngine';
 
 const unauthorized = (res: Response) =>
   res.status(401).json({
@@ -133,6 +136,57 @@ export const scrolithaEvaluationController = async (req: Request, res: Response)
       assignment: subjectId ? assignPhase4Arm(subjectId, experiment) : null
     }
   });
+};
+
+/** Phase 5: admin-only aggregate calibration and quality-gate snapshot. */
+export const scrolithaCalibrationController = async (req: Request, res: Response) => {
+  if (!req.user?.id) return unauthorized(res);
+  const actor = resolveActorFromRequest(req);
+  if (!actor.isAdmin) return res.status(403).json({ success: false, message: 'Administrator access required' });
+  return res.json({ success: true, data: getCalibrationSnapshot() });
+};
+
+/** Phase 5: record a bounded, privacy-safe recommendation feedback event. */
+export const scrolithaCalibrationSignalController = async (req: Request, res: Response) => {
+  try {
+    if (!req.user?.id) return unauthorized(res);
+    const allowed: CalibrationSignal[] = ['accepted', 'dismissed', 'corrected', 'positive_feedback', 'negative_feedback', 'safety_blocked'];
+    const signal = String(req.body?.signal || '').trim() as CalibrationSignal;
+    if (!allowed.includes(signal)) return res.status(400).json({ success: false, message: 'Unsupported calibration signal' });
+    const data = recordCalibrationSignal({
+      signal,
+      latencyMs: Number.isFinite(Number(req.body?.latencyMs)) ? Number(req.body.latencyMs) : undefined,
+      relevance: Number.isFinite(Number(req.body?.relevance)) ? Number(req.body.relevance) : undefined
+    });
+    return res.json({ success: true, data, message: 'Calibration signal recorded' });
+  } catch (error: any) {
+    return sendScrolithaPublicError(res, 'Calibration signal failed', error, { logLabel: 'calibration signal error' });
+  }
+};
+
+/** Phase 6: return privacy-aware personalized ranking for bounded recommendation items. */
+export const scrolithaPersonalizedRankController = async (req: Request, res: Response) => {
+  try {
+    if (!req.user?.id) return unauthorized(res);
+    const raw = Array.isArray(req.body?.items) ? req.body.items.slice(0, 50) : [];
+    const items: RecommendationItem[] = raw
+      .filter((item: any) => item && typeof item.id === 'string' && typeof item.title === 'string')
+      .map((item: any) => ({
+        id: String(item.id).slice(0, 120),
+        kind: item.kind,
+        title: String(item.title).slice(0, 240),
+        reason: String(item.reason || '').slice(0, 300),
+        hrefHint: typeof item.hrefHint === 'string' ? item.hrefHint.slice(0, 300) : undefined,
+        score: Math.max(0, Math.min(1.5, Number(item.score) || 0)),
+        sourceLabel: String(item.sourceLabel || 'Scrolith').slice(0, 120)
+      }))
+      .filter((item: any) => ['job', 'service', 'freelancer', 'company', 'community', 'discussion', 'learning', 'action'].includes(item.kind));
+    const context = await buildPhase6Context({ userId: req.user.id, sessionKey: req.body?.sessionKey });
+    const data = personalizeWithCalibration(items, context, req.user.id);
+    return res.json({ success: true, data: { ...data, version: 'phase6-personalized-ranking-v1', assignment: assignPhase6Arm(req.user.id) } });
+  } catch (error: any) {
+    return sendScrolithaPublicError(res, 'Personalized ranking failed', error, { logLabel: 'personalized ranking error' });
+  }
 };
 
 export const scrolithaExecuteController = async (req: Request, res: Response) => {
