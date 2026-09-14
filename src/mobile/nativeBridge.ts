@@ -4,6 +4,15 @@ export type NativeCapabilities = {
   nativeMessagesList?: boolean;
   nativeNavigationPilot?: boolean;
   nativeNavigation?: boolean;
+  offlineFirst?: boolean;
+  offlineSyncQueue?: boolean;
+  unifiedOpportunityInbox?: boolean;
+  scrolithaCopilot?: boolean;
+  trustAndVerification?: boolean;
+  creatorBusinessTools?: boolean;
+  personalizedDiscovery?: boolean;
+  safetyPrivacyObservability?: boolean;
+  maxOfflineQueueItems?: number;
 };
 
 export type ScrolithNativeBridge = {
@@ -14,6 +23,19 @@ export type ScrolithNativeBridge = {
   openNativeMessages?: () => void;
   closeNativeMessages?: () => void;
   postEvent?: (eventName: string, payloadJson: string) => void;
+  enqueueOfflineAction?: (envelopeJson: string) => string;
+  getOfflineActions?: () => string;
+  clearOfflineActions?: () => void;
+};
+
+export const enqueueNativeOfflineAction = (envelope: Record<string, unknown>, bridge = getScrolithNative()) => {
+  if (!bridge?.enqueueOfflineAction) return null;
+  try { return JSON.parse(bridge.enqueueOfflineAction(JSON.stringify(envelope))); } catch { return null; }
+};
+
+export const getNativeOfflineActions = (bridge = getScrolithNative()): unknown[] => {
+  if (!bridge?.getOfflineActions) return [];
+  try { const value = JSON.parse(bridge.getOfflineActions()); return Array.isArray(value) ? value : []; } catch { return []; }
 };
 
 const MAX_TEXT_LENGTH = 600;
@@ -98,7 +120,7 @@ export const buildNativeNotificationEnvelope = (
     .filter((item) => item.id);
 
   return {
-    bridgeVersion: '2',
+    bridgeVersion: '3',
     requestId: boundedText(requestId, 80),
     kind: 'snapshot',
     sessionBinding,
@@ -215,7 +237,7 @@ export const buildNativeMessagesEnvelope = (
     .filter(Boolean) as Record<string, unknown>[];
 
   return {
-    bridgeVersion: '2',
+    bridgeVersion: '3',
     requestId: boundedText(requestId, 80),
     kind: 'snapshot',
     sessionBinding,
