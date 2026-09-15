@@ -5,6 +5,7 @@ const unwrap = <T,>(response: any): T => (response?.data?.data ?? response?.data
 export type FoundingPartnerProgram = {
   name: string; status: string; capacity: number; enrolledCount: number; remainingCapacity: number;
   profitSharePercent: string; termYears: number; enrollmentFee: string; currency: string; termsVersion: string;
+  availableCurrencies?: Array<{ code: string; amount: string }>;
 };
 
 export const FoundingPartnersService = {
