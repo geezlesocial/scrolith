@@ -68,6 +68,9 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
     affiliates: 'affiliate-program',
     referral: 'affiliate-program',
     referrals: 'affiliate-program',
+    'founding-partners': 'founding-partners',
+    'founding-partnership': 'founding-partners',
+    'partner-earnings': 'founding-partners',
     marketplace: 'marketplace',
     posts: 'my-posts',
     'my-posts': 'my-posts',
@@ -260,6 +263,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
     if (effectiveRole === USER_ROLES.FREELANCER) {
       const financeItems = [
         { tab: 'wallet', label: 'Wallet', icon: Wallet, description: 'Balance, payouts, and cash flow controls' },
+        { tab: 'founding-partners', label: 'Founding Partnership', icon: BadgeDollarSign, description: 'Profit participation and annual partner earnings' },
         { tab: 'membership', label: 'Membership', icon: Crown, description: 'Plan access and subscription benefits' },
         ...(showAffiliateModule
           ? [{ tab: 'affiliate-program', label: 'Affiliate Program', icon: BadgeDollarSign, description: 'Referral earnings and campaign performance' }]
@@ -323,6 +327,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
     if (effectiveRole === USER_ROLES.EMPLOYER) {
       const financeItems = [
         { tab: 'wallet', label: 'Wallet', icon: Wallet, description: 'Balance, billing, and payment execution' },
+        { tab: 'founding-partners', label: 'Founding Partnership', icon: BadgeDollarSign, description: 'Profit participation and annual partner earnings' },
         { tab: 'membership', label: 'Membership', icon: Crown, description: 'Plan access and premium hiring capabilities' },
         ...(showAffiliateModule
           ? [{ tab: 'affiliate-program', label: 'Affiliate Program', icon: BadgeDollarSign, description: 'Referral earnings and partner growth' }]

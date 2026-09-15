@@ -44,6 +44,7 @@ const Signup = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [hvToken, setHvToken] = useState<string | null>(null);
   const [hvRequired, setHvRequired] = useState(false);
+  const [showFoundingPartnerPrompt, setShowFoundingPartnerPrompt] = useState(false);
 
   const defaultSignupContent = {
     headline: t('auth.signup.headline', 'Create your Scrolith account'),
@@ -171,7 +172,7 @@ const Signup = () => {
       );
 
       if (success) {
-        navigate('/', { replace: true });
+        setShowFoundingPartnerPrompt(true);
       } else {
         setErrors({ submit: t('auth.signup.failed', 'Signup failed. Please try again.') });
       }
@@ -184,6 +185,7 @@ const Signup = () => {
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-10 sm:px-6 lg:px-8">
+      {showFoundingPartnerPrompt && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4" role="dialog" aria-modal="true" aria-labelledby="founding-partner-prompt-title"><div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"><p className="text-xs font-semibold uppercase tracking-widest text-indigo-600">Welcome to Scrolith</p><h2 id="founding-partner-prompt-title" className="mt-2 text-xl font-semibold text-slate-900">Become a Founding Partner</h2><p className="mt-2 text-sm leading-6 text-slate-600">Join the profit-participation program with a one-time USD 2 enrollment fee. This is optional and can be completed later from your dashboard.</p><div className="mt-5 flex flex-wrap justify-end gap-2"><button type="button" onClick={() => navigate('/', { replace: true })} className="rounded-lg border px-4 py-2 text-sm font-medium text-slate-700">Maybe later</button><button type="button" onClick={() => navigate('/dashboard?tab=founding-partners', { replace: true })} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white">Review program</button></div></div></div>}
       <div className="mx-auto grid max-w-6xl overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_24px_90px_rgba(15,23,42,0.12)] lg:grid-cols-[0.95fr_1.05fr]">
         <section className="relative hidden overflow-hidden bg-slate-950 p-10 text-white lg:flex lg:flex-col lg:justify-between">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_16%_16%,rgba(59,130,246,0.28),transparent_32%),radial-gradient(circle_at_78%_8%,rgba(14,165,233,0.2),transparent_28%)]" />

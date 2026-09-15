@@ -20,6 +20,7 @@ import {
 const Overview = React.lazy(() => import('./admin/Overview'));
 const ListingsManagementTab = React.lazy(() => import('./admin/GigsJobs'));
 const FinancialsTab = React.lazy(() => import('./admin/FinancePayouts'));
+const FoundingPartnersTab = React.lazy(() => import('./admin/FoundingPartners'));
 const GatewaysTab = React.lazy(() => import('./admin/PaymentGateways'));
 const CMSPages = React.lazy(() => import('./admin/CMSPages'));
 const HomepageSettings = React.lazy(() => import('./admin/HomepageSettings'));
@@ -81,7 +82,7 @@ const AdminLivePlatform = React.lazy(() => import('../pages/AdminLivePlatform'))
 const ScrollAdminPanel = React.lazy(() => import('../features/scroll/ScrollAdminPanel'));
 
 // Define valid tab types
-type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'insights-growth' | 'listings' | 'marketplace' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'scroll' | 'live' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'access-control' | 'role-management' | 'policy-center' | 'approval-policies' | 'audit-logs' | 'security-alerts' | 'device-login-security' | 'procurement' | 'compliance' | 'private-talent-cloud' | 'integrations' | 'scrolitha-controls' | 'managed-delivery' | 'feature-control' | 'discovery-studio' | 'journey-center' | 'notification-ops' | 'moderation-trust' | 'config-rollback' | 'realtime-ops' | 'moderator-console' | 'message-records' | 'messaging-groups' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'groups' | 'recommendations' | 'hiring-recommendations' | 'scrolith-match' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'scrolitha-ai' | 'apps' | 'developer-platform' | 'system-backup';
+type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'insights-growth' | 'listings' | 'marketplace' | 'engagement' | 'finance' | 'founding-partners' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'scroll' | 'live' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'access-control' | 'role-management' | 'policy-center' | 'approval-policies' | 'audit-logs' | 'security-alerts' | 'device-login-security' | 'procurement' | 'compliance' | 'private-talent-cloud' | 'integrations' | 'scrolitha-controls' | 'managed-delivery' | 'feature-control' | 'discovery-studio' | 'journey-center' | 'notification-ops' | 'moderation-trust' | 'config-rollback' | 'realtime-ops' | 'moderator-console' | 'message-records' | 'messaging-groups' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'groups' | 'recommendations' | 'hiring-recommendations' | 'scrolith-match' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'scrolitha-ai' | 'apps' | 'developer-platform' | 'system-backup';
 
 // Define navigation item interface
 interface NavItem {
@@ -167,7 +168,7 @@ const AdminDashboard: React.FC = () => {
     // Helper function to validate tab
     const isValidTab = (tab: string): tab is Tab => {
         const validTabs: Tab[] = [
-            'overview', 'analytics', 'listings', 'marketplace', 'engagement', 'finance', 'gateways', 'cms', 
+            'overview', 'analytics', 'listings', 'marketplace', 'engagement', 'finance', 'founding-partners', 'gateways', 'cms',
             'homepage', 'mobile-homepage', 'blog', 'scroll', 'live', 'marketing', 'users', 'monetization', 'files', 'staff', 'access-control', 'role-management', 'policy-center', 'approval-policies', 'audit-logs', 'security-alerts', 'device-login-security', 'feature-control', 'discovery-studio', 'journey-center', 'moderation-trust', 'config-rollback', 'realtime-ops', 'moderator-console', 'message-records', 'messaging-groups', 'kyc',
             'procurement', 'compliance', 'private-talent-cloud', 'integrations', 'scrolitha-controls', 'managed-delivery',
             'support', 'system', 'profile', 'messages', 'ai', 'atm', 'insights-growth', 'community', 'groups', 'recommendations', 'hiring-recommendations', 'scrolith-match', 'navigation', 'reviews', 'languages', 'forms', 'google-settings', 'scrolitha', 'apps', 'developer-platform', 'system-backup'
@@ -336,6 +337,7 @@ const AdminDashboard: React.FC = () => {
             title: 'Finance', 
             items: [
                 { id: 'finance', label: 'Finance & Payouts', icon: DollarSign },
+                { id: 'founding-partners', label: 'Founding Partners', icon: Users },
                 { id: 'gateways', label: 'Payment Gateways', icon: CreditCard },
                 { id: 'procurement', label: 'Procurement', icon: FileText }
             ] 
@@ -453,6 +455,7 @@ const AdminDashboard: React.FC = () => {
             case 'marketplace': return <MarketplaceManagement />;
             case 'engagement': return <CommerceEngagement />;
             case 'finance': return <FinancialsTab />;
+            case 'founding-partners': return <FoundingPartnersTab />;
             case 'gateways': return <GatewaysTab />;
             case 'cms': return <CMSPages />;
             case 'homepage': return <HomepageSettings />;

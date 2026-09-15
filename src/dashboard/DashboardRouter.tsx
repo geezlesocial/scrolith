@@ -33,6 +33,7 @@ const SettingsModule = React.lazy(() => import('./shared/SettingsModule'));
 const Membership = React.lazy(() => import('./shared/Membership'));
 const ManagePagesModule = React.lazy(() => import('./shared/ManagePagesModule'));
 const AffiliateDashboardModule = React.lazy(() => import('./shared/AffiliateDashboardModule'));
+const FoundingPartnership = React.lazy(() => import('./shared/FoundingPartnership'));
 const MyAds = React.lazy(() => import('../pages/MyAds'));
 const CommunityDashboard = React.lazy(() => import('./shared/CommunityDashboard'));
 const MyPosts = React.lazy(() => import('./shared/MyPosts'));
@@ -88,6 +89,9 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
     affiliates: 'affiliate-program',
     referral: 'affiliate-program',
     referrals: 'affiliate-program',
+    'founding-partners': 'founding-partners',
+    'founding-partnership': 'founding-partners',
+    'partner-earnings': 'founding-partners',
     marketplace: 'marketplace',
     posts: 'my-posts',
     'my-posts': 'my-posts',
@@ -235,6 +239,8 @@ export const DashboardRouter: React.FC = () => {
           return <Membership />;
         case 'affiliate-program':
           return <AffiliateDashboardModule />;
+        case 'founding-partners':
+          return <FoundingPartnership />;
         case 'profile':
           return <EditProfile isEmbedded={true} activeRole={effectiveRole} />;
         case 'settings':
@@ -295,6 +301,8 @@ export const DashboardRouter: React.FC = () => {
           return <Membership />;
         case 'affiliate-program':
           return <AffiliateDashboardModule />;
+        case 'founding-partners':
+          return <FoundingPartnership />;
         case 'profile':
           return <EditProfile isEmbedded={true} activeRole={effectiveRole} />;
         case 'settings':
