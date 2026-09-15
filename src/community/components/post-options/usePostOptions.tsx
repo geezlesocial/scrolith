@@ -51,7 +51,7 @@ type UsePostOptionsParams = {
 
 const isPrivilegedRole = (role?: string) => {
   const normalized = String(role || '').trim().toLowerCase();
-  return normalized.includes('admin') || normalized.includes('moderator');
+  return normalized.includes('admin') || normalized.includes('moderator') || normalized === 'owner';
 };
 
 const resolveAuthorLabel = (post: any) => {
@@ -80,6 +80,8 @@ export function usePostOptions({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [saved, setSaved] = useState<boolean>(false);
   const [notifEnabled, setNotifEnabled] = useState<boolean>(false);
+  const [serverIsPrivileged, setServerIsPrivileged] = useState<boolean>(isPrivilegedRole(user?.role));
+  const [serverIsOwner, setServerIsOwner] = useState<boolean>(false);
   const [isFollowingAuthor, setIsFollowingAuthor] = useState<boolean>(
     Boolean(post?.viewer?.isFollowingAuthor)
   );
@@ -87,12 +89,14 @@ export function usePostOptions({
   const postId = String(post?.id || '').trim();
   const viewerId = String(user?.id || '').trim();
   const authorUserId = String(post?.authorUserId || post?.authorId || '').trim();
-  const isOwner = Boolean(viewerId && authorUserId && viewerId === authorUserId);
-  const isAdminOrMod = isPrivilegedRole(user?.role);
+  const isOwner = serverIsOwner || Boolean(viewerId && authorUserId && viewerId === authorUserId);
+  const isAdminOrMod = serverIsPrivileged || isPrivilegedRole(user?.role);
 
   useEffect(() => {
     setIsFollowingAuthor(Boolean(post?.viewer?.isFollowingAuthor));
-  }, [postId, post?.viewer?.isFollowingAuthor]);
+    setServerIsPrivileged(isPrivilegedRole(user?.role));
+    setServerIsOwner(false);
+  }, [postId, post?.viewer?.isFollowingAuthor, user?.role]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -106,6 +110,8 @@ export function usePostOptions({
         if (typeof resp?.data?.saved === 'boolean') setSaved(resp.data.saved);
         if (typeof resp?.data?.notificationsEnabled === 'boolean') setNotifEnabled(resp.data.notificationsEnabled);
         if (typeof resp?.data?.isFollowingAuthor === 'boolean') setIsFollowingAuthor(resp.data.isFollowingAuthor);
+        if (typeof resp?.data?.isOwner === 'boolean') setServerIsOwner(resp.data.isOwner);
+        if (typeof resp?.data?.isAdminOrMod === 'boolean') setServerIsPrivileged(resp.data.isAdminOrMod);
       } catch {
         // best-effort (menu still works; it will correct after first action)
       }
@@ -125,7 +131,19 @@ export function usePostOptions({
   const copyLink = useCallback(async () => {
     const url = `${window.location.origin}/post/${encodeURIComponent(postId)}`;
     try {
-      await navigator.clipboard.writeText(url);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const input = document.createElement('textarea');
+        input.value = url;
+        input.setAttribute('readonly', 'true');
+        input.style.position = 'fixed';
+        input.style.opacity = '0';
+        document.body.appendChild(input);
+        input.select();
+        if (!document.execCommand('copy')) throw new Error('copy unavailable');
+        input.remove();
+      }
       showNotification('success', 'Copied', 'Post link copied to clipboard.');
     } catch {
       showNotification('error', 'Copy failed', 'Unable to copy link. Please try again.');
@@ -138,11 +156,14 @@ export function usePostOptions({
       setBusyId(id);
       try {
         await fn();
+      } catch (error: any) {
+        const message = error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Action could not be completed.';
+        showNotification('error', 'Post action failed', message);
       } finally {
         setBusyId(null);
       }
     },
-    [busyId]
+    [busyId, showNotification]
   );
 
   const whyThisPost = useCallback(() => {
@@ -342,7 +363,7 @@ export function usePostOptions({
   }, [post]);
 
   const enterModerationMode = useCallback(() => {
-    navigate('/admin/dashboard?tab=community');
+    navigate('/admin/dashboard?tab=community&communityTab=moderation');
   }, [navigate]);
 
   const modHidePost = useCallback(() => {
@@ -380,7 +401,7 @@ export function usePostOptions({
   }, [authorUserId, postId, run, showNotification]);
 
   const viewReports = useCallback(() => {
-    navigate('/admin/dashboard?tab=community');
+    navigate('/admin/dashboard?tab=community&communityTab=moderation');
   }, [navigate]);
 
   const authorName = resolveAuthorLabel(post);
@@ -558,6 +579,8 @@ export function usePostOptions({
     run,
     saveOrUnsave,
     saved,
+    serverIsOwner,
+    serverIsPrivileged,
     toggleComments,
     toggleNotifications,
     toggleReposts,

@@ -3242,6 +3242,28 @@ export default function MobileFeed({
                           .then(() => setPosts((prev) => prev.filter((p) => String(p?.id) !== id)))
                           .catch(() => {});
                       }}
+                      onTogglePin={(targetPost) => {
+                        const id = String(targetPost?.id || '').trim();
+                        if (!id) return;
+                        void CommunityService.updatePost(id, { isPinned: !Boolean(targetPost?.isPinned) })
+                          .then((updated) => {
+                            setPosts((prev) => prev.map((item) => String(item?.id) === id
+                              ? { ...item, ...(updated || {}), isPinned: updated?.isPinned ?? !targetPost?.isPinned }
+                              : item));
+                          })
+                          .catch(() => setStatusMessage('Unable to update the post pin.'));
+                      }}
+                      onToggleHighlight={(targetPost) => {
+                        const id = String(targetPost?.id || '').trim();
+                        if (!id) return;
+                        void CommunityService.updatePost(id, { isHighlighted: !Boolean(targetPost?.isHighlighted) })
+                          .then((updated) => {
+                            setPosts((prev) => prev.map((item) => String(item?.id) === id
+                              ? { ...item, ...(updated || {}), isHighlighted: updated?.isHighlighted ?? !targetPost?.isHighlighted }
+                              : item));
+                          })
+                          .catch(() => setStatusMessage('Unable to update the post highlight.'));
+                      }}
                     />
                   </div>
                 </div>

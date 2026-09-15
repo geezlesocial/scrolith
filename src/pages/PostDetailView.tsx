@@ -383,6 +383,8 @@ type FeedPostCardProps = {
   onHideFromFeed: (postId: string) => void;
   onEditPost: (post: any) => void;
   onDeletePost: (post: any) => void;
+  onTogglePin?: (post: any) => void | Promise<void>;
+  onToggleHighlight?: (post: any) => void | Promise<void>;
 };
 
 const FeedPostCard: React.FC<FeedPostCardProps> = ({
@@ -394,7 +396,9 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({
   onCommentCountChange,
   onHideFromFeed,
   onEditPost,
-  onDeletePost
+  onDeletePost,
+  onTogglePin,
+  onToggleHighlight
 }) => {
   const attachments = Array.isArray(post.attachments) ? post.attachments : [];
   const contentText = String(post?.content || '');
@@ -458,6 +462,8 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({
             onHideFromFeed={onHideFromFeed}
             onEditPost={() => onEditPost(post)}
             onDeletePost={() => onDeletePost(post)}
+            onTogglePin={onTogglePin ? () => onTogglePin(post) : undefined}
+            onToggleHighlight={onToggleHighlight ? () => onToggleHighlight(post) : undefined}
           />
         }
       />
@@ -814,6 +820,30 @@ export default function PostDetailView() {
     },
     [navigate, patchFeedPost, showNotification]
   );
+
+  const handleTogglePin = useCallback(async (targetPost: any) => {
+    try {
+      const updated = await CommunityService.updatePost(String(targetPost?.id || ''), {
+        isPinned: !Boolean(targetPost?.isPinned)
+      });
+      setPost((current) => (current ? { ...current, ...(updated || {}), isPinned: updated?.isPinned ?? !targetPost?.isPinned } : current));
+      showNotification('success', 'Pin', targetPost?.isPinned ? 'Post unpinned.' : 'Post pinned to your profile.');
+    } catch (error: any) {
+      showNotification('error', 'Pin failed', error?.response?.data?.message || error?.response?.data?.error || 'Unable to update pin status.');
+    }
+  }, [showNotification]);
+
+  const handleToggleHighlight = useCallback(async (targetPost: any) => {
+    try {
+      const updated = await CommunityService.updatePost(String(targetPost?.id || ''), {
+        isHighlighted: !Boolean(targetPost?.isHighlighted)
+      });
+      setPost((current) => (current ? { ...current, ...(updated || {}), isHighlighted: updated?.isHighlighted ?? !targetPost?.isHighlighted } : current));
+      showNotification('success', 'Highlight', targetPost?.isHighlighted ? 'Post removed from highlights.' : 'Post highlighted on your profile.');
+    } catch (error: any) {
+      showNotification('error', 'Highlight failed', error?.response?.data?.message || error?.response?.data?.error || 'Unable to update highlight status.');
+    }
+  }, [showNotification]);
 
   const loadStreamSupplements = useCallback(async () => {
     const [adsResult, featuredJobsResult, recommendedJobsResult, randomJobsResult, featuredGigsResult, recommendedGigsResult, randomGigsResult, pagesResult] =
@@ -1301,7 +1331,11 @@ export default function PostDetailView() {
     );
   }
 
-  const isOwner = Boolean(user?.id && post.authorUserId && String(user.id) === String(post.authorUserId));
+  const isOwner = Boolean(
+    user?.id &&
+      (post.authorUserId || post.authorId || post.author?.id) &&
+      String(user.id) === String(post.authorUserId || post.authorId || post.author?.id)
+  );
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(99,102,241,0.14),_transparent_35%),linear-gradient(180deg,_#f1f5f9_0%,_#eef2ff_40%,_#e2e8f0_100%)]">
@@ -1446,6 +1480,8 @@ export default function PostDetailView() {
                   if (!isOwner) return;
                   await handleDeletePost(post, { redirectAfterDelete: true });
                 }}
+                onTogglePin={isOwner ? handleTogglePin : undefined}
+                onToggleHighlight={isOwner ? handleToggleHighlight : undefined}
               />
             }
           />
@@ -1757,6 +1793,16 @@ export default function PostDetailView() {
                     onEditPost={(targetPost) => navigate(`/community/posts/${encodeURIComponent(targetPost.id)}?edit=1`)}
                     onDeletePost={(targetPost) => {
                       void handleDeletePost(targetPost);
+                    }}
+                    onTogglePin={(targetPost) => {
+                      void CommunityService.updatePost(String(targetPost?.id || ''), { isPinned: !Boolean(targetPost?.isPinned) })
+                        .then((updated) => patchFeedPost(String(targetPost?.id || ''), (item) => ({ ...item, ...(updated || {}), isPinned: updated?.isPinned ?? !targetPost?.isPinned })))
+                        .catch((error: any) => showNotification('error', 'Pin failed', error?.response?.data?.message || 'Unable to update pin status.'));
+                    }}
+                    onToggleHighlight={(targetPost) => {
+                      void CommunityService.updatePost(String(targetPost?.id || ''), { isHighlighted: !Boolean(targetPost?.isHighlighted) })
+                        .then((updated) => patchFeedPost(String(targetPost?.id || ''), (item) => ({ ...item, ...(updated || {}), isHighlighted: updated?.isHighlighted ?? !targetPost?.isHighlighted })))
+                        .catch((error: any) => showNotification('error', 'Highlight failed', error?.response?.data?.message || 'Unable to update highlight status.'));
                     }}
                   />
 
