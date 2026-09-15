@@ -142,7 +142,7 @@ export const activateFoundingPartnerFromPayment = async (paymentId: string, prov
     if (!user) throw new Error('User account was not found');
     const currentPartner = await tx.foundingPartner.findUnique({ where: { userId: user.id } });
     if (currentPartner) {
-      await tx.foundingPartnerEnrollmentPayment.update({ where: { id: payment.id }, data: { status: 'COMPLETED', partnerId: currentPartner.id, providerReferenceId, settledAt: new Date() } });
+      await tx.foundingPartnerEnrollmentPayment.update({ where: { id: payment.id }, data: { status: 'DUPLICATE', providerReferenceId, settledAt: new Date() } });
       return currentPartner;
     }
     const reserved = await tx.foundingPartnerProgram.updateMany({ where: { id: program.id, status: 'ACTIVE', enrolledCount: { lt: program.capacity } }, data: { enrolledCount: { increment: 1 } } });
