@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 1.3.16 - offline-first mobile foundations, native sync bridge, and performance rebuild.
-        versionCode 128
-        versionName "1.3.17"
+        // 1.3.18 - unified post-card status polish and performance rebuild.
+        versionCode 129
+        versionName "1.3.18"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]
