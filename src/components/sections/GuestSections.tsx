@@ -480,6 +480,12 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
         { title: 'Smart Hiring Pipeline', subtitle: 'Post, screen, and hire with automated workflows.' },
         { title: 'Creator Growth Engine', subtitle: 'Publish once and distribute across network, stories, and scroll.' }
       ]).slice(0, compactMode ? 2 : 3);
+  const platformHighlights = [
+    { label: 'Opportunity graph', detail: 'Meet the right people, teams, and clients.', accent: 'from-sky-500 to-cyan-400' },
+    { label: 'Work marketplace', detail: 'Discover jobs, gigs, and trusted services.', accent: 'from-violet-500 to-fuchsia-400' },
+    { label: 'Scrolitha AI', detail: 'Turn ideas into clear next steps faster.', accent: 'from-amber-400 to-orange-500' },
+    { label: 'Trust by design', detail: 'Build with verification, privacy, and control.', accent: 'from-emerald-500 to-lime-400' }
+  ];
 
   React.useEffect(() => {
     let mounted = true;
@@ -601,7 +607,7 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
                 Work · Market · AI · Community
               </span>
             </div>
-            <h1 className="max-w-[16ch] text-balance text-[clamp(1.85rem,3.7vw,2.9rem)] font-extrabold leading-[0.98] tracking-[-0.045em] text-slate-950 sm:max-w-[18ch] lg:max-w-[16ch]">
+            <h1 className="max-w-[18ch] text-balance bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-700 bg-clip-text text-[clamp(1.8rem,3.35vw,2.7rem)] font-extrabold leading-[1.02] tracking-[-0.045em] text-transparent drop-shadow-[0_8px_18px_rgba(30,41,59,0.12)] sm:max-w-[20ch] lg:max-w-[18ch]">
               {content?.headline || 'Build your next opportunity on Scrolith'}
             </h1>
             {content?.subheadline ? (
@@ -789,6 +795,24 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
                 />
               </picture>
             </figure>
+            <div className="mt-4 rounded-[22px] border border-slate-200/80 bg-white/80 p-3 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.35)] backdrop-blur-sm sm:p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-indigo-600">Built for momentum</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">Everything important, in one connected workspace.</p>
+                </div>
+                <span className="hidden shrink-0 rounded-full border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-indigo-700 min-[420px]:inline-flex">Explore</span>
+              </div>
+              <div className="grid gap-2 min-[420px]:grid-cols-2">
+                {platformHighlights.map((item) => (
+                  <div key={item.label} className="group min-w-0 rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/80 p-3 transition duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-sm motion-reduce:transition-none motion-reduce:hover:translate-y-0">
+                    <div className={`mb-2 h-1.5 w-9 rounded-full bg-gradient-to-r ${item.accent}`} />
+                    <p className="truncate text-xs font-bold text-slate-900 sm:text-sm">{item.label}</p>
+                    <p className="mt-1 text-[11px] leading-5 text-slate-600 sm:text-xs">{item.detail}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
           {backgroundImageUrl ? <div className="absolute inset-0 bg-gradient-to-t from-white/55 via-white/20 to-transparent" /> : null}
         </div>

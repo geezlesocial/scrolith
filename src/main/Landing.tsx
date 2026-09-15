@@ -309,7 +309,7 @@ const GuestHeroAuthFallback: React.FC<{ content?: Partial<GuestHeroAuthContent>;
                 Work - Market - AI - Community
               </span>
             </div>
-            <h1 className="max-w-[14ch] text-[2rem] font-extrabold leading-[1.03] tracking-[-0.04em] text-slate-900 sm:max-w-none sm:text-3xl lg:text-4xl xl:text-[3.3rem]">
+            <h1 className="max-w-[18ch] text-balance bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-700 bg-clip-text text-[clamp(1.8rem,3.35vw,2.7rem)] font-extrabold leading-[1.02] tracking-[-0.045em] text-transparent drop-shadow-[0_8px_18px_rgba(30,41,59,0.12)] sm:max-w-[20ch] lg:max-w-[18ch]">
               {content?.headline || 'The All-in-One Platform for Work, Talent, and Community'}
             </h1>
             <p className="mt-4 max-w-2xl text-[15px] leading-7 text-slate-600 sm:text-base sm:leading-8">
