@@ -15,6 +15,11 @@ export type PasskeyRecord = {
 };
 
 const isEnabled = () => String(import.meta.env.VITE_PASSKEYS_ENABLED || '').toLowerCase() === 'true';
+const browserSupportsPasskeys = () =>
+  typeof window !== 'undefined' &&
+  typeof window.PublicKeyCredential !== 'undefined' &&
+  typeof navigator !== 'undefined' &&
+  (window.isSecureContext !== false);
 
 const unwrap = <T,>(response: any): T => {
   if (response?.data?.data !== undefined) return response.data.data as T;
@@ -26,11 +31,8 @@ const errorMessage = (error: any, fallback: string) =>
 
 export const passkeySupport = {
   enabled: isEnabled,
-  available: () =>
-    isEnabled() &&
-    typeof window !== 'undefined' &&
-    typeof window.PublicKeyCredential !== 'undefined' &&
-    typeof navigator !== 'undefined',
+  available: () => isEnabled() && browserSupportsPasskeys(),
+  browserSupported: browserSupportsPasskeys,
 };
 
 export const PasskeyService = {

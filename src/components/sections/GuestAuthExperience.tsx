@@ -136,6 +136,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
   const embeddedModalSurface = hideStandaloneLinks;
   const formSpacingClass = embeddedModalSurface ? "space-y-3" : "space-y-4";
   const inputPaddingClass = embeddedModalSurface && !compactSurface ? "py-2.5" : "py-3";
+  const passkeysEnabled = passkeySupport.enabled();
   const passkeysAvailable = passkeySupport.available();
 
   React.useEffect(() => {
@@ -372,19 +373,21 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
           {content?.enableSocialLogin !== false ? (
             <AuthSocialButtons mode="login" config={socialConfig || undefined} redirectTo="/" />
           ) : null}
-          {passkeysAvailable ? (
+          {passkeysEnabled ? (
             <div className="space-y-2">
               <button
                 type="button"
                 onClick={handlePasskeyLogin}
-                disabled={loginLoading || passkeyLoading || Boolean(loginApproval)}
+                disabled={loginLoading || passkeyLoading || Boolean(loginApproval) || !passkeysAvailable}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-900 transition hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <KeyRound className="h-4 w-4" />
-                {passkeyLoading ? "Waiting for passkey..." : "Continue with a passkey"}
+                {passkeyLoading ? "Waiting for passkey..." : passkeysAvailable ? "Continue with a passkey" : "Passkey unavailable in this browser"}
               </button>
               <p className="text-center text-xs leading-5 text-slate-500">
-                Use a saved Scrolith passkey on this device. You can optionally enter your email first.
+                {passkeysAvailable
+                  ? "Use a saved Scrolith passkey on this device. Enter your email first when you want to use a specific account. After password sign-in, open Settings > Security to save this account with a passkey."
+                  : "Passkeys require a supported secure browser or the latest Scrolith mobile app. Password and social sign-in remain available."}
               </p>
             </div>
           ) : null}

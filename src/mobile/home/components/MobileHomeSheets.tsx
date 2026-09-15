@@ -43,6 +43,7 @@ type QuickMenuConfig = {
   community?: boolean;
   marketplace?: boolean;
   groups?: boolean;
+  foundingPartnership?: boolean;
   projectBrief?: boolean;
   gigCreation?: boolean;
   settings?: boolean;
@@ -97,6 +98,7 @@ type MobileHomeSheetsProps = {
   onCommunity: () => void;
   onMarketplace: () => void;
   onGroups: () => void;
+  onFoundingPartnership: () => void;
   onProjectBriefs: () => void;
   onGigCreation: () => void;
 };
@@ -355,6 +357,7 @@ export default function MobileHomeSheets({
   onCommunity,
   onMarketplace,
   onGroups,
+  onFoundingPartnership,
   onProjectBriefs,
   onGigCreation
 }: MobileHomeSheetsProps) {
@@ -578,6 +581,17 @@ export default function MobileHomeSheets({
           description: 'Open clubs, requests, and community spaces.',
           tone: 'amber',
           onClick: onGroups
+        }
+      : null,
+    quickMenu.foundingPartnership !== false
+      ? {
+          id: 'quick-founding-partnership',
+          icon: <Coins className="h-4 w-4" />,
+          label: 'Founding Partnership',
+          description: 'Review your participation, enrollment status, and partner earnings.',
+          badge: 'NEW',
+          tone: 'green',
+          onClick: onFoundingPartnership
         }
       : null,
     quickMenu.settings !== false

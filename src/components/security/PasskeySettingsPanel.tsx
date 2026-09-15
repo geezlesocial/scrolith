@@ -30,7 +30,20 @@ const PasskeySettingsPanel = () => {
     void loadPasskeys();
   }, [loadPasskeys]);
 
-  if (!passkeySupport.available()) return null;
+  if (!passkeySupport.enabled()) return null;
+
+  if (!passkeySupport.available()) {
+    return (
+      <section className="mb-8 rounded-2xl border border-amber-200 bg-amber-50 p-5" aria-labelledby="passkeys-title">
+        <h3 id="passkeys-title" className="flex items-center gap-2 text-base font-bold text-gray-900">
+          <KeyRound className="h-5 w-5 text-amber-700" /> Passkeys
+        </h3>
+        <p className="mt-2 text-sm leading-6 text-gray-700">
+          Passkeys are enabled for Scrolith, but this browser or connection cannot start a secure passkey ceremony. Use a supported HTTPS browser or the latest Scrolith mobile app, then return to Settings &gt; Security.
+        </p>
+      </section>
+    );
+  }
 
   const addPasskey = async (event: React.FormEvent) => {
     event.preventDefault();

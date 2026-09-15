@@ -38,6 +38,7 @@ type MobileHomeLayoutConfig = {
     browseJobs?: boolean;
     browseGigs?: boolean;
     community?: boolean;
+    foundingPartnership?: boolean;
     projectBrief?: boolean;
     gigCreation?: boolean;
     settings?: boolean;
@@ -98,6 +99,7 @@ const DEFAULT_CONFIG: MobileHomeLayoutConfig = {
     browseJobs: true,
     browseGigs: true,
     community: true,
+    foundingPartnership: true,
     projectBrief: true,
     gigCreation: true,
     settings: true
@@ -376,6 +378,11 @@ const MobileHomepage: React.FC = () => {
               label="Scrolith Gig Creation"
               checked={merged.quickMenu?.gigCreation !== false}
               onChange={(v) => setConfig((p) => ({ ...p, quickMenu: { ...p.quickMenu, gigCreation: v } }))}
+            />
+            <Toggle
+              label="Founding Partnership"
+              checked={merged.quickMenu?.foundingPartnership !== false}
+              onChange={(v) => setConfig((p) => ({ ...p, quickMenu: { ...p.quickMenu, foundingPartnership: v } }))}
             />
             <Toggle
               label="Settings shortcut"

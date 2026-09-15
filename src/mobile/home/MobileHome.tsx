@@ -75,6 +75,7 @@ type MobileHomeLayoutConfig = {
     community?: boolean;
     marketplace?: boolean;
     groups?: boolean;
+    foundingPartnership?: boolean;
     projectBrief?: boolean;
     gigCreation?: boolean;
     settings?: boolean;
@@ -158,6 +159,7 @@ const DEFAULT_LAYOUT: MobileHomeLayoutConfig = {
     community: true,
     marketplace: true,
     groups: true,
+    foundingPartnership: true,
     projectBrief: true,
     gigCreation: true,
     settings: true
@@ -1013,6 +1015,9 @@ const MobileHome = () => {
             onCommunity={() => navigateFromShell('/community')}
             onMarketplace={() => navigateFromShell('/marketplace')}
             onGroups={() => navigateFromShell('/community/clubs')}
+            onFoundingPartnership={() =>
+              navigateFromShell(`${isClientMode ? '/client' : '/freelancer'}/dashboard?tab=founding-partners`)
+            }
             onProjectBriefs={() => navigateFromShell('/m/briefs')}
             onGigCreation={() => navigateFromShell('/create-gig')}
           />

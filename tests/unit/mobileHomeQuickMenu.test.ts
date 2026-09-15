@@ -13,3 +13,8 @@ test('Quick Menu destructures and wires Match and Scroll actions', () => {
   assert.match(source, /id: 'quick-match'[\s\S]*onClick: onMatch/);
   assert.match(source, /id: 'quick-scroll'[\s\S]*onClick: onScroll/);
 });
+
+test('Quick Menu exposes Founding Partnership and routes it through the mobile shell', () => {
+  assert.match(source, /id: 'quick-founding-partnership'[\s\S]*label: 'Founding Partnership'[\s\S]*onClick: onFoundingPartnership/);
+  assert.match(source, /onFoundingPartnership: \(\) => void/);
+});

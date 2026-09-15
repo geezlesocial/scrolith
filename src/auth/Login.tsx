@@ -154,6 +154,7 @@ const Login = () => {
     { width: 96, height: 96, fit: 'inside', quality: 72 }
   );
   const socialConfig = authConfig?.social_auth ?? (authConfig as any)?.socialAuth;
+  const passkeysEnabled = passkeySupport.enabled();
   const passkeysAvailable = passkeySupport.available();
 
   const completePostLogin = () => {
@@ -412,19 +413,21 @@ const Login = () => {
 
           <div className="space-y-6">
           <AuthSocialButtons mode="login" config={socialConfig || undefined} />
-          {passkeysAvailable && !twoFAChallenge && (
+          {passkeysEnabled && !twoFAChallenge && (
             <>
               <button
                 type="button"
                 onClick={handlePasskeyLogin}
-                disabled={loading || passkeyLoading || Boolean(loginApproval)}
+                disabled={loading || passkeyLoading || Boolean(loginApproval) || !passkeysAvailable}
                 className="flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3.5 text-sm font-bold text-blue-900 transition hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <KeyRound className="h-4 w-4" />
-                {passkeyLoading ? 'Waiting for passkey...' : 'Continue with a passkey'}
+                {passkeyLoading ? 'Waiting for passkey...' : passkeysAvailable ? 'Continue with a passkey' : 'Passkey unavailable in this browser'}
               </button>
               <p className="text-center text-xs leading-5 text-slate-500">
-                Enter your email above to look for that account&apos;s passkey. New to passkeys? Sign in with your password first, then add one in Settings.
+                {passkeysAvailable
+                  ? 'Enter your email above to find that account’s passkey. After password sign-in, open Settings > Security to save this email account on a device.'
+                  : 'Passkeys require a supported secure browser or the latest Scrolith mobile app. You can still sign in with your password or social login.'}
               </p>
               <div className="flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                 <span className="h-px flex-1 bg-slate-200" />
