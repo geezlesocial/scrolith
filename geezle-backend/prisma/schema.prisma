@@ -90,6 +90,14 @@ model User {
   transactions         Transaction[]
   walletFundingIntents WalletFundingIntent[]
 
+  // Scrolith Founding Partners profit-participation domain
+  foundingPartner                   FoundingPartner?
+  foundingPartnerEnrollmentPayments FoundingPartnerEnrollmentPayment[]
+  foundingPartnerAuditEvents        FoundingPartnerAuditLog[]          @relation("FoundingPartnerAuditActor")
+  foundingPartnerApprovedPeriods    FoundingPartnerProfitPeriod[]      @relation("FoundingPartnerPeriodApprover")
+  foundingPartnerExecutedRuns       FoundingPartnerDistributionRun[]   @relation("FoundingPartnerRunExecutor")
+  foundingPartnerApprovedRuns       FoundingPartnerDistributionRun[]   @relation("FoundingPartnerRunApprover")
+
   // Order relationships
   clientOrders     Order[] @relation("OrderClient")
   freelancerOrders Order[] @relation("OrderFreelancer")
@@ -175,19 +183,19 @@ model User {
   followers UserFollow[] @relation("UserFollowers")
 
   // Notifications
-  notifications       Notification[]       @relation("NotificationUser")
-  notificationsActed  Notification[]       @relation("NotificationActor")
-  deviceTokens        DeviceToken[]
-  loginTrustedDevices LoginTrustedDevice[]
+  notifications         Notification[]         @relation("NotificationUser")
+  notificationsActed    Notification[]         @relation("NotificationActor")
+  deviceTokens          DeviceToken[]
+  loginTrustedDevices   LoginTrustedDevice[]
   loginApprovalAttempts LoginApprovalAttempt[] @relation("LoginApprovalUser")
   loginApprovalsDecided LoginApprovalAttempt[] @relation("LoginApprovalDecider")
-  passwordResetTokens PasswordResetToken[]
-  authAuditLogs       AuthAuditLog[]
+  passwordResetTokens   PasswordResetToken[]
+  authAuditLogs         AuthAuditLog[]
 
   // Social / OAuth providers
   authProviderAccounts AuthProviderAccount[]
-  passkeyCredentials PasskeyCredential[]
-  passkeyChallenges  PasskeyChallenge[]
+  passkeyCredentials   PasskeyCredential[]
+  passkeyChallenges    PasskeyChallenge[]
 
   // Community posts, earnings, and ads relations
   communityPosts                     CommunityPost[]
@@ -233,57 +241,57 @@ model User {
   payoutProviderAccounts           PayoutProviderAccount[]
 
   // Insights & growth intelligence (additive layer)
-  professionalScore         ProfessionalScore?
-  professionalAvailability  ProfessionalAvailability?
-  clientHiringStatus        ClientHiringStatus?
+  professionalScore          ProfessionalScore?
+  professionalAvailability   ProfessionalAvailability?
+  clientHiringStatus         ClientHiringStatus?
   hiringRecommendationStates HiringRecommendationState[]
-  insightEvents             InsightEvent[]
-  insightAchievements       UserAchievement[]
-  insightStreak             UserStreak?
-  careerDailyActions        CareerDailyAction[]
-  friendStreakPairsLow      FriendStreak[]          @relation("FriendStreakUserLow")
-  friendStreakPairsHigh     FriendStreak[]          @relation("FriendStreakUserHigh")
-  friendStreakInvitesSent   FriendStreak[]          @relation("FriendStreakInitiatedBy")
-  creatorChallengesCreated  CreatorChallenge[]      @relation("CreatorChallengeCreatedBy")
-  creatorChallengesUpdated  CreatorChallenge[]      @relation("CreatorChallengeUpdatedBy")
-  creatorChallengeEntries   CreatorChallengeEntry[]
-  creatorChallengeVotes     CreatorChallengeVote[]
-  opportunityMatches        OpportunityMatch[]
-  matchInteractionsGiven    ScrolithMatchInteraction[] @relation("ScrolithMatchActors")
-  matchInteractionsReceived ScrolithMatchInteraction[] @relation("ScrolithMatchTargets")
-  scrolithMatchPreference   ScrolithMatchPreference?
-  postPredictionsAuthored   PostPrediction[]        @relation("PostPredictionAuthor")
-  aiCopilotLogs             AICopilotLog[]
-  skillGapReports           SkillGapReport[]
-  feedModePreference        FeedModePreference?
-  topicFollows              TopicFollow[]
-  feedIntentSignals         FeedIntentSignal[]
-  savedPipelineItems        SavedPipelineItem[]
-  questCatalogsCreated      QuestCatalog[]          @relation("QuestCatalogCreatedBy")
-  questCatalogsUpdated      QuestCatalog[]          @relation("QuestCatalogUpdatedBy")
-  userQuests                UserQuest[]             @relation("UserQuestUser")
-  questCompletionLogs       QuestCompletionLog[]    @relation("QuestCompletionUser")
-  portfolioProofsOwned      PortfolioProof[]        @relation("PortfolioProofOwner")
-  portfolioProofsVerified   PortfolioProof[]        @relation("PortfolioProofVerifiedBy")
-  proofAttestationsAsClient ProofAttestation[]      @relation("ProofAttestationClient")
-  proofAttestationsAsActor  ProofAttestation[]      @relation("ProofAttestationActor")
-  proofAuditActions         ProofAuditLog[]         @relation("ProofAuditActor")
-  projectPodsOwned          ProjectPod[]            @relation("ProjectPodOwner")
-  podMemberships            PodMember[]             @relation("PodMemberUser")
-  podInvitationsSent        PodMember[]             @relation("PodMemberInvitedBy")
-  podMilestonesCreated      PodMilestone[]          @relation("PodMilestoneCreatedBy")
-  podMilestonesAssigned     PodMilestone[]          @relation("PodMilestoneAssignedTo")
-  podActivities             PodActivity[]           @relation("PodActivityActor")
-  questionsAuthored         Question[]              @relation("QuestionAuthor")
-  answersAuthored           Answer[]                @relation("AnswerAuthor")
-  votes                     Vote[]                  @relation("VoteUser")
-  bountiesSponsored         Bounty[]                @relation("BountySponsor")
-  channelSubscriptions      ChannelSubscription[]   @relation("ChannelSubscriptionUser")
-  officeHoursHosted         EventOfficeHour[]       @relation("OfficeHourHost")
-  analyticsDaily            UserAnalyticsDaily[]    @relation("UserAnalyticsDailyUser")
-  moderationCasesAuthored   ModerationCase[]        @relation("ModerationCaseAuthor")
-  moderationCasesCreated    ModerationCase[]        @relation("ModerationCaseCreatedBy")
-  moderationActions         ModerationAction[]      @relation("ModerationActionActor")
+  insightEvents              InsightEvent[]
+  insightAchievements        UserAchievement[]
+  insightStreak              UserStreak?
+  careerDailyActions         CareerDailyAction[]
+  friendStreakPairsLow       FriendStreak[]              @relation("FriendStreakUserLow")
+  friendStreakPairsHigh      FriendStreak[]              @relation("FriendStreakUserHigh")
+  friendStreakInvitesSent    FriendStreak[]              @relation("FriendStreakInitiatedBy")
+  creatorChallengesCreated   CreatorChallenge[]          @relation("CreatorChallengeCreatedBy")
+  creatorChallengesUpdated   CreatorChallenge[]          @relation("CreatorChallengeUpdatedBy")
+  creatorChallengeEntries    CreatorChallengeEntry[]
+  creatorChallengeVotes      CreatorChallengeVote[]
+  opportunityMatches         OpportunityMatch[]
+  matchInteractionsGiven     ScrolithMatchInteraction[]  @relation("ScrolithMatchActors")
+  matchInteractionsReceived  ScrolithMatchInteraction[]  @relation("ScrolithMatchTargets")
+  scrolithMatchPreference    ScrolithMatchPreference?
+  postPredictionsAuthored    PostPrediction[]            @relation("PostPredictionAuthor")
+  aiCopilotLogs              AICopilotLog[]
+  skillGapReports            SkillGapReport[]
+  feedModePreference         FeedModePreference?
+  topicFollows               TopicFollow[]
+  feedIntentSignals          FeedIntentSignal[]
+  savedPipelineItems         SavedPipelineItem[]
+  questCatalogsCreated       QuestCatalog[]              @relation("QuestCatalogCreatedBy")
+  questCatalogsUpdated       QuestCatalog[]              @relation("QuestCatalogUpdatedBy")
+  userQuests                 UserQuest[]                 @relation("UserQuestUser")
+  questCompletionLogs        QuestCompletionLog[]        @relation("QuestCompletionUser")
+  portfolioProofsOwned       PortfolioProof[]            @relation("PortfolioProofOwner")
+  portfolioProofsVerified    PortfolioProof[]            @relation("PortfolioProofVerifiedBy")
+  proofAttestationsAsClient  ProofAttestation[]          @relation("ProofAttestationClient")
+  proofAttestationsAsActor   ProofAttestation[]          @relation("ProofAttestationActor")
+  proofAuditActions          ProofAuditLog[]             @relation("ProofAuditActor")
+  projectPodsOwned           ProjectPod[]                @relation("ProjectPodOwner")
+  podMemberships             PodMember[]                 @relation("PodMemberUser")
+  podInvitationsSent         PodMember[]                 @relation("PodMemberInvitedBy")
+  podMilestonesCreated       PodMilestone[]              @relation("PodMilestoneCreatedBy")
+  podMilestonesAssigned      PodMilestone[]              @relation("PodMilestoneAssignedTo")
+  podActivities              PodActivity[]               @relation("PodActivityActor")
+  questionsAuthored          Question[]                  @relation("QuestionAuthor")
+  answersAuthored            Answer[]                    @relation("AnswerAuthor")
+  votes                      Vote[]                      @relation("VoteUser")
+  bountiesSponsored          Bounty[]                    @relation("BountySponsor")
+  channelSubscriptions       ChannelSubscription[]       @relation("ChannelSubscriptionUser")
+  officeHoursHosted          EventOfficeHour[]           @relation("OfficeHourHost")
+  analyticsDaily             UserAnalyticsDaily[]        @relation("UserAnalyticsDailyUser")
+  moderationCasesAuthored    ModerationCase[]            @relation("ModerationCaseAuthor")
+  moderationCasesCreated     ModerationCase[]            @relation("ModerationCaseCreatedBy")
+  moderationActions          ModerationAction[]          @relation("ModerationActionActor")
 
   // Developer platform (https://scrolith.com/developer)
   developerProfile   DeveloperUser?
@@ -340,19 +348,19 @@ model Profile {
 }
 
 model ProfessionalAvailability {
-  id               String                     @id @default(cuid())
-  userId           String                     @unique
-  status           ProfessionalAvailabilityStatus @default(INACTIVE)
-  availabilityTypes String[]                  @default([])
-  services         String[]                   @default([])
-  workPreference   ProfessionalWorkPreference @default(FLEXIBLE)
-  timing           ProfessionalAvailabilityTiming @default(FLEXIBLE)
-  availableFrom    DateTime?
-  expiresAt        DateTime?
-  visibility       ProfessionalAvailabilityVisibility @default(PUBLIC)
-  isActive         Boolean                    @default(false)
-  createdAt        DateTime                   @default(now())
-  updatedAt        DateTime                   @updatedAt
+  id                String                             @id @default(cuid())
+  userId            String                             @unique
+  status            ProfessionalAvailabilityStatus     @default(INACTIVE)
+  availabilityTypes String[]                           @default([])
+  services          String[]                           @default([])
+  workPreference    ProfessionalWorkPreference         @default(FLEXIBLE)
+  timing            ProfessionalAvailabilityTiming     @default(FLEXIBLE)
+  availableFrom     DateTime?
+  expiresAt         DateTime?
+  visibility        ProfessionalAvailabilityVisibility @default(PUBLIC)
+  isActive          Boolean                            @default(false)
+  createdAt         DateTime                           @default(now())
+  updatedAt         DateTime                           @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -386,17 +394,17 @@ enum ProfessionalAvailabilityVisibility {
 }
 
 model ClientHiringStatus {
-  id           String                    @id @default(cuid())
-  userId       String                    @unique
-  status       ClientHiringStatusState   @default(INACTIVE)
-  hiringTypes  String[]                  @default([])
-  focusAreas   String[]                  @default([])
-  timing       ClientHiringTiming        @default(FLEXIBLE)
-  visibility   ClientHiringVisibility    @default(PUBLIC)
-  isActive     Boolean                   @default(false)
-  expiresAt    DateTime?
-  createdAt    DateTime                  @default(now())
-  updatedAt    DateTime                  @updatedAt
+  id          String                  @id @default(cuid())
+  userId      String                  @unique
+  status      ClientHiringStatusState @default(INACTIVE)
+  hiringTypes String[]                @default([])
+  focusAreas  String[]                @default([])
+  timing      ClientHiringTiming      @default(FLEXIBLE)
+  visibility  ClientHiringVisibility  @default(PUBLIC)
+  isActive    Boolean                 @default(false)
+  expiresAt   DateTime?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -407,20 +415,20 @@ model ClientHiringStatus {
 // Additive recommendation state. The account type is scoped because a
 // freelancer dismissal must not suppress the client's hiring recommendation.
 model HiringRecommendationState {
-  id                    String   @id @default(cuid())
-  userId                String
-  accountType           String
-  lastShownAt           DateTime?
-  lastDismissedAt       DateTime?
-  dismissCount          Int      @default(0)
-  snoozeUntil           DateTime?
-  impressionCount       Int      @default(0)
-  sessionKey            String?
-  sessionImpressionCount Int     @default(0)
-  lastClickedAt         DateTime?
-  activatedAt           DateTime?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id                     String    @id @default(cuid())
+  userId                 String
+  accountType            String
+  lastShownAt            DateTime?
+  lastDismissedAt        DateTime?
+  dismissCount           Int       @default(0)
+  snoozeUntil            DateTime?
+  impressionCount        Int       @default(0)
+  sessionKey             String?
+  sessionImpressionCount Int       @default(0)
+  lastClickedAt          DateTime?
+  activatedAt            DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -536,43 +544,43 @@ model ProfileView {
 }
 
 model UserSettings {
-  id                           String   @id @default(cuid())
-  userId                       String   @unique
-  emailNotifications           Boolean  @default(true)
-  inAppNotifications           Boolean  @default(true)
-  messageRequestsNotifications Boolean  @default(true)
-  allowInMail                  Boolean  @default(true)
-  notifyMentions               Boolean  @default(true)
-  notifyFollowedPosts          Boolean  @default(true)
-  notifyFollowedYou            Boolean  @default(true)
-  notifyCommentsOnPosts        Boolean  @default(true)
-  notifyReactionsOnPosts       Boolean  @default(true)
-  notifyReposts                Boolean  @default(true)
-  notifyJobApplications        Boolean  @default(true)
-  notifyApplicationUpdates     Boolean  @default(true)
-  marketingEmails              Boolean  @default(true)
+  id                           String    @id @default(cuid())
+  userId                       String    @unique
+  emailNotifications           Boolean   @default(true)
+  inAppNotifications           Boolean   @default(true)
+  messageRequestsNotifications Boolean   @default(true)
+  allowInMail                  Boolean   @default(true)
+  notifyMentions               Boolean   @default(true)
+  notifyFollowedPosts          Boolean   @default(true)
+  notifyFollowedYou            Boolean   @default(true)
+  notifyCommentsOnPosts        Boolean   @default(true)
+  notifyReactionsOnPosts       Boolean   @default(true)
+  notifyReposts                Boolean   @default(true)
+  notifyJobApplications        Boolean   @default(true)
+  notifyApplicationUpdates     Boolean   @default(true)
+  marketingEmails              Boolean   @default(true)
   // Earning rules
-  viewsUnit                    Int      @default(10000)
-  likesUnit                    Int      @default(100)
-  repostsUnit                  Int      @default(50)
-  sharesUnit                   Int      @default(200)
-  coinPerViewsUnit             Float    @default(1)
-  coinPerLikesUnit             Float    @default(1)
-  coinPerRepostsUnit           Float    @default(1)
-  coinPerSharesUnit            Float    @default(1)
+  viewsUnit                    Int       @default(10000)
+  likesUnit                    Int       @default(100)
+  repostsUnit                  Int       @default(50)
+  sharesUnit                   Int       @default(200)
+  coinPerViewsUnit             Float     @default(1)
+  coinPerLikesUnit             Float     @default(1)
+  coinPerRepostsUnit           Float     @default(1)
+  coinPerSharesUnit            Float     @default(1)
   // Admin fee on earnings (e.g., 0.1 = 10%)
-  adminFeePercent              Float    @default(0.1)
+  adminFeePercent              Float     @default(0.1)
   // Transfer fee settings
-  transferFeeType              String   @default("percentage")
-  transferFeeValue             Float    @default(0)
-  twoFactorEnabled             Boolean  @default(false)
-  loginAlerts                  Boolean  @default(true)
-  videoCallsEnabled            Boolean  @default(true)
+  transferFeeType              String    @default("percentage")
+  transferFeeValue             Float     @default(0)
+  twoFactorEnabled             Boolean   @default(false)
+  loginAlerts                  Boolean   @default(true)
+  videoCallsEnabled            Boolean   @default(true)
   videoCallsUpdatedAt          DateTime?
   videoCallsUpdatedById        String?
   videoCallsAdminReason        String?
-  createdAt                    DateTime @default(now())
-  updatedAt                    DateTime @updatedAt
+  createdAt                    DateTime  @default(now())
+  updatedAt                    DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -3017,6 +3025,194 @@ model Wallet {
   user           User                  @relation(fields: [userId], references: [id])
   transactions   Transaction[]
   fundingIntents WalletFundingIntent[]
+}
+
+/// Contractual profit participation; this is not legal equity or ownership.
+model FoundingPartnerProgram {
+  id                 String    @id @default(cuid())
+  programKey         String    @unique @default("founding-partners")
+  displayName        String    @default("Scrolith Founding Partners")
+  status             String    @default("PAUSED")
+  capacity           Int       @default(1000000)
+  enrolledCount      Int       @default(0)
+  profitSharePercent Decimal   @default(20) @db.Decimal(5, 2)
+  termYears          Int       @default(100)
+  enrollmentFee      Decimal   @default(2) @db.Decimal(12, 2)
+  currency           String    @default("USD")
+  startedAt          DateTime?
+  termExtendedUntil  DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  partners           FoundingPartner[]
+  enrollmentPayments FoundingPartnerEnrollmentPayment[]
+  profitPeriods      FoundingPartnerProfitPeriod[]
+  auditEvents        FoundingPartnerAuditLog[]
+}
+
+model FoundingPartner {
+  id                String    @id @default(cuid())
+  programId         String
+  userId            String    @unique
+  status            String    @default("ACTIVE")
+  fullName          String
+  country           String
+  city              String
+  stateRegion       String?
+  encryptedTaxId    String?
+  taxIdLast4        String?
+  termsVersion      String
+  termsAcceptedAt   DateTime
+  enrolledAt        DateTime  @default(now())
+  deactivatedAt     DateTime?
+  deactivatedReason String?
+  reactivatedAt     DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  program           FoundingPartnerProgram            @relation(fields: [programId], references: [id])
+  user              User                              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enrollmentPayment FoundingPartnerEnrollmentPayment?
+  distributions     FoundingPartnerDistribution[]
+
+  @@index([programId, status])
+  @@index([status, enrolledAt])
+}
+
+model FoundingPartnerEnrollmentPayment {
+  id                  String    @id @default(cuid())
+  programId           String
+  userId              String
+  partnerId           String?   @unique
+  provider            String
+  providerReferenceId String?
+  providerIntentId    String?
+  idempotencyKey      String    @unique
+  amount              Decimal   @db.Decimal(12, 2)
+  currency            String    @default("USD")
+  status              String    @default("PENDING")
+  providerPayload     Json?
+  settledAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  program FoundingPartnerProgram @relation(fields: [programId], references: [id])
+  user    User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  partner FoundingPartner?       @relation(fields: [partnerId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, providerReferenceId])
+  @@index([userId, status])
+  @@index([programId, status])
+}
+
+model FoundingPartnerProfitPeriod {
+  id                 String    @id @default(cuid())
+  programId          String
+  periodYear         Int
+  status             String    @default("OPEN")
+  clearedProfit      Decimal   @default(0) @db.Decimal(18, 2)
+  partnerPool        Decimal   @default(0) @db.Decimal(18, 2)
+  activePartnerCount Int       @default(0)
+  notes              String?
+  closedAt           DateTime?
+  approvedAt         DateTime?
+  approvedById       String?
+  distributedAt      DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  program         FoundingPartnerProgram          @relation(fields: [programId], references: [id])
+  approvedBy      User?                           @relation("FoundingPartnerPeriodApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  sources         FoundingPartnerProfitSource[]
+  distributionRun FoundingPartnerDistributionRun?
+
+  @@unique([programId, periodYear])
+  @@index([status, periodYear])
+}
+
+model FoundingPartnerProfitSource {
+  id            String   @id @default(cuid())
+  periodId      String
+  sourceType    String
+  clearedAmount Decimal  @default(0) @db.Decimal(18, 2)
+  adjustments   Decimal  @default(0) @db.Decimal(18, 2)
+  evidence      Json?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  period FoundingPartnerProfitPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@unique([periodId, sourceType])
+  @@index([periodId])
+}
+
+model FoundingPartnerDistributionRun {
+  id               String    @id @default(cuid())
+  periodId         String    @unique
+  status           String    @default("DRAFT")
+  idempotencyKey   String    @unique
+  poolAmount       Decimal   @db.Decimal(18, 2)
+  partnerCount     Int
+  perPartnerAmount Decimal   @db.Decimal(18, 2)
+  approvedById     String?
+  executedById     String?
+  approvedAt       DateTime?
+  executedAt       DateTime?
+  completedAt      DateTime?
+  failureReason    String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  period        FoundingPartnerProfitPeriod   @relation(fields: [periodId], references: [id])
+  approvedBy    User?                         @relation("FoundingPartnerRunApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  executedBy    User?                         @relation("FoundingPartnerRunExecutor", fields: [executedById], references: [id], onDelete: SetNull)
+  distributions FoundingPartnerDistribution[]
+
+  @@index([status, createdAt])
+}
+
+model FoundingPartnerDistribution {
+  id                  String    @id @default(cuid())
+  runId               String
+  partnerId           String
+  userId              String
+  amount              Decimal   @db.Decimal(18, 2)
+  currency            String    @default("USD")
+  walletAmount        Decimal?  @db.Decimal(18, 2)
+  walletCurrency      String?
+  fxRate              Decimal?  @db.Decimal(18, 8)
+  status              String    @default("PENDING")
+  idempotencyKey      String    @unique
+  walletTransactionId String?   @unique
+  creditedAt          DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  run     FoundingPartnerDistributionRun @relation(fields: [runId], references: [id])
+  partner FoundingPartner                @relation(fields: [partnerId], references: [id])
+
+  @@unique([runId, partnerId])
+  @@index([userId, status, createdAt])
+}
+
+model FoundingPartnerAuditLog {
+  id          String   @id @default(cuid())
+  programId   String
+  actorUserId String?
+  action      String
+  entityType  String
+  entityId    String?
+  reason      String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  program FoundingPartnerProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  actor   User?                  @relation("FoundingPartnerAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([programId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([entityType, entityId])
 }
 
 model Transaction {
@@ -5623,19 +5819,19 @@ model NotificationPreference {
 
 // Phase 32.2 — per-event preference overrides
 model NotificationEventPreference {
-  id            String   @id @default(cuid())
-  userId        String
-  eventType     String
-  category      String?
-  inAppEnabled  Boolean?
-  pushEnabled   Boolean?
-  emailEnabled  Boolean?
-  deliveryMode  String?
-  minPriority   String?
-  muted         Boolean  @default(false)
-  metadata      Json?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String   @id @default(cuid())
+  userId       String
+  eventType    String
+  category     String?
+  inAppEnabled Boolean?
+  pushEnabled  Boolean?
+  emailEnabled Boolean?
+  deliveryMode String?
+  minPriority  String?
+  muted        Boolean  @default(false)
+  metadata     Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@unique([userId, eventType])
   @@index([userId])
@@ -5688,29 +5884,29 @@ model NotificationFocusSession {
 
 // Phase 32.2 — digest schedule (one row per user)
 model NotificationDigestSchedule {
-  id              String    @id @default(cuid())
-  userId          String    @unique
-  mode            String    @default("off")
-  enabled         Boolean   @default(false)
-  timezone        String    @default("UTC")
-  morningHour     Int       @default(8)
-  morningMinute   Int       @default(0)
-  eveningHour     Int       @default(19)
-  eveningMinute   Int       @default(0)
-  dailyHour       Int       @default(9)
-  dailyMinute     Int       @default(0)
-  weeklyDay       Int       @default(1)
-  weeklyHour      Int       @default(9)
-  weeklyMinute    Int       @default(0)
-  emailEnabled    Boolean   @default(true)
-  inAppEnabled    Boolean   @default(true)
-  pushReadyAlert  Boolean   @default(false)
-  includeRead     Boolean   @default(false)
-  lastRunKey      String?
-  lastRunAt       DateTime?
-  metadata        Json?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  mode           String    @default("off")
+  enabled        Boolean   @default(false)
+  timezone       String    @default("UTC")
+  morningHour    Int       @default(8)
+  morningMinute  Int       @default(0)
+  eveningHour    Int       @default(19)
+  eveningMinute  Int       @default(0)
+  dailyHour      Int       @default(9)
+  dailyMinute    Int       @default(0)
+  weeklyDay      Int       @default(1)
+  weeklyHour     Int       @default(9)
+  weeklyMinute   Int       @default(0)
+  emailEnabled   Boolean   @default(true)
+  inAppEnabled   Boolean   @default(true)
+  pushReadyAlert Boolean   @default(false)
+  includeRead    Boolean   @default(false)
+  lastRunKey     String?
+  lastRunAt      DateTime?
+  metadata       Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([enabled, mode])
 }
@@ -5926,29 +6122,29 @@ model NotificationOpsConfig {
 
 // Phase 1 — admin-controlled engagement milestone automation rules.
 model EngagementNotificationRule {
-  id                       String   @id @default(cuid())
-  eventType                String   @map("event_type")
-  name                     String
-  isEnabled                Boolean  @default(false) @map("is_enabled")
-  thresholds               Int[]    @default([])
-  cooldownSeconds          Int      @default(0) @map("cooldown_seconds")
-  frequencyWindowSeconds   Int      @default(86400) @map("frequency_window_seconds")
-  maxNotificationsPerWindow Int     @default(1) @map("max_notifications_per_window")
-  inAppEnabled             Boolean  @default(true) @map("in_app_enabled")
-  pushEnabled              Boolean  @default(true) @map("push_enabled")
-  rolloutPercentage        Int      @default(0) @map("rollout_percentage")
-  aiAssistanceEnabled      Boolean  @default(false) @map("ai_assistance_enabled")
-  category                 String   @default("engagement")
-  priority                 String   @default("normal")
-  templateKey              String?  @map("template_key")
-  titleTemplate            String?  @map("title_template")
-  bodyTemplate             String?  @map("body_template")
-  deepLinkTemplate         String?  @map("deep_link_template")
-  metadata                 Json?
-  createdById              String?  @map("created_by_id")
-  updatedById              String?  @map("updated_by_id")
-  createdAt                DateTime @default(now()) @map("created_at")
-  updatedAt                DateTime @updatedAt @map("updated_at")
+  id                        String   @id @default(cuid())
+  eventType                 String   @map("event_type")
+  name                      String
+  isEnabled                 Boolean  @default(false) @map("is_enabled")
+  thresholds                Int[]    @default([])
+  cooldownSeconds           Int      @default(0) @map("cooldown_seconds")
+  frequencyWindowSeconds    Int      @default(86400) @map("frequency_window_seconds")
+  maxNotificationsPerWindow Int      @default(1) @map("max_notifications_per_window")
+  inAppEnabled              Boolean  @default(true) @map("in_app_enabled")
+  pushEnabled               Boolean  @default(true) @map("push_enabled")
+  rolloutPercentage         Int      @default(0) @map("rollout_percentage")
+  aiAssistanceEnabled       Boolean  @default(false) @map("ai_assistance_enabled")
+  category                  String   @default("engagement")
+  priority                  String   @default("normal")
+  templateKey               String?  @map("template_key")
+  titleTemplate             String?  @map("title_template")
+  bodyTemplate              String?  @map("body_template")
+  deepLinkTemplate          String?  @map("deep_link_template")
+  metadata                  Json?
+  createdById               String?  @map("created_by_id")
+  updatedById               String?  @map("updated_by_id")
+  createdAt                 DateTime @default(now()) @map("created_at")
+  updatedAt                 DateTime @updatedAt @map("updated_at")
 
   @@unique([eventType, name])
   @@index([eventType, isEnabled])
@@ -5958,17 +6154,17 @@ model EngagementNotificationRule {
 
 // Phase 1 — durable normalized engagement events used for replay and audit.
 model EngagementSignal {
-  id            String   @id @default(cuid())
-  sourceEventId String   @unique @map("source_event_id")
-  eventType     String   @map("event_type")
-  entityType    String   @map("entity_type")
-  entityId      String   @map("entity_id")
-  ownerId       String   @map("owner_id")
-  actorId       String?  @map("actor_id")
-  aggregateCount Int     @map("aggregate_count")
-  occurredAt    DateTime @map("occurred_at")
-  metadata      Json?
-  createdAt     DateTime @default(now()) @map("created_at")
+  id             String   @id @default(cuid())
+  sourceEventId  String   @unique @map("source_event_id")
+  eventType      String   @map("event_type")
+  entityType     String   @map("entity_type")
+  entityId       String   @map("entity_id")
+  ownerId        String   @map("owner_id")
+  actorId        String?  @map("actor_id")
+  aggregateCount Int      @map("aggregate_count")
+  occurredAt     DateTime @map("occurred_at")
+  metadata       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
 
   @@index([eventType, entityType, entityId, occurredAt])
   @@index([ownerId, eventType, occurredAt])
@@ -5977,20 +6173,20 @@ model EngagementSignal {
 
 // Phase 1 — durable claim/idempotency record for each rule threshold.
 model EngagementMilestoneState {
-  id             String    @id @default(cuid())
-  ruleId         String    @map("rule_id")
-  eventType      String    @map("event_type")
-  entityType     String    @map("entity_type")
-  entityId       String    @map("entity_id")
-  ownerId        String    @map("owner_id")
-  threshold      Int
-  sourceEventId  String    @map("source_event_id")
-  status         String    @default("claimed")
-  notificationId String?   @map("notification_id")
-  suppressedReason String? @map("suppressed_reason")
-  emittedAt      DateTime? @map("emitted_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  id               String    @id @default(cuid())
+  ruleId           String    @map("rule_id")
+  eventType        String    @map("event_type")
+  entityType       String    @map("entity_type")
+  entityId         String    @map("entity_id")
+  ownerId          String    @map("owner_id")
+  threshold        Int
+  sourceEventId    String    @map("source_event_id")
+  status           String    @default("claimed")
+  notificationId   String?   @map("notification_id")
+  suppressedReason String?   @map("suppressed_reason")
+  emittedAt        DateTime? @map("emitted_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   @@unique([ruleId, entityType, entityId, ownerId, threshold])
   @@index([ownerId, eventType, createdAt])
@@ -7382,25 +7578,25 @@ model LoginTrustedDevice {
 
 // Password-verified login requests awaiting a decision from a trusted session.
 model LoginApprovalAttempt {
-  id                String   @id @default(cuid())
-  userId            String
-  requestedDeviceId String   @map("newDeviceId")
-  challenge         String   @map("challenge")
-  approvalTokenHash  String   @unique
-  status            String   @default("PENDING")
-  expiresAt         DateTime
-  requestedIp       String?  @map("requestIp")
-  requestedUserAgent String? @map("userAgent")
-  deviceMetadata    Json?    @map("metadata")
-  approvedByUserId  String?  @map("approvedById")
-  approvedAt        DateTime?
-  rejectedAt        DateTime?
-  consumedAt        DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                 String    @id @default(cuid())
+  userId             String
+  requestedDeviceId  String    @map("newDeviceId")
+  challenge          String    @map("challenge")
+  approvalTokenHash  String    @unique
+  status             String    @default("PENDING")
+  expiresAt          DateTime
+  requestedIp        String?   @map("requestIp")
+  requestedUserAgent String?   @map("userAgent")
+  deviceMetadata     Json?     @map("metadata")
+  approvedByUserId   String?   @map("approvedById")
+  approvedAt         DateTime?
+  rejectedAt         DateTime?
+  consumedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  user         User  @relation("LoginApprovalUser", fields: [userId], references: [id], onDelete: Cascade)
-  approvedBy   User? @relation("LoginApprovalDecider", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  user       User  @relation("LoginApprovalUser", fields: [userId], references: [id], onDelete: Cascade)
+  approvedBy User? @relation("LoginApprovalDecider", fields: [approvedByUserId], references: [id], onDelete: SetNull)
 
   @@index([userId, status, expiresAt])
   @@index([requestedDeviceId])
@@ -7410,20 +7606,20 @@ model LoginApprovalAttempt {
 // authenticator or credential provider; Scrolith stores only the public key
 // material required to verify assertions.
 model PasskeyCredential {
-  id                   String   @id @default(cuid())
-  userId               String
-  credentialId         String   @unique @map("credential_id")
-  publicKey            String   @map("public_key")
-  counter              Int      @default(0)
-  transports           String[] @default([])
-  deviceType           String?  @map("device_type")
-  backedUp             Boolean  @default(false) @map("backed_up")
-  aaguid               String?
-  label                String?
-  lastUsedAt           DateTime? @map("last_used_at")
-  revokedAt            DateTime? @map("revoked_at")
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  id           String    @id @default(cuid())
+  userId       String
+  credentialId String    @unique @map("credential_id")
+  publicKey    String    @map("public_key")
+  counter      Int       @default(0)
+  transports   String[]  @default([])
+  deviceType   String?   @map("device_type")
+  backedUp     Boolean   @default(false) @map("backed_up")
+  aaguid       String?
+  label        String?
+  lastUsedAt   DateTime? @map("last_used_at")
+  revokedAt    DateTime? @map("revoked_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -7434,14 +7630,14 @@ model PasskeyCredential {
 // Short-lived single-use WebAuthn ceremonies. Only a hash of the challenge
 // is persisted so a database read cannot be replayed as a valid ceremony.
 model PasskeyChallenge {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   userId        String?
-  challengeHash String   @unique @map("challenge_hash")
+  challengeHash String    @unique @map("challenge_hash")
   purpose       String
-  expiresAt     DateTime @map("expires_at")
+  expiresAt     DateTime  @map("expires_at")
   consumedAt    DateTime? @map("consumed_at")
   metadata      Json?
-  createdAt     DateTime @default(now()) @map("created_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
 
   user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -7452,21 +7648,21 @@ model PasskeyChallenge {
 // Device tokens for mobile push notifications
 // Phase 32.3 — deviceName, appVersion, pushStatus, lastSyncAt, capabilities
 model DeviceToken {
-  id                   String    @id @default(cuid())
-  userId               String
-  platform             String
-  deviceId             String?
-  token                String    @unique
-  deviceName           String?
-  appVersion           String?
-  pushStatus           String    @default("active")
-  notificationCapable  Boolean   @default(true)
-  lastSyncAt           DateTime?
-  capabilities         Json?
-  metadata             Json?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-  lastSeenAt           DateTime?
+  id                  String    @id @default(cuid())
+  userId              String
+  platform            String
+  deviceId            String?
+  token               String    @unique
+  deviceName          String?
+  appVersion          String?
+  pushStatus          String    @default("active")
+  notificationCapable Boolean   @default(true)
+  lastSyncAt          DateTime?
+  capabilities        Json?
+  metadata            Json?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  lastSeenAt          DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -7479,18 +7675,18 @@ model DeviceToken {
 
 // Phase 32.3 — delivery/display/open receipts (analytics)
 model NotificationLifecycleEvent {
-  id             String    @id @default(cuid())
-  userId         String
-  notificationId String?
-  eventId        String?
-  deviceId       String?
-  channel        String    @default("push")
-  lifecycle      String
+  id              String    @id @default(cuid())
+  userId          String
+  notificationId  String?
+  eventId         String?
+  deviceId        String?
+  channel         String    @default("push")
+  lifecycle       String
   clientTimestamp DateTime?
-  serverTimestamp DateTime @default(now())
-  idempotencyKey String?   @unique
-  metadata       Json?
-  createdAt      DateTime  @default(now())
+  serverTimestamp DateTime  @default(now())
+  idempotencyKey  String?   @unique
+  metadata        Json?
+  createdAt       DateTime  @default(now())
 
   @@index([userId, createdAt])
   @@index([notificationId, lifecycle])
@@ -8123,18 +8319,18 @@ model AIFeedback {
 
 // ===== Phase 33.2 � Intelligent discovery (additive) =====
 model AIUserMemory {
-  id                   String   @id @default(cuid())
-  userId               String   @unique
-  preferredTopics      String[] @default([])
-  preferredIndustries  String[] @default([])
-  mutedTopics          String[] @default([])
-  preferredLanguages   String[] @default([])
-  favoriteCommunities  String[] @default([])
-  mutedEntityIds       String[] @default([])
-  signalWeights        Json?
-  version              Int      @default(1)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  preferredTopics     String[] @default([])
+  preferredIndustries String[] @default([])
+  mutedTopics         String[] @default([])
+  preferredLanguages  String[] @default([])
+  favoriteCommunities String[] @default([])
+  mutedEntityIds      String[] @default([])
+  signalWeights       Json?
+  version             Int      @default(1)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }
 
 model AIRecommendationFeedback {

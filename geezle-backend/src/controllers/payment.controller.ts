@@ -4,6 +4,7 @@ import { reconcileAdPayments } from '../scripts/reconcileAdPayments';
 import { buildCommunityAdActivationReadiness } from '../services/communityAdActivation.service';
 import { computeCommissionBreakdownForPayment } from '../utils/commission';
 import prisma from '../utils/prismaClient';
+import { handleFoundingPartnerStripeEvent } from '../services/foundingPartners.service';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_mock_key', {
   apiVersion: '2023-10-16' as any
@@ -109,6 +110,16 @@ export const handleWebhook = async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('Webhook signature verification failed:', err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // Founding Partners enrollment is a dedicated payment lifecycle. Handle it
+  // before legacy order/ad settlement branches so it can never become a wallet
+  // top-up or an order payment by accident.
+  try {
+    if (await handleFoundingPartnerStripeEvent(event)) return res.json({ received: true });
+  } catch (error) {
+    console.error('Founding Partners webhook processing failed:', error);
+    return res.status(500).json({ received: false, error: 'Founding Partners payment processing failed' });
   }
 
   // Handle the event

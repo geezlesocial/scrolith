@@ -172,7 +172,11 @@ export const DEFAULT_PERMISSION_SEEDS: PermissionSeed[] = [
   { key: 'scrolitha.read', label: 'Read Scrolitha enterprise outputs', groupName: 'Enterprise Operations' },
   { key: 'scrolitha.manage', label: 'Manage Scrolitha enterprise controls', groupName: 'Enterprise Operations' },
   { key: 'managed_delivery.read', label: 'Read managed delivery operations', groupName: 'Enterprise Operations' },
-  { key: 'managed_delivery.manage', label: 'Manage managed delivery operations', groupName: 'Enterprise Operations' }
+  { key: 'managed_delivery.manage', label: 'Manage managed delivery operations', groupName: 'Enterprise Operations' },
+  { key: 'founding_partners.read', label: 'Read Founding Partners data', groupName: 'Partnership & Profit Participation' },
+  { key: 'founding_partners.manage', label: 'Manage Founding Partners membership and program settings', groupName: 'Partnership & Profit Participation' },
+  { key: 'founding_partners.distribution.approve', label: 'Approve Founding Partners distributions', groupName: 'Partnership & Profit Participation' },
+  { key: 'founding_partners.distribution.execute', label: 'Execute Founding Partners distributions', groupName: 'Partnership & Profit Participation' }
 ];
 
 const ALL_PERMISSION_KEYS = DEFAULT_PERMISSION_SEEDS.map((permission) => permission.key);
