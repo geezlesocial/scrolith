@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck } from 'lucide-react';
+import { BriefcaseBusiness, ShieldCheck, UserRoundCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import FollowButton from './FollowButton';
 import VerifiedBadge from '../../components/common/VerifiedBadge';
@@ -36,6 +36,7 @@ type PostHeaderAuthor = {
   verification_status?: string | null;
   availability?: any;
   hiring?: any;
+  clientHiringStatus?: string | null;
   availableForHire?: boolean;
   weAreHiring?: boolean;
   /** Optional professional headline / context line */
@@ -115,6 +116,18 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   const headline = String(author.headline || '').trim();
   const formattedCreatedAt = formatPostHeaderTimestamp(createdAt);
   const isBusinessAuthor = authorType === 'business' || authorType === 'page' || authorType === 'company';
+  const isAvailableForHire = Boolean(
+    author.availableForHire ||
+      author.availability?.availableForHire ||
+      author.availability?.available_for_hire
+  );
+  const isHiring = Boolean(
+    author.weAreHiring ||
+      author.hiring?.weAreHiring ||
+      author.hiring?.we_are_hiring ||
+      author.hiring?.active ||
+      String(author.clientHiringStatus || '').toUpperCase() === 'ACTIVE'
+  );
   const canShowFollow =
     showFollow &&
     Boolean(author.id) &&
@@ -180,6 +193,24 @@ const PostHeader: React.FC<PostHeaderProps> = ({
                 >
                   <ShieldCheck className="h-3 w-3" aria-hidden="true" />
                   Pro
+                </span>
+              ) : null}
+              {isAvailableForHire ? (
+                <span
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700"
+                  title="Available for Hire"
+                >
+                  <UserRoundCheck className="h-3 w-3" aria-hidden="true" />
+                  Available for Hire
+                </span>
+              ) : null}
+              {isHiring ? (
+                <span
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700"
+                  title="We Are Hiring"
+                >
+                  <BriefcaseBusiness className="h-3 w-3" aria-hidden="true" />
+                  We Are Hiring
                 </span>
               ) : null}
             </div>
