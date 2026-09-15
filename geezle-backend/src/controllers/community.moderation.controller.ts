@@ -12,6 +12,11 @@ export const takeModerationAction = async (req: Request, res: Response) => {
 
     if (targetType === 'post') {
       const normalizedAction = String(action || '').trim().toLowerCase();
+      if (!['hide', 'remove'].includes(normalizedAction)) {
+        return res.status(400).json({ success: false, error: 'Unsupported post moderation action' });
+      }
+      const existingPost = await prisma.communityPost.findUnique({ where: { id: String(targetId) }, select: { id: true, status: true } });
+      if (!existingPost) return res.status(404).json({ success: false, error: 'Post not found' });
       const nextStatus = normalizedAction === 'hide' ? 'draft' : 'deleted';
       await prisma.communityPost.update({ where: { id: targetId }, data: { status: nextStatus } });
       const io = (req.app as any).get('communityIo') || (req.app as any).get('io');
@@ -60,7 +65,7 @@ export const takeModerationAction = async (req: Request, res: Response) => {
       });
     }
 
-    return res.json({ success: true });
+    return res.json({ success: true, data: { targetType, targetId, action: String(action).toLowerCase() } });
   } catch (error: any) {
     console.error('Moderation action error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to take action' });

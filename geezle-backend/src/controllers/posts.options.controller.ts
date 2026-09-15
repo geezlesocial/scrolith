@@ -11,8 +11,8 @@ const fail = (res: Response, status: number, message: string, error?: any) =>
 const normalizeId = (value: unknown) => String(value || '').trim();
 
 const isPrivilegedRole = (role?: string) => {
-  const normalized = String(role || '').trim().toLowerCase();
-  return normalized.includes('admin') || normalized.includes('moderator');
+  const normalized = String(role || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  return normalized === 'owner' || normalized.includes('admin') || normalized.includes('moderator');
 };
 
 const hasBlockRelation = async (a: string, b: string) => {
