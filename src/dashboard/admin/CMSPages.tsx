@@ -39,6 +39,7 @@ import { AIService } from '../../services/ai/ai.service';
 import { useNotification } from '../../context/NotificationContext';
 import { useSocket } from '../../context/SocketContext';
 import { htmlToPlainText, plainTextToHtml, prepareStaticPageContent, normalizeLegacyPageHtml } from '../../utils/staticPageContent';
+import { organizeContentWithScrolitha } from '../../utils/contentOrganization';
 import FilePickerModal from '../shared/FilePickerModal';
 import AuthPagesManager from './AuthPagesManager';
 import SystemMessagesManager from './SystemMessagesManager';
@@ -167,6 +168,7 @@ const CMSPages = () => {
     const [editorMode, setEditorMode] = useState<ContentEditorMode>('html');
     const [plainTextDraft, setPlainTextDraft] = useState('');
     const [isPreviewing, setIsPreviewing] = useState(false);
+    const [isAutoOrganizing, setIsAutoOrganizing] = useState(false);
     const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
     const [filePickerType, setFilePickerType] = useState<'image' | 'video'>('image');
     const { showNotification } = useNotification();
@@ -335,12 +337,29 @@ const CMSPages = () => {
         setEditingPage({ ...editingPage, blocks });
     };
 
-    const autoOrganizeContent = () => {
+    const autoOrganizeContent = async () => {
         if (!editingPage) return;
-        const nextContent = normalizeLegacyPageHtml(editingPage.content || '');
-        setEditingPage({ ...editingPage, content: nextContent });
-        setPlainTextDraft(htmlToPlainText(nextContent));
-        showNotification('success', 'Content Organized', 'The page content was normalized into cleaner sections and paragraphs.');
+        const source = htmlToPlainText(editingPage.content || '');
+        if (!source.trim()) {
+            showNotification('alert', 'Nothing to organize', 'Add page content before asking Scrolitha to organize it.');
+            return;
+        }
+        setIsAutoOrganizing(true);
+        try {
+            const result = await organizeContentWithScrolitha({
+                text: source,
+                mode: 'page',
+                askScrolitha: (payload) => AIService.answerQuestionWithScrolitha(payload)
+            });
+            const nextContent = normalizeLegacyPageHtml(result.html);
+            setEditingPage({ ...editingPage, content: nextContent });
+            setPlainTextDraft(htmlToPlainText(nextContent));
+            showNotification('success', 'Content Organized', result.source === 'scrolitha'
+                ? 'Scrolitha separated dense copy into readable paragraphs, headings, and lists.'
+                : 'The content was formatted locally into readable paragraphs, headings, and lists.');
+        } finally {
+            setIsAutoOrganizing(false);
+        }
     };
 
     // --- Editor Helpers ---
@@ -563,10 +582,11 @@ const CMSPages = () => {
                                     <button
                                         type="button"
                                         onClick={autoOrganizeContent}
-                                        className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                                        disabled={isAutoOrganizing}
+                                        className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
                                     >
-                                        <WandSparkles className="mr-2 h-3.5 w-3.5" />
-                                        Auto-organize
+                                        <WandSparkles className={`mr-2 h-3.5 w-3.5 ${isAutoOrganizing ? 'animate-pulse' : ''}`} />
+                                        {isAutoOrganizing ? 'Organizing...' : 'Auto-organize'}
                                     </button>
                                 </div>
                             </div>

@@ -10,6 +10,8 @@ import { CMSService } from '../../services/cms';
 import { AIService } from '../../services/ai/ai.service';
 import { useNotification } from '../../context/NotificationContext';
 import FilePickerModal from '../shared/FilePickerModal';
+import { organizeContentWithScrolitha } from '../../utils/contentOrganization';
+import { htmlToPlainText } from '../../utils/staticPageContent';
 
 const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab, setView }: any) => (
     <button 
@@ -292,6 +294,7 @@ const BlogEditor = ({ post, setPost, onSave, onCancel, categories }: {
     const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
     const [imageTarget, setImageTarget] = useState<{ field: 'banner' | 'block'; blockId?: string } | null>(null);
     const [isScrolithaDrafting, setIsScrolithaDrafting] = useState(false);
+    const [isAutoOrganizing, setIsAutoOrganizing] = useState(false);
     
     // --- Block Helpers ---
     const getDraftSourceText = () => {
@@ -452,6 +455,37 @@ const BlogEditor = ({ post, setPost, onSave, onCancel, categories }: {
         }
     };
 
+    const handleAutoOrganize = async () => {
+        if (isAutoOrganizing) return;
+        const textBlocks = post.blocks.filter((block) => block.type === 'text' && String(block.content || '').trim());
+        if (!textBlocks.length) {
+            showNotification('alert', 'Nothing to organize', 'Add a text block before asking Scrolitha to organize the post.');
+            return;
+        }
+        setIsAutoOrganizing(true);
+        try {
+            const nextBlocks = [...post.blocks];
+            for (const block of textBlocks) {
+                const result = await organizeContentWithScrolitha({
+                    text: block.content,
+                    mode: 'blog',
+                    askScrolitha: (payload) => AIService.answerQuestionWithScrolitha(payload)
+                });
+                const index = nextBlocks.findIndex((candidate) => candidate.id === block.id);
+                if (index >= 0) nextBlocks[index] = { ...nextBlocks[index], content: result.html };
+            }
+            const nextContent = nextBlocks
+                .filter((block) => block.type === 'text' || block.type === 'heading' || block.type === 'quote')
+                .map((block) => htmlToPlainText(String(block.content || '')).trim())
+                .filter(Boolean)
+                .join('\n\n');
+            setPost({ ...post, content: nextContent, blocks: nextBlocks });
+            showNotification('success', 'Post Organized', 'Text blocks were separated into readable paragraphs and structured lists.');
+        } finally {
+            setIsAutoOrganizing(false);
+        }
+    };
+
     return (
         <div className="bg-gray-50 min-h-screen pb-20">
             {/* Toolbar Header */}
@@ -476,6 +510,15 @@ const BlogEditor = ({ post, setPost, onSave, onCancel, categories }: {
                     >
                         {isScrolithaDrafting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
                         {isScrolithaDrafting ? 'Drafting...' : 'Draft with Scrolitha'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleAutoOrganize}
+                        disabled={isAutoOrganizing}
+                        className="inline-flex items-center rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-60"
+                    >
+                        {isAutoOrganizing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                        {isAutoOrganizing ? 'Organizing...' : 'Auto-organize'}
                     </button>
                     <button className="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium"><Eye className="w-4 h-4 inline mr-1" /> Preview</button>
                     <button onClick={onSave} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 flex items-center shadow-md transition-transform active:scale-95">
