@@ -28,6 +28,7 @@ router.post('/enrollment/checkout', authMiddleware, idempotency(), async (req: a
       taxId: String(body.taxId || '').trim() || undefined,
       termsAccepted: body.termsAccepted === true,
       idempotencyKey: String(req.get('Idempotency-Key') || '').trim(),
+      requestedCurrency: String(body.currency || '').trim() || undefined,
       successUrl: String(body.successUrl || `${origin}/dashboard?tab=founding-partners&enrollment=success`),
       cancelUrl: String(body.cancelUrl || `${origin}/dashboard?tab=founding-partners&enrollment=cancelled`)
     });
