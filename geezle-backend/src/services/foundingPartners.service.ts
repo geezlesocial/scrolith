@@ -7,6 +7,8 @@ import { getStripeClient } from './stripeConfig.service';
 import { creditWallet } from './walletLedger.service';
 import { calculateEqualDistribution } from './foundingPartners.math';
 import { convertAmount, loadCurrencyConfig } from '../utils/currency';
+import { createFxLock } from './fxLock.service';
+import { gatewaySupportsCurrency } from './currencyPolicy.service';
 
 export const FOUNDING_PARTNERS_KEY = 'founding-partners';
 export const FOUNDING_PARTNERS_TERMS_VERSION = '2026-09-15-v1';
@@ -27,6 +29,8 @@ const audit = async (programId: string, action: string, entityType: string, enti
 
 export const getFoundingPartnerProgram = async () => {
   const program = await getOrCreateProgram();
+  const currencyConfig = await loadCurrencyConfig();
+  const currencyOptions = currencyConfig.currencies.filter((entry) => entry.isActive && gatewaySupportsCurrency('stripe', entry.code)).map((entry) => ({ code: entry.code, amount: money(convertAmount(Number(program.enrollmentFee), program.currency, entry.code, currencyConfig).amount).toFixed(2) }));
   return {
     id: program.id,
     name: program.displayName,
@@ -38,6 +42,7 @@ export const getFoundingPartnerProgram = async () => {
     termYears: program.termYears,
     enrollmentFee: program.enrollmentFee.toString(),
     currency: program.currency,
+    availableCurrencies: currencyOptions,
     termsVersion: FOUNDING_PARTNERS_TERMS_VERSION
   };
 };
@@ -75,6 +80,7 @@ export const createEnrollmentCheckout = async (input: {
   taxId?: string;
   termsAccepted: boolean;
   idempotencyKey: string;
+  requestedCurrency?: string;
   successUrl: string;
   cancelUrl: string;
 }) => {
@@ -92,30 +98,22 @@ export const createEnrollmentCheckout = async (input: {
 
   const stripe = await getStripeClient();
   if (!stripe) throw new Error('Stripe is not configured for Founding Partners enrollment');
-  const payment = await prisma.foundingPartnerEnrollmentPayment.create({
-    data: {
-      programId: program.id,
-      userId: input.userId,
-      provider: 'stripe',
-      idempotencyKey: input.idempotencyKey,
-      amount: money(program.enrollmentFee),
-      currency: program.currency,
-      status: 'PENDING',
-      providerPayload: {
-        enrollment: {
-          fullName: input.fullName,
-          country: input.country,
-          city: input.city,
-          stateRegion: input.stateRegion || null,
-          ...protectTaxId(input.taxId)
-        }
-      }
-    }
+  const requestedCurrency = String(input.requestedCurrency || program.currency).trim().toUpperCase();
+  if (!gatewaySupportsCurrency('stripe', requestedCurrency)) throw new Error(`No active Stripe payment route supports ${requestedCurrency}`);
+  const paymentData = { enrollment: { fullName: input.fullName, country: input.country, city: input.city, stateRegion: input.stateRegion || null, ...protectTaxId(input.taxId) } };
+  const { payment, fxLock } = await prisma.$transaction(async (tx) => {
+    const created = await tx.foundingPartnerEnrollmentPayment.create({ data: { programId: program.id, userId: input.userId, provider: 'stripe', idempotencyKey: input.idempotencyKey, amount: money(program.enrollmentFee), currency: program.currency, sourceCurrency: requestedCurrency, status: 'PENDING', providerPayload: paymentData } });
+    const lock = await createFxLock({ entityType: 'FOUNDING_PARTNER_ENROLLMENT_PAYMENT', entityId: created.id, fromCurrency: program.currency, toCurrency: requestedCurrency, sourceAmount: Number(program.enrollmentFee), metadata: { userId: input.userId, programId: program.id, provider: 'stripe' } }, tx);
+    const chargedAmount = money(lock.convertedAmount);
+    const updated = await tx.foundingPartnerEnrollmentPayment.update({ where: { id: created.id }, data: { sourceAmount: lock.convertedAmount, sourceCurrency: requestedCurrency, chargedAmount, chargedCurrency: requestedCurrency, fxRate: lock.rate, fxRateSource: lock.rateSource, fxSnapshotId: lock.snapshotId, providerPayload: { ...paymentData, fxLockId: lock.id, settlement: { amount: program.enrollmentFee.toString(), currency: program.currency }, charge: { amount: chargedAmount.toString(), currency: requestedCurrency } } } });
+    return { payment: updated, fxLock: lock };
   });
   try {
+    const chargedAmount = money(payment.chargedAmount || fxLock.convertedAmount);
+    const chargedCurrency = (payment.chargedCurrency || requestedCurrency).toLowerCase();
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
-      line_items: [{ price_data: { currency: program.currency.toLowerCase(), product_data: { name: 'Scrolith Founding Partners enrollment' }, unit_amount: Math.round(Number(program.enrollmentFee) * 100) }, quantity: 1 }],
+      line_items: [{ price_data: { currency: chargedCurrency, product_data: { name: 'Scrolith Founding Partners enrollment' }, unit_amount: Math.round(Number(chargedAmount) * 100) }, quantity: 1 }],
       success_url: input.successUrl,
       cancel_url: input.cancelUrl,
       client_reference_id: payment.id,
@@ -136,7 +134,8 @@ export const activateFoundingPartnerFromPayment = async (paymentId: string, prov
     if (!payment) throw new Error('Founding Partners enrollment payment was not found');
     if (payment.status === 'COMPLETED' && payment.partnerId) return tx.foundingPartner.findUniqueOrThrow({ where: { id: payment.partnerId } });
     if (settledAmount == null || settledCurrency == null) throw new Error('Verified settlement details are required');
-    if (money(settledAmount).toFixed(2) !== money(payment.amount).toFixed(2) || settledCurrency.toUpperCase() !== payment.currency.toUpperCase()) throw new Error('Founding Partners enrollment payment amount or currency could not be verified');
+    if (!payment.chargedAmount || !payment.chargedCurrency || money(settledAmount).toFixed(2) !== money(payment.chargedAmount).toFixed(2) || settledCurrency.toUpperCase() !== payment.chargedCurrency.toUpperCase()) throw new Error('Founding Partners enrollment payment amount or currency could not be verified');
+    if (money(payment.amount).toFixed(2) !== '2.00' || payment.currency.toUpperCase() !== 'USD') throw new Error('Founding Partners settlement configuration is invalid');
     const program = await tx.foundingPartnerProgram.findUnique({ where: { id: payment.programId } });
     if (!program || program.status !== 'ACTIVE') throw new Error('Founding Partners program is not active');
     const user = await tx.user.findUnique({ where: { id: payment.userId }, select: { id: true, name: true, country: true } });

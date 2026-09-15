@@ -10,7 +10,8 @@ type DbClient = Omit<
 export type FxLockEntityType =
   | 'WALLET_FUNDING_INTENT'
   | 'ORDER_PAYMENT_INTENT'
-  | 'WITHDRAWAL_REQUEST';
+  | 'WITHDRAWAL_REQUEST'
+  | 'FOUNDING_PARTNER_ENROLLMENT_PAYMENT';
 
 export type FxLockRateSource = 'identity' | 'base' | 'snapshot' | 'override' | 'manual';
 

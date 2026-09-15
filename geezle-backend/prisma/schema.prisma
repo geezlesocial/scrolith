@@ -3084,6 +3084,13 @@ model FoundingPartnerEnrollmentPayment {
   programId           String
   userId              String
   partnerId           String?   @unique
+  sourceAmount        Decimal?  @db.Decimal(18, 8)
+  sourceCurrency      String?
+  chargedAmount       Decimal?  @db.Decimal(18, 2)
+  chargedCurrency     String?
+  fxRate              Decimal?  @db.Decimal(18, 10)
+  fxRateSource        String?
+  fxSnapshotId        String?
   provider            String
   providerReferenceId String?
   providerIntentId    String?
