@@ -389,7 +389,7 @@ export const ProposalsOffers: React.FC = () => {
       render: (value: number) => (
         <div className="flex items-center space-x-1">
           <DollarSign className="w-4 h-4 text-green-500" />
-          <span className="font-semibold text-green-600">${value.toFixed(2)}</span>
+          <span className="font-semibold text-green-600">{value > 0 ? `$${value.toFixed(2)}` : 'Not provided'}</span>
         </div>
       ),
     },
@@ -399,7 +399,7 @@ export const ProposalsOffers: React.FC = () => {
       render: (value: number) => (
         <div className="flex items-center space-x-1">
           <Clock className="w-4 h-4 text-blue-500" />
-          <span className="text-blue-600">{value} days</span>
+          <span className="text-blue-600">{value > 0 ? `${value} days` : 'Not provided'}</span>
         </div>
       ),
     },
@@ -572,7 +572,7 @@ export const ProposalsOffers: React.FC = () => {
               </button>
             </div>
 
-            <div className="space-y-4 px-6 py-5">
+            <div className="max-h-[75vh] space-y-4 overflow-y-auto px-6 py-5">
               <div className="grid gap-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-700 md:grid-cols-3">
                 <div>
                   <div className="text-xs uppercase text-slate-500">Freelancer</div>
@@ -580,11 +580,11 @@ export const ProposalsOffers: React.FC = () => {
                 </div>
                 <div>
                   <div className="text-xs uppercase text-slate-500">Amount</div>
-                  <div className="font-semibold text-slate-900">${viewingProposal.proposedAmount.toFixed(2)}</div>
+                  <div className="font-semibold text-slate-900">{viewingProposal.proposedAmount > 0 ? `$${viewingProposal.proposedAmount.toFixed(2)}` : 'Not provided'}</div>
                 </div>
                 <div>
                   <div className="text-xs uppercase text-slate-500">Timeline</div>
-                  <div className="font-semibold text-slate-900">{viewingProposal.proposedTimeline} days</div>
+                  <div className="font-semibold text-slate-900">{viewingProposal.proposedTimeline > 0 ? `${viewingProposal.proposedTimeline} days` : 'Not provided'}</div>
                 </div>
               </div>
 

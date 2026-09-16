@@ -632,6 +632,10 @@ export interface Job {
   isRecommended?: boolean; // camelCase
   adminStatus?: 'pending' | 'approved' | 'rejected'; // camelCase
   adminReason?: string;
+  proposalRequirements?: {
+    amount?: boolean;
+    timeline?: boolean;
+  };
   meta?: any;
 }
 

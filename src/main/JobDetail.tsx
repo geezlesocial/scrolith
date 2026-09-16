@@ -206,14 +206,20 @@ const JobDetail = () => {
       showNotification('alert', 'Cover letter required', 'Please add at least 10 characters.');
       return;
     }
-    const amountValue = Number(proposedAmount);
-    const timelineValue = Number(proposedTimeline);
-    if (!Number.isFinite(amountValue) || amountValue <= 0) {
+    const amountValue = proposedAmount.trim() ? Number(proposedAmount) : undefined;
+    const timelineValue = proposedTimeline.trim() ? Number(proposedTimeline) : undefined;
+    const requiresAmount = Boolean(job.proposalRequirements?.amount);
+    const requiresTimeline = Boolean(job.proposalRequirements?.timeline);
+    if (requiresAmount && (!Number.isFinite(amountValue) || Number(amountValue) <= 0)) {
       showNotification('alert', 'Invalid amount', 'Enter a valid proposed amount.');
       return;
     }
-    if (!Number.isFinite(timelineValue) || timelineValue <= 0) {
+    if (requiresTimeline && (!Number.isFinite(timelineValue) || Number(timelineValue) <= 0)) {
       showNotification('alert', 'Invalid timeline', 'Enter a valid delivery timeline in days.');
+      return;
+    }
+    if ((amountValue !== undefined && (!Number.isFinite(amountValue) || amountValue < 0)) || (timelineValue !== undefined && (!Number.isFinite(timelineValue) || timelineValue < 0))) {
+      showNotification('alert', 'Invalid proposal details', 'Amount and timeline must be valid when provided.');
       return;
     }
 
@@ -239,8 +245,8 @@ const JobDetail = () => {
       await proposalsApi.createProposal({
         jobId: job.id,
         coverLetter: coverLetter.trim(),
-        proposedAmount: amountValue,
-        proposedTimeline: timelineValue,
+        ...(amountValue !== undefined ? { proposedAmount: amountValue } : {}),
+        ...(timelineValue !== undefined ? { proposedTimeline: timelineValue } : {}),
         attachments: attachments.map((file) => file.id).filter(Boolean)
       });
       setHasApplied(true);
@@ -538,7 +544,7 @@ const JobDetail = () => {
 
                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                  <div>
-                   <label className="text-sm font-semibold text-gray-700">Proposed Amount</label>
+                   <label className="text-sm font-semibold text-gray-700">Proposed Amount <span className="font-normal text-gray-400">{job.proposalRequirements?.amount ? '(required)' : '(optional)'}</span></label>
                    <input
                      type="number"
                      min="0"
@@ -546,11 +552,11 @@ const JobDetail = () => {
                      className="mt-2 w-full border rounded-xl p-3"
                      value={proposedAmount}
                      onChange={(e) => setProposedAmount(e.target.value)}
-                     placeholder="Enter amount"
+                     placeholder={job.proposalRequirements?.amount ? 'Enter amount' : 'Optional amount'}
                    />
                  </div>
                  <div>
-                   <label className="text-sm font-semibold text-gray-700">Timeline (days)</label>
+                   <label className="text-sm font-semibold text-gray-700">Timeline (days) <span className="font-normal text-gray-400">{job.proposalRequirements?.timeline ? '(required)' : '(optional)'}</span></label>
                    <input
                      type="number"
                      min="1"
@@ -558,7 +564,7 @@ const JobDetail = () => {
                      className="mt-2 w-full border rounded-xl p-3"
                      value={proposedTimeline}
                      onChange={(e) => setProposedTimeline(e.target.value)}
-                     placeholder="Delivery days"
+                     placeholder={job.proposalRequirements?.timeline ? 'Delivery days' : 'Optional timeline'}
                    />
                  </div>
                </div>

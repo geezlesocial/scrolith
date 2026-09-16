@@ -75,7 +75,7 @@ export interface Proposal {
   clientIsPro?: boolean;
   coverLetter: string;
   proposedAmount: number;
-  proposedTimeline: number; // in days
+  proposedTimeline: number; // in days; zero means not provided
   attachments: string[];
   status: 'pending' | 'shortlisted' | 'accepted' | 'rejected' | 'withdrawn';
   contractId?: string;
@@ -130,8 +130,8 @@ export interface AcceptProposalResult {
 export interface CreateProposalData {
   jobId: string;
   coverLetter: string;
-  proposedAmount: number;
-  proposedTimeline: number;
+  proposedAmount?: number;
+  proposedTimeline?: number;
   attachments?: string[];
   briefId?: string;
   conversationId?: string;
