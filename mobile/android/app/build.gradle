@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 1.3.22 - retained signed-in profile switcher with secure account continuity.
-        versionCode 133
-        versionName "1.3.22"
+        // 1.3.23 - stability and loading-performance release.
+        versionCode 134
+        versionName "1.3.23"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]
