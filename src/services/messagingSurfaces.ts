@@ -32,6 +32,14 @@ export const isMessagingDockExcludedPath = (pathname: string | null | undefined)
   // Phase 26B — onboarding must not be blocked by floating messaging launcher.
   if (path === '/auth/follow-onboarding') return true;
   if (path.startsWith('/auth/follow-onboarding/')) return true;
+  // Creation surfaces need the full viewport for upload/composer controls.
+  // Unmount the floating dock so it cannot overlap a composer action or picker.
+  if (
+    path === '/post/create' ||
+    path === '/create-job' ||
+    path === '/create-gig' ||
+    path === '/marketplace/create'
+  ) return true;
   return false;
 };
 

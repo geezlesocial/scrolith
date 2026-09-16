@@ -34,6 +34,13 @@ test('Phase 26B: dock hidden on follow-onboarding so sticky CTA is unobstructed'
   }
 });
 
+test('dock hidden on creation surfaces so composer controls remain unobstructed', () => {
+  for (const path of ['/post/create', '/create-job', '/create-gig', '/marketplace/create']) {
+    assert.equal(shouldShowMessagingDock(path), false, path);
+    assert.equal(isMessagingDockExcludedPath(path), true, path);
+  }
+});
+
 test('substring false-positive routes are not excluded', () => {
   for (const path of [
     '/direct-messages',
