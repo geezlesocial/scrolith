@@ -10,14 +10,14 @@ const AuthPosterCard = ({ mode }: AuthPosterCardProps) => {
 
   return (
     <figure
-      className="relative mx-auto my-8 w-full max-w-[31rem] overflow-hidden rounded-[1.6rem] border border-white/15 bg-slate-950/70 p-2 shadow-[0_22px_70px_rgba(2,8,23,0.42)] ring-1 ring-sky-300/10"
+      className="relative mx-auto my-8 flex min-h-[24rem] min-w-0 flex-1 flex-col overflow-hidden rounded-[1.6rem] border border-white/15 bg-slate-950/70 p-2 shadow-[0_22px_70px_rgba(2,8,23,0.42)] ring-1 ring-sky-300/10"
       aria-label={isSignup ? 'Scrolith community and professional growth' : 'Scrolith professional workspace'}
     >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_80%_18%,rgba(14,165,233,0.22),transparent_36%),radial-gradient(circle_at_18%_80%,rgba(37,99,235,0.18),transparent_34%)]" aria-hidden="true" />
       <img
         src={posterCard}
         alt="Scrolith connects people, work, payments, messaging, and community in one professional platform."
-        className="relative block h-[17rem] w-full rounded-[1.15rem] object-contain object-center sm:h-[19rem]"
+        className="relative block min-h-0 w-full flex-1 rounded-[1.15rem] object-contain object-center"
         loading="lazy"
         decoding="async"
       />
