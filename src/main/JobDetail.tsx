@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Tag, Clock, FileText, ExternalLink, Upload, Heart, ShoppingCart, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Tag, Clock, FileText, ExternalLink, Upload, Heart, ShoppingCart, ChevronLeft, ChevronRight, Sparkles, Save, Check } from 'lucide-react';
 import { JobsService } from '../services/jobs';
 import { Job, UploadedFile, UserRole } from '../types';
 import { useNotification } from '../context/NotificationContext';
@@ -13,6 +13,7 @@ import { useCart } from '../context/CartContext';
 import { FAVORITES_RATE_LIMIT_MESSAGE, isFavoritesRateLimitedError } from '../services/favorites';
 import { parseJobAttachment } from '../utils/jobAttachments';
 import ListingBodyContent from '../components/ListingBodyContent';
+import AIComposerAssist from '../components/ai/AIComposerAssist';
 
 const JobDetail = () => {
   const { id } = useParams();
@@ -33,9 +34,46 @@ const JobDetail = () => {
   const [attachments, setAttachments] = useState<UploadedFile[]>([]);
   const [filePickerOpen, setFilePickerOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [saveApplicationMaterials, setSaveApplicationMaterials] = useState(true);
+  const [materialsRestored, setMaterialsRestored] = useState(false);
   const [hasApplied, setHasApplied] = useState(false);
   const [jobActionLoading, setJobActionLoading] = useState<'favorite' | 'cart' | null>(null);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+
+  const savedApplicationKey = user?.id ? `scrolith:job-application-materials:${user.id}` : null;
+
+  useEffect(() => {
+    if (!applyOpen || !savedApplicationKey) return;
+    try {
+      const raw = window.localStorage.getItem(savedApplicationKey);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as { coverLetter?: string; resume?: UploadedFile | null };
+      if (!coverLetter.trim() && saved.coverLetter) setCoverLetter(String(saved.coverLetter));
+      if (!attachments.length && saved.resume?.id) setAttachments([saved.resume]);
+      setMaterialsRestored(Boolean(saved.coverLetter || saved.resume?.id));
+    } catch {
+      // Local saved materials are an optional convenience; never block applications.
+    }
+  }, [applyOpen, savedApplicationKey]);
+
+  const persistApplicationMaterials = () => {
+    if (!savedApplicationKey) return;
+    try {
+      window.localStorage.setItem(
+        savedApplicationKey,
+        JSON.stringify({
+          version: 1,
+          coverLetter: coverLetter.trim(),
+          resume: attachments[0] || null,
+          updatedAt: new Date().toISOString()
+        })
+      );
+      setMaterialsRestored(true);
+      showNotification('success', 'Application materials saved', 'Your cover letter and resume will be ready for future applications on this account.');
+    } catch {
+      showNotification('alert', 'Could not save materials', 'Your application can still be submitted, but this device could not save the reusable materials.');
+    }
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -181,6 +219,23 @@ const JobDetail = () => {
 
     setSubmitting(true);
     try {
+      if (saveApplicationMaterials) {
+        try {
+          if (savedApplicationKey) {
+            window.localStorage.setItem(
+              savedApplicationKey,
+              JSON.stringify({
+                version: 1,
+                coverLetter: coverLetter.trim(),
+                resume: attachments[0] || null,
+                updatedAt: new Date().toISOString()
+              })
+            );
+          }
+        } catch {
+          // Submission must remain independent from optional local persistence.
+        }
+      }
       await proposalsApi.createProposal({
         jobId: job.id,
         coverLetter: coverLetter.trim(),
@@ -438,9 +493,9 @@ const JobDetail = () => {
        </div>
 
        {applyOpen && (
-         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden">
-             <div className="flex items-center justify-between px-6 py-4 border-b">
+         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
+           <div className="flex max-h-[100dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:max-h-[min(92dvh,820px)] sm:rounded-2xl">
+             <div className="flex shrink-0 items-start justify-between border-b px-4 py-4 sm:px-6">
                <div>
                  <h3 className="text-lg font-bold text-gray-900">Submit Proposal</h3>
                  <p className="text-xs text-gray-500">Apply to {job.title}</p>
@@ -455,14 +510,29 @@ const JobDetail = () => {
                </button>
              </div>
 
-             <div className="p-6 space-y-4">
+             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
                <div>
-                 <label className="text-sm font-semibold text-gray-700">Cover Letter</label>
+                 <div className="flex flex-wrap items-center justify-between gap-2">
+                   <label className="text-sm font-semibold text-gray-700">Cover Letter</label>
+                   {materialsRestored ? (
+                     <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                       <Check className="h-3.5 w-3.5" /> Reusable materials loaded
+                     </span>
+                   ) : null}
+                 </div>
                  <textarea
-                   className="mt-2 w-full border rounded-xl p-3 min-h-[140px]"
+                   className="mt-2 min-h-[160px] w-full resize-y rounded-xl border p-3 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
                    value={coverLetter}
                    onChange={(e) => setCoverLetter(e.target.value)}
                    placeholder="Introduce yourself, explain your approach, and outline relevant experience."
+                 />
+                 <AIComposerAssist
+                   value={coverLetter.trim() || `Write a concise, truthful cover letter for ${job.title}. Use the job description and required skills below.\n\nJob description:\n${String(job.description || '').slice(0, 5000)}\n\nRequired skills: ${(job.tags || []).join(', ')}`}
+                   surface="job-application"
+                   defaultMode="professional"
+                   compact
+                   className="mt-3"
+                   onApplyDraft={(draft) => setCoverLetter(draft)}
                  />
                </div>
 
@@ -493,7 +563,7 @@ const JobDetail = () => {
                  </div>
                </div>
 
-               <div className="border rounded-xl p-4 bg-gray-50">
+               <div className="rounded-xl border bg-gray-50 p-4">
                  <div className="flex items-center justify-between">
                    <div>
                      <p className="text-sm font-semibold text-gray-900">Resume / CV</p>
@@ -528,10 +598,30 @@ const JobDetail = () => {
                  ) : (
                    <p className="mt-3 text-xs text-gray-500">No files selected yet.</p>
                  )}
+                 <label className="mt-4 flex cursor-pointer items-start gap-2 text-xs text-gray-600">
+                   <input
+                     type="checkbox"
+                     checked={saveApplicationMaterials}
+                     onChange={(event) => setSaveApplicationMaterials(event.target.checked)}
+                     className="mt-0.5 h-4 w-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                   />
+                   <span>
+                     Save this cover letter and resume for future applications on this account.
+                     <span className="mt-0.5 block text-[11px] text-gray-500">You can edit the letter or replace the resume anytime.</span>
+                   </span>
+                 </label>
+                 <button
+                   type="button"
+                   onClick={persistApplicationMaterials}
+                   disabled={!savedApplicationKey || (!coverLetter.trim() && !attachments.length)}
+                   className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-white px-3 py-2 text-xs font-semibold text-violet-800 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
+                 >
+                   <Save className="h-3.5 w-3.5" /> Save for future applications
+                 </button>
                </div>
              </div>
 
-             <div className="px-6 py-4 border-t flex justify-end gap-3">
+             <div className="flex shrink-0 flex-col-reverse gap-2 border-t px-4 py-4 sm:flex-row sm:justify-end sm:gap-3 sm:px-6">
                <button
                  type="button"
                  onClick={() => setApplyOpen(false)}
