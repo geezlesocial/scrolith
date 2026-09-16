@@ -239,6 +239,7 @@ import ComposerShell from '../composer/ComposerShell';
 import ComposerMediaPreviewGrid from '../composer/ComposerMediaPreviewGrid';
 import CaptionEnhancementToolbar from '../composer/CaptionEnhancementToolbar';
 import AIComposerAssist from '../ai/AIComposerAssist';
+import ScrolithaMediaEnhanceOffer from '../ai/ScrolithaMediaEnhanceOffer';
 
 const LocationPicker = React.lazy(() => import('../common/LocationPicker'));
 const RepostModal = React.lazy(() => import('../../community/components/RepostModal'));
@@ -1717,6 +1718,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [activeStory, setActiveStory] = useState<any | null>(null);
   const [storyMediaPreviewOpen, setStoryMediaPreviewOpen] = useState(false);
   const [storyMediaDraftFile, setStoryMediaDraftFile] = useState<any | null>(null);
+  const [storyMediaOriginalFile, setStoryMediaOriginalFile] = useState<File | null>(null);
   const [storyTextOpen, setStoryTextOpen] = useState(false);
   const [storyEditOpen, setStoryEditOpen] = useState(false);
   const [editingStory, setEditingStory] = useState<any | null>(null);
@@ -4755,7 +4757,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           uploading: false,
           progress: 100,
           error: undefined,
-          file: undefined
+          // Keep the source in memory so the user can request an enhancement
+          // after upload without losing the original or reopening the picker.
+          file
         });
         // Revoke local blob only after remote URL is available (keeps preview stable).
         if (remoteUrl) {
@@ -4812,6 +4816,36 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       void uploadPostFile(file, { existingLocalId: localId, retryCount: Number(item?.retryCount || 0) });
     },
     [showNotification, uploadPostFile]
+  );
+
+  const enhancePostMedia = useCallback(
+    async (item: ComposerAttachmentPreview, enhancedFile: File) => {
+      if (!item.localId) return;
+      setComposerStatusMessage(`Uploading Scrolitha enhancement for ${enhancedFile.name}…`);
+      const original = { ...item };
+      await uploadPostFile(enhancedFile, { existingLocalId: item.localId, retryCount: 0 });
+      const current = postMediaItemsRef.current.find((entry) => entry.localId === item.localId);
+      if (current?.error) {
+        updatePostMedia(item.localId, {
+          id: original.id,
+          url: original.url,
+          thumbnailUrl: original.thumbnailUrl,
+          type: original.type,
+          mimeType: original.mimeType,
+          duration: original.duration,
+          uploading: false,
+          progress: 100,
+          error: undefined,
+          file: original.file
+        });
+        showNotification('warning', 'Scrolitha', 'Enhancement failed; your original media is still selected.');
+        return;
+      }
+      updatePostMedia(item.localId, { file: enhancedFile, error: undefined });
+      setPostDraft((prev) => ({ ...prev, isAIEnhanced: true }));
+      showNotification('success', 'Scrolitha', 'Enhanced media is ready. Review it before publishing.');
+    },
+    [showNotification, updatePostMedia, uploadPostFile]
   );
 
   const handlePostMedia = useCallback(
@@ -5463,6 +5497,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     setStoryMediaUploadBusy(false);
     setStoryMediaUploadLabel('');
     setStoryMediaUploadProgress(0);
+    setStoryMediaOriginalFile(null);
   }, []);
 
   const openStoryEditor = useCallback((story: any, options?: { replaceMedia?: boolean }) => {
@@ -5650,7 +5685,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           }
         });
         setStoryMediaUploadProgress(100);
-        setStoryMediaUploadLabel(`${file.name} is ready to publish.`);
+      setStoryMediaUploadLabel(`${file.name} is ready to publish.`);
+        setStoryMediaOriginalFile(file);
         setStoryMediaDraftFile(uploaded);
         setStoryMediaPreviewOpen(true);
       } catch (error: any) {
@@ -5664,6 +5700,30 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     },
     [clearStoryMediaUploadState, showNotification, storyDraft.visibility, user]
   );
+
+  const enhanceStoryMedia = useCallback(async (enhancedFile: File) => {
+    if (!user) return;
+    setStoryMediaUploadBusy(true);
+    setStoryMediaUploadProgress(0);
+    setStoryMediaUploadLabel(`Uploading ${enhancedFile.name}`);
+    try {
+      const uploaded = await FileService.uploadFile(enhancedFile, 'community', {
+        role: user.role,
+        visibility: isPrivateStoryVisibility(storyDraft.visibility) ? 'private' : 'public',
+        userId: user.id,
+        onProgress: (percent) => setStoryMediaUploadProgress(percent || 0)
+      });
+      setStoryMediaDraftFile(uploaded);
+      setStoryMediaOriginalFile(enhancedFile);
+      setStoryMediaUploadProgress(100);
+      setStoryMediaUploadLabel('Scrolitha enhancement is ready to review.');
+      showNotification('success', 'Scrolitha', 'Enhanced story media is ready.');
+    } catch (error: any) {
+      showNotification('warning', 'Scrolitha', error?.message || 'The original story media is still available.');
+    } finally {
+      setStoryMediaUploadBusy(false);
+    }
+  }, [showNotification, storyDraft.visibility, user]);
 
   const publishStorySelectedMedia = useCallback(async () => {
     if (!user) return;
@@ -8075,6 +8135,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                         onRemove={handlePostMediaRemove}
                         onRetry={retryPostMedia}
                         onOpenPreview={(item) => setPreviewMedia(toPreviewMedia(item))}
+                        onEnhance={enhancePostMedia}
                         emptyLabel="Add photos, videos, or files — previews appear instantly while uploading."
                       />
                     </div>
@@ -8112,6 +8173,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     handlePostAuthorScopeChange,
     handlePostLocationDetailsChange,
     handlePostMediaRemove,
+    enhancePostMedia,
     retryPostMedia,
     hashtagsEnabled,
     mentionsEnabled,
@@ -11174,6 +11236,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   }
                 />
               ) : null}
+              <ScrolithaMediaEnhanceOffer
+                file={storyMediaOriginalFile}
+                kind={String(storyMediaOriginalFile?.type || '').toLowerCase().startsWith('video/') ? 'video' : 'image'}
+                onAccept={enhanceStoryMedia}
+              />
               <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
                 {(() => {
                   const url =

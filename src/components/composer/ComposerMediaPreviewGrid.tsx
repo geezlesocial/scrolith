@@ -10,6 +10,7 @@ import OptimizedImage from '../media/OptimizedImage';
 import InlineAutoplayVideo from '../media/InlineAutoplayVideo';
 import { resolveAssetUrl } from '../../utils/assetUrl';
 import { resolvePostAttachmentMediaPair } from '../../utils/postAttachmentMedia';
+import ScrolithaMediaEnhanceOffer from '../ai/ScrolithaMediaEnhanceOffer';
 
 type Props = {
   media: ComposerAttachmentPreview[];
@@ -18,6 +19,7 @@ type Props = {
   onOpenPreview?: (item: ComposerAttachmentPreview) => void;
   emptyLabel?: string;
   className?: string;
+  onEnhance?: (item: ComposerAttachmentPreview, enhancedFile: File) => void | Promise<void>;
 };
 
 const resolvePreviewSrc = (item: ComposerAttachmentPreview) => {
@@ -54,7 +56,8 @@ const ComposerMediaPreviewGrid: React.FC<Props> = ({
   onRetry,
   onOpenPreview,
   emptyLabel = 'Add photos, videos, or files — previews appear instantly.',
-  className = ''
+  className = '',
+  onEnhance
 }) => {
   const items = useMemo(() => (Array.isArray(media) ? media : []), [media]);
 
@@ -186,6 +189,13 @@ const ComposerMediaPreviewGrid: React.FC<Props> = ({
               <div className="absolute bottom-2 left-2 rounded-full bg-emerald-600/90 px-2 py-0.5 text-[10px] font-semibold text-white">
                 Ready
               </div>
+            ) : null}
+            {!mediaItem.uploading && !mediaItem.error && mediaItem.id && mediaItem.file ? (
+              <ScrolithaMediaEnhanceOffer
+                file={mediaItem.file}
+                kind={type === 'video' ? 'video' : 'image'}
+                onAccept={(enhanced) => onEnhance?.(mediaItem, enhanced)}
+              />
             ) : null}
           </div>
         );

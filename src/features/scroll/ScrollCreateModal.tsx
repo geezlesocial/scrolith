@@ -27,6 +27,7 @@ import { getCurrentDeviceCoordinates } from '../../utils/deviceLocation';
 import type { ScrolithaRewriteMode } from '../../services/scrolitha';
 import { runScrolithaRewrite } from '../../utils/scrolithaRewrite';
 import type { LocationSuggestion } from '../../types';
+import ScrolithaMediaEnhanceOffer from '../../components/ai/ScrolithaMediaEnhanceOffer';
 
 type ScrollCreateModalProps = {
   open: boolean;
@@ -243,6 +244,12 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
     const nextFile = event.target.files?.[0] || null;
     setVideoFile(nextFile);
     event.currentTarget.value = '';
+  };
+
+  const handleScrollMediaEnhancement = async (enhancedFile: File) => {
+    setVideoFile(enhancedFile);
+    setIsAIEnhanced(true);
+    showNotification('success', 'Scrolitha', 'Enhanced Scroll video is ready to review.');
   };
 
   useEffect(() => {
@@ -621,6 +628,12 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
                 <div className="px-3 py-4 text-xs text-white/70">No video selected</div>
               )}
             </div>
+            <ScrolithaMediaEnhanceOffer
+              file={videoFile}
+              kind="video"
+              dark
+              onAccept={handleScrollMediaEnhancement}
+            />
           </div>
 
           {linkedSourceScroll ? (
