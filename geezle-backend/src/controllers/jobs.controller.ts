@@ -89,6 +89,13 @@ const toBoolFromPayload = (value: unknown) => {
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
 };
 
+const resolveProposalRequirements = (job: { title?: string | null; description?: string | null }) => {
+  const text = `${job?.title || ''}\n${job?.description || ''}`;
+  const amount = /(?:proposed\s+amount|budget|rate|price)[\s\S]{0,48}\b(?:required|mandatory|must|needed)\b|\b(?:required|mandatory|must|needed)\b[\s\S]{0,48}(?:proposed\s+amount|budget|rate|price)/i.test(text);
+  const timeline = /(?:timeline|delivery\s+days|turnaround|deadline)[\s\S]{0,48}\b(?:required|mandatory|must|needed)\b|\b(?:required|mandatory|must|needed)\b[\s\S]{0,48}(?:timeline|delivery\s+days|turnaround|deadline)/i.test(text);
+  return { amount, timeline };
+};
+
 const rankRecommendedJob = (job: any) => {
   const recommendedBoost = job?.isRecommended ? 8 : 0;
   const topSelectedBoost = job?.isTopSelected ? 5 : 0;
@@ -152,7 +159,8 @@ const serializeJob = (job: any) => {
   client_is_verified: clientIsVerified,
   clientVerified: clientIsVerified,
   adminStatus: job.adminStatus ? job.adminStatus.toLowerCase() : undefined,
-  adminReason: job.adminReason || undefined
+  adminReason: job.adminReason || undefined,
+  proposalRequirements: resolveProposalRequirements(job)
 });
 };
 

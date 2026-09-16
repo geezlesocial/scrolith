@@ -70,6 +70,13 @@ const safeUserSelect = {
   kycStatus: true
 };
 
+const resolveProposalRequirements = (job: { title?: string | null; description?: string | null }) => {
+  const text = `${job?.title || ''}\n${job?.description || ''}`;
+  const amount = /(?:proposed\s+amount|budget|rate|price)[\s\S]{0,48}\b(?:required|mandatory|must|needed)\b|\b(?:required|mandatory|must|needed)\b[\s\S]{0,48}(?:proposed\s+amount|budget|rate|price)/i.test(text);
+  const timeline = /(?:timeline|delivery\s+days|turnaround|deadline)[\s\S]{0,48}\b(?:required|mandatory|must|needed)\b|\b(?:required|mandatory|must|needed)\b[\s\S]{0,48}(?:timeline|delivery\s+days|turnaround|deadline)/i.test(text);
+  return { amount, timeline };
+};
+
 const mapProposal = (proposal: any) => {
   const freelancerPro = proposal.freelancer ? resolveUserProStatus(proposal.freelancer) : { freelancerIsPro: false };
   const clientPro = proposal.job?.client ? resolveUserProStatus(proposal.job.client) : { employerIsPro: false };
@@ -375,8 +382,10 @@ export const createProposal = async (req: Request, res: Response) => {
     const payload = req.body || {};
     const jobId = payload.jobId || payload.job_id;
     const coverLetter = payload.coverLetter || payload.cover_letter;
-    const proposedAmount = Number(payload.proposedAmount ?? payload.proposed_amount ?? payload.amount ?? 0);
-    const proposedTimeline = Number(payload.proposedTimeline ?? payload.proposed_timeline ?? payload.timeline ?? 0);
+    const amountProvided = payload.proposedAmount !== undefined || payload.proposed_amount !== undefined || payload.amount !== undefined;
+    const timelineProvided = payload.proposedTimeline !== undefined || payload.proposed_timeline !== undefined || payload.timeline !== undefined;
+    const proposedAmount = amountProvided ? Number(payload.proposedAmount ?? payload.proposed_amount ?? payload.amount) : 0;
+    const proposedTimeline = timelineProvided ? Number(payload.proposedTimeline ?? payload.proposed_timeline ?? payload.timeline) : 0;
     const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
     const briefId = String(payload.briefId || payload.brief_id || '').trim();
     let conversationId = String(payload.conversationId || payload.conversation_id || '').trim();
@@ -385,19 +394,22 @@ export const createProposal = async (req: Request, res: Response) => {
     if (!coverLetter || String(coverLetter).trim().length < 10) {
       return fail(res, 'Cover letter is required (min 10 characters)', 'VALIDATION', 400);
     }
-    if (!Number.isFinite(proposedAmount) || proposedAmount <= 0) {
-      return fail(res, 'Proposed amount must be greater than 0', 'VALIDATION', 400);
-    }
-    if (!Number.isFinite(proposedTimeline) || proposedTimeline <= 0) {
-      return fail(res, 'Proposed timeline must be greater than 0', 'VALIDATION', 400);
-    }
-
     const job = await prisma.job.findUnique({
       where: { id: jobId },
-      select: { id: true, title: true, status: true, clientId: true, client: { select: safeUserSelect } }
+      select: { id: true, title: true, description: true, status: true, clientId: true, client: { select: safeUserSelect } }
     });
 
     if (!job) return fail(res, 'Job not found', 'NOT_FOUND', 404);
+    const proposalRequirements = resolveProposalRequirements(job);
+    if (proposalRequirements.amount && (!Number.isFinite(proposedAmount) || proposedAmount <= 0)) {
+      return fail(res, 'This client requires a proposed amount', 'VALIDATION', 400);
+    }
+    if (proposalRequirements.timeline && (!Number.isFinite(proposedTimeline) || proposedTimeline <= 0)) {
+      return fail(res, 'This client requires a delivery timeline', 'VALIDATION', 400);
+    }
+    if ((amountProvided && (!Number.isFinite(proposedAmount) || proposedAmount < 0)) || (timelineProvided && (!Number.isFinite(proposedTimeline) || proposedTimeline < 0))) {
+      return fail(res, 'Amount and timeline must be valid when provided', 'VALIDATION', 400);
+    }
     if (job.clientId === user?.id) {
       return fail(res, 'You cannot apply to your own job', 'INVALID', 400);
     }
