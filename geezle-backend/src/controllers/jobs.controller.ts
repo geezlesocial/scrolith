@@ -91,8 +91,11 @@ const toBoolFromPayload = (value: unknown) => {
 
 const resolveProposalRequirements = (job: { title?: string | null; description?: string | null }) => {
   const text = `${job?.title || ''}\n${job?.description || ''}`;
-  const amount = /(?:proposed\s+amount|budget|rate|price)[\s\S]{0,48}\b(?:required|mandatory|must|needed)\b|\b(?:required|mandatory|must|needed)\b[\s\S]{0,48}(?:proposed\s+amount|budget|rate|price)/i.test(text);
-  const timeline = /(?:timeline|delivery\s+days|turnaround|deadline)[\s\S]{0,48}\b(?:required|mandatory|must|needed)\b|\b(?:required|mandatory|must|needed)\b[\s\S]{0,48}(?:timeline|delivery\s+days|turnaround|deadline)/i.test(text);
+  // Only treat a field as required when the client explicitly attaches the
+  // requirement to that field. A wide text window caused ordinary mentions
+  // of budgets/deadlines to incorrectly label optional proposal fields.
+  const amount = /(?:proposed\s+amount|budget|rate|price)\s*(?:is|are|must\s+be)?\s*(?:required|mandatory)|(?:required|mandatory)\s+(?:proposed\s+amount|budget|rate|price)/i.test(text);
+  const timeline = /(?:timeline|delivery\s+days|turnaround|deadline)\s*(?:\(\s*days\s*\))?\s*(?:is|are|must\s+be)?\s*(?:required|mandatory)|(?:required|mandatory)\s+(?:timeline|delivery\s+days|turnaround|deadline)/i.test(text);
   return { amount, timeline };
 };
 
