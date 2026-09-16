@@ -11,6 +11,7 @@ import { resolveOptimizedStaticImageUrl, resolveResponsiveAssetUrl } from '../ut
 import ScrolithHumanVerification from '../components/human-verification/ScrolithHumanVerification';
 import { PasskeyService, passkeySupport } from '../services/passkeys';
 import RememberedProfilesPanel from '../components/auth/RememberedProfilesPanel';
+import AuthPosterCard from '../components/auth/AuthPosterCard';
 import type { RememberedProfile } from '../services/rememberedProfiles';
 
 const IS_MOBILE_APP_BUILD = import.meta.env.VITE_SCROLITH_MOBILE_APP === 'true';
@@ -407,6 +408,7 @@ const Login = () => {
               </p>
             </div>
           </div>
+          <AuthPosterCard mode="login" />
           <div className="relative grid gap-3 text-sm text-slate-300">
             <div className="flex items-center gap-3">
               <ShieldCheck className="h-5 w-5 text-sky-300" />
