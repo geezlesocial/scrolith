@@ -20,6 +20,7 @@ import {
   resolvePostAttachmentMediaPair,
   resolvePostAttachmentMediaUrl
 } from '../../utils/postAttachmentMedia';
+import ScrolithaMediaEnhanceOffer from '../../components/ai/ScrolithaMediaEnhanceOffer';
 
 type FileType = 'image' | 'video' | 'document';
 type FilterTab = 'all' | 'image' | 'video' | 'pdf' | 'document';
@@ -142,6 +143,7 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [pendingEnhancement, setPendingEnhancement] = useState<{ file: File; kind: 'image' | 'video' } | null>(null);
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState<FilterTab>(tabFromFilterType(filterType));
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -247,6 +249,16 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
     }
   };
 
+  const offerOrUpload = (file: File) => {
+    const mime = String(file.type || '').toLowerCase();
+    const kind = mime.startsWith('video/') ? 'video' : mime.startsWith('image/') ? 'image' : null;
+    if (kind) {
+      setPendingEnhancement({ file, kind });
+      return;
+    }
+    void uploadFile(file);
+  };
+
   const handleCameraCapture = async (mode: 'photo' | 'video') => {
     if (uploading) return;
     if (Capacitor.isNativePlatform() && mode === 'photo') {
@@ -336,6 +348,21 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
         </div>
 
         <div className="space-y-3 border-b border-slate-200 px-4 py-3">
+          {pendingEnhancement ? (
+            <ScrolithaMediaEnhanceOffer
+              file={pendingEnhancement.file}
+              kind={pendingEnhancement.kind}
+              onAccept={async (enhanced) => {
+                setPendingEnhancement(null);
+                await uploadFile(enhanced);
+              }}
+              onDismiss={() => {
+                const original = pendingEnhancement.file;
+                setPendingEnhancement(null);
+                void uploadFile(original);
+              }}
+            />
+          ) : null}
           {allowLibrarySelection ? (
             <div className="flex flex-wrap items-center gap-2">
             {([
@@ -586,7 +613,7 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
           accept={uploadAccept}
           onChange={(event) => {
             const file = event.target.files?.[0];
-            if (file) void uploadFile(file);
+            if (file) offerOrUpload(file);
             event.currentTarget.value = '';
           }}
         />
@@ -598,7 +625,7 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
           capture={cameraCapture}
           onChange={(event) => {
             const file = event.target.files?.[0];
-            if (file) void uploadFile(file);
+            if (file) offerOrUpload(file);
             event.currentTarget.value = '';
           }}
         />
@@ -610,7 +637,7 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
           capture={cameraCapture}
           onChange={(event) => {
             const file = event.target.files?.[0];
-            if (file) void uploadFile(file);
+            if (file) offerOrUpload(file);
             event.currentTarget.value = '';
           }}
         />

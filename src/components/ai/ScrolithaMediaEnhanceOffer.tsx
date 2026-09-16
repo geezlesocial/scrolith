@@ -43,7 +43,21 @@ const ScrolithaMediaEnhanceOffer: React.FC<Props> = ({ file, kind, onAccept, onD
     );
   }, [previewUrl]);
 
-  if (!enabled || !file || !supported) return null;
+  if (!enabled || !file) return null;
+
+  if (!supported) {
+    return (
+      <div className={`mt-2 rounded-2xl border p-3 ${dark ? 'border-white/20 bg-white/10 text-white' : 'border-slate-200 bg-slate-50 text-slate-900'}`}>
+        <p className="text-sm font-semibold">Enhance with Scrolitha</p>
+        <p className={`mt-1 text-xs ${dark ? 'text-white/70' : 'text-slate-600'}`}>
+          Video enhancement is not available in this browser. You can continue with the original media.
+        </p>
+        <button type="button" onClick={onDismiss} className="mt-3 rounded-full border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">
+          Keep as is
+        </button>
+      </div>
+    );
+  }
 
   const improve = async () => {
     if (busy) return;

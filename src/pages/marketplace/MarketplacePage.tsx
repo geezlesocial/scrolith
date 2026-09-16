@@ -80,6 +80,7 @@ import type {
 import type { CommunityClub, Currency, StructuredLocationFields } from '../../types';
 import { getCurrentDeviceCoordinates } from '../../utils/deviceLocation';
 import ProfessionalIntegrationStrip from '../../components/discovery/ProfessionalIntegrationStrip';
+import ScrolithaMediaEnhanceOffer from '../../components/ai/ScrolithaMediaEnhanceOffer';
 
 const LocationPicker = React.lazy(() => import('../../components/common/LocationPicker'));
 
@@ -2195,6 +2196,10 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
       onToggleArrayValue={toggleArrayValue}
       onImagesChange={setSelectedImages}
       onVideoChange={setSelectedVideo}
+      selectedImages={selectedImages}
+      selectedVideo={selectedVideo}
+      onImageEnhance={(index, enhanced) => setSelectedImages((previous) => previous.map((file, current) => current === index ? enhanced : file))}
+      onVideoEnhance={setSelectedVideo}
       onRemoveExistingMedia={handleDeleteMedia}
       onSaveDraft={() => void handleSubmitListing(true)}
       onSubmit={() => void handleSubmitListing(false)}
@@ -2606,6 +2611,10 @@ const MarketplaceForm: React.FC<{
   onToggleArrayValue: (key: 'deliveryOptions' | 'paymentMethods' | 'meetupPreferences', value: string) => void;
   onImagesChange: (files: File[]) => void;
   onVideoChange: (file: File | null) => void;
+  selectedImages: File[];
+  selectedVideo: File | null;
+  onImageEnhance: (index: number, file: File) => void | Promise<void>;
+  onVideoEnhance: (file: File) => void | Promise<void>;
   onRemoveExistingMedia: (media: MarketplaceListingMedia) => void;
   onSaveDraft: () => void;
   onSubmit: () => void;
@@ -2629,6 +2638,10 @@ const MarketplaceForm: React.FC<{
   onToggleArrayValue,
   onImagesChange,
   onVideoChange,
+  selectedImages,
+  selectedVideo,
+  onImageEnhance,
+  onVideoEnhance,
   onRemoveExistingMedia,
   onSaveDraft,
   onSubmit,
@@ -2843,6 +2856,26 @@ const MarketplaceForm: React.FC<{
               </label>
             </Field>
           </div>
+
+          {selectedImages.length > 0 || selectedVideo ? (
+            <div className="mt-4 space-y-3 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Scrolitha media polish</p>
+                <p className="text-xs text-slate-600">Improve clarity and color before your listing is submitted. Originals remain safe until you approve.</p>
+              </div>
+              {selectedImages.map((file, index) => (
+                <ScrolithaMediaEnhanceOffer
+                  key={`${file.name}-${file.size}-${index}`}
+                  file={file}
+                  kind="image"
+                  onAccept={(enhanced) => onImageEnhance(index, enhanced)}
+                />
+              ))}
+              {selectedVideo ? (
+                <ScrolithaMediaEnhanceOffer file={selectedVideo} kind="video" onAccept={onVideoEnhance} />
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <button type="button" onClick={onPreview} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700">

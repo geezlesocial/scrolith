@@ -437,7 +437,8 @@ export default function MobilePostScreen({
           uploading: false,
           progress: 100,
           error: undefined,
-          file: undefined
+          // Keep the source in memory so Scrolitha can offer enhancement after upload.
+          file
         });
         setStatusMessage(`${file.name} ready.`);
       } catch (error: any) {
@@ -470,6 +471,34 @@ export default function MobilePostScreen({
     },
     [showNotification, uploadOneFile]
   );
+
+  const enhancePostMedia = useCallback(async (item: ComposerAttachmentPreview, enhancedFile: File) => {
+    if (!item.localId) return;
+    const original = { ...item };
+    setStatusMessage(`Uploading Scrolitha enhancement for ${enhancedFile.name}…`);
+    await uploadOneFile(enhancedFile, { existingLocalId: item.localId, retryCount: 0 });
+    const current = mediaRef.current.find((entry) => entry.localId === item.localId);
+    if (current?.error) {
+      updateMedia(item.localId, {
+        id: original.id,
+        url: original.url,
+        fallbackUrl: original.fallbackUrl,
+        thumbnailUrl: original.thumbnailUrl,
+        type: original.type,
+        mimeType: original.mimeType,
+        duration: original.duration,
+        uploading: false,
+        progress: 100,
+        error: undefined,
+        file: original.file
+      });
+      showNotification('warning', 'Scrolitha', 'Enhancement failed; your original media is still selected.');
+      return;
+    }
+    updateMedia(item.localId, { file: enhancedFile, error: undefined });
+    setIsAIEnhanced(true);
+    showNotification('success', 'Scrolitha', 'Enhanced media is ready. Review it before publishing.');
+  }, [showNotification, updateMedia, uploadOneFile]);
 
   const handleInputFiles = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1072,6 +1101,7 @@ export default function MobilePostScreen({
             onRemove={removeAttachment}
             onRetry={retryAttachment}
             onOpenPreview={(item) => setPreviewMedia(toPreviewMedia(item))}
+            onEnhance={enhancePostMedia}
             emptyLabel="Add photos, videos, or files — previews appear while uploading."
           />
         </div>

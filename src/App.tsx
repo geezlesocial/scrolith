@@ -780,7 +780,10 @@ const DEFAULT_SUPPORT_WIDGET_HIDDEN_ROUTES = [
   '/dashboard',
   '/developer',
   '/community',
-  '/create-gig'
+  '/create-gig',
+  '/create-job',
+  '/marketplace/create',
+  '/post/create'
 ];
 
 const MOBILE_STANDALONE_ROUTE_RULES = [
@@ -1352,6 +1355,12 @@ const AppContent = () => {
   const isGigDetailRoute = /^\/gigs\/[^/]+/.test(location.pathname);
   const activeTab = new URLSearchParams(location.search).get('tab')?.toLowerCase();
   const isMessagesTabRoute = activeTab === 'messages';
+  const isCreationRoute = matchesAnyRouteRule(location.pathname, [
+    '/post/create',
+    '/create-job',
+    '/create-gig',
+    '/marketplace/create'
+  ]);
   const uiVisibility = ((settings as any)?.uiVisibility || (settings as any)?.ui_visibility || {}) as Record<string, any>;
   const footerHiddenRoutes = parseRouteRules(
     uiVisibility.footerHiddenRoutes ??
@@ -1482,6 +1491,7 @@ const AppContent = () => {
     isMessagesTabRoute ||
     isGigDetailRoute ||
     isScrollRoute ||
+    isCreationRoute ||
     isSupportWidgetSuppressedByRule;
   const shouldHideFooter =
     shouldRenderForcedMobileHome ||
