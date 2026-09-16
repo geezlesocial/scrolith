@@ -607,9 +607,17 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
                 Work · Market · AI · Community
               </span>
             </div>
-            <h1 className="max-w-[18ch] text-balance bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-700 bg-clip-text text-[clamp(1.8rem,3.35vw,2.7rem)] font-extrabold leading-[1.02] tracking-[-0.045em] text-transparent drop-shadow-[0_8px_18px_rgba(30,41,59,0.12)] sm:max-w-[20ch] lg:max-w-[18ch]">
-              {content?.headline || 'Build your next opportunity on Scrolith'}
-            </h1>
+            <div className="guest-hero-title-wrap relative max-w-[23rem] sm:max-w-[31rem]">
+              <span className="guest-hero-title-glow" aria-hidden="true" />
+              <h1
+                data-testid="guest-hero-headline"
+                className="guest-hero-title relative max-w-[20ch] text-balance bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-700 bg-clip-text text-[clamp(1.7rem,3vw,2.45rem)] font-extrabold leading-[1.04] tracking-[-0.042em] text-transparent drop-shadow-[0_8px_18px_rgba(30,41,59,0.12)] sm:max-w-[22ch] lg:max-w-[20ch]"
+              >
+                {content?.headline || 'Build your next opportunity on Scrolith'}
+              </h1>
+              <span className="guest-hero-title-spark" aria-hidden="true">✦</span>
+              <span className="guest-hero-title-rule" aria-hidden="true" />
+            </div>
             {content?.subheadline ? (
               <p className="mt-4 max-w-2xl text-[15px] leading-7 text-slate-600 sm:text-base sm:leading-8">{content.subheadline}</p>
             ) : (

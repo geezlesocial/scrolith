@@ -58,5 +58,9 @@ export const resolveAuthenticatedEntryPath = (
   const normalizedRole = String(user?.role || '').trim().toLowerCase();
   if (normalizedRole === UserRole.ADMIN) return resolveDashboardPath(user?.role);
 
-  return shouldUseMobileAuthenticatedHome() ? '/m/home' : '/member-home';
+  // Use the canonical authenticated entry for every client. MemberHomeSection
+  // and MobileHome select the appropriate responsive shell after the SPA has
+  // bootstrapped. Keeping one stable URL avoids a transient server/static 404
+  // when Android WebView or a mobile browser performs a post-auth reload.
+  return '/member-home';
 };
