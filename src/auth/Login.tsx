@@ -10,6 +10,8 @@ import { resolveAuthenticatedEntryPath } from '../utils/authRedirect';
 import { resolveOptimizedStaticImageUrl, resolveResponsiveAssetUrl } from '../utils/assetUrl';
 import ScrolithHumanVerification from '../components/human-verification/ScrolithHumanVerification';
 import { PasskeyService, passkeySupport } from '../services/passkeys';
+import RememberedProfilesPanel from '../components/auth/RememberedProfilesPanel';
+import type { RememberedProfile } from '../services/rememberedProfiles';
 
 const IS_MOBILE_APP_BUILD = import.meta.env.VITE_SCROLITH_MOBILE_APP === 'true';
 const BRAND_LOGO_FALLBACK = '/logo-64.png';
@@ -156,6 +158,38 @@ const Login = () => {
   const socialConfig = authConfig?.social_auth ?? (authConfig as any)?.socialAuth;
   const passkeysEnabled = passkeySupport.enabled();
   const passkeysAvailable = passkeySupport.available();
+
+  const handleRememberedContinue = async (profile: RememberedProfile) => {
+    setError('');
+    try {
+      const { AuthService } = await import('../services/authService');
+      const current = await AuthService.getCurrentUserWithStatus();
+      if (current.user && String(current.user.id) === profile.userId) {
+        const role = String(current.user.role || '').toLowerCase();
+        window.location.assign(role.includes('admin') ? '/admin/dashboard' : resolveAuthenticatedEntryPath(current.user as any));
+        return;
+      }
+      if (current.unauthorized) await AuthService.clearToken();
+    } catch {
+      // Continue falls through to identity-aware re-auth; authentication remains unchanged.
+    }
+    setError(`Continue as ${profile.displayName} requires a quick sign-in to confirm this account.`);
+    const input = document.getElementById('email-address') as HTMLInputElement | null;
+    input?.focus();
+  };
+
+  const handleUseAnotherProfile = async () => {
+    try {
+      const { AuthService } = await import('../services/authService');
+      await AuthService.clearToken();
+    } catch {
+      // The generic login form remains available if storage cleanup is unavailable.
+    }
+    setEmail('');
+    setPassword('');
+    setError('');
+    window.setTimeout(() => document.getElementById('email-address')?.focus(), 0);
+  };
 
   const completePostLogin = () => {
     if (shouldUseMobilePostLoginRoute() && !isStoredAdminUser()) {
@@ -412,6 +446,7 @@ const Login = () => {
             </div>
 
           <div className="space-y-6">
+          <RememberedProfilesPanel onContinue={handleRememberedContinue} onUseAnother={handleUseAnotherProfile} />
           <AuthSocialButtons mode="login" config={socialConfig || undefined} />
           {passkeysEnabled && !twoFAChallenge && (
             <>

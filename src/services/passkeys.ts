@@ -3,6 +3,7 @@ import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simp
 import api from './api';
 import { tokenStore } from './tokenStore';
 import type { User } from '../types';
+import { rememberAuthenticatedProfile } from './rememberedProfiles';
 
 export type PasskeyRecord = {
   id: string;
@@ -89,6 +90,7 @@ export const PasskeyService = {
     } catch {
       // Storage may be unavailable in private browsing; the API session remains usable.
     }
+    rememberAuthenticatedProfile(user);
     return { user, token };
   },
 

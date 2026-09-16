@@ -2,6 +2,7 @@ import api from './api';
 import { tokenStore } from './tokenStore';
 import { FollowOnboardingStatus, User, UserRole } from '../types';
 import { resolveUserAvatarUrl } from '../utils/userAvatar';
+import { rememberAuthenticatedProfile } from './rememberedProfiles';
 
 const loadDeviceSecurity = () => import('./deviceSecurity');
 
@@ -164,6 +165,7 @@ class AuthService {
           try {
             localStorage.setItem('user', JSON.stringify(user));
           } catch {}
+          rememberAuthenticatedProfile(user);
           return { success: true, user, token: payload.token };
         }
       }
@@ -184,6 +186,7 @@ class AuthService {
           await tokenStore.set(payload.token);
           api.defaults.headers.common.Authorization = `Bearer ${payload.token}`;
           try { localStorage.setItem('user', JSON.stringify(user)); } catch {}
+          rememberAuthenticatedProfile(user);
           return { success: true, user, token: payload.token };
         }
       }
@@ -212,6 +215,7 @@ class AuthService {
           try {
             localStorage.setItem('user', JSON.stringify(user));
           } catch {}
+          rememberAuthenticatedProfile(user);
           return { success: true, user, token: payload.token };
         }
       }
@@ -247,6 +251,7 @@ class AuthService {
           try {
             localStorage.setItem('user', JSON.stringify(user));
           } catch {}
+          rememberAuthenticatedProfile(user);
           return { success: true, user, token: payload.token };
         }
       }
@@ -276,6 +281,7 @@ class AuthService {
       const user = normalizeUser(candidateUser);
       if (user) {
         localStorage.setItem('user', JSON.stringify(user));
+        rememberAuthenticatedProfile(user);
       }
       return { user, unauthorized: false };
     } catch (error: any) {

@@ -17,6 +17,8 @@ import {
 import { buildScrolithaPath } from "../../utils/scrolithaLaunch";
 import { resolveAuthenticatedEntryPath } from "../../utils/authRedirect";
 import { PasskeyService, passkeySupport } from "../../services/passkeys";
+import RememberedProfilesPanel from "../auth/RememberedProfilesPanel";
+import type { RememberedProfile } from "../../services/rememberedProfiles";
 
 type LoginApprovalState = { id: string; approvalToken: string; expiresAt?: string | null };
 
@@ -138,6 +140,35 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
   const inputPaddingClass = embeddedModalSurface && !compactSurface ? "py-2.5" : "py-3";
   const passkeysEnabled = passkeySupport.enabled();
   const passkeysAvailable = passkeySupport.available();
+
+  const handleRememberedContinue = async (profile: RememberedProfile) => {
+    setLoginError("");
+    try {
+      const { AuthService } = await import("../../services/authService");
+      const current = await AuthService.getCurrentUserWithStatus();
+      if (current.user && String(current.user.id) === profile.userId) {
+        window.location.assign(resolveAuthenticatedEntryPath(current.user as any));
+        return;
+      }
+      if (current.unauthorized) await AuthService.clearToken();
+    } catch {
+      // Fall through to the normal identity-aware login form.
+    }
+    setLoginError(`Continue as ${profile.displayName} requires a quick sign-in to confirm this account.`);
+    setActiveTab("login");
+  };
+
+  const handleUseAnotherProfile = async () => {
+    try {
+      const { AuthService } = await import("../../services/authService");
+      await AuthService.clearToken();
+    } catch {
+      // Best effort only; the generic login form remains available.
+    }
+    setLoginForm({ email: "", password: "" });
+    setLoginError("");
+    setActiveTab("login");
+  };
 
   React.useEffect(() => {
     setActiveTab(normalizeGuestAuthTab(defaultTab || content?.defaultTab));
@@ -370,6 +401,11 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
       </div>
       {activeTab === "login" ? (
         <form className={formSpacingClass} onSubmit={handleLoginSubmit}>
+          <RememberedProfilesPanel
+            compact={embeddedModalSurface || compactSurface}
+            onContinue={handleRememberedContinue}
+            onUseAnother={handleUseAnotherProfile}
+          />
           {content?.enableSocialLogin !== false ? (
             <AuthSocialButtons mode="login" config={socialConfig || undefined} redirectTo="/" />
           ) : null}
