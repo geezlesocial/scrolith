@@ -86,6 +86,19 @@ function planLocal(text: string): string {
   ].join('\n');
 }
 
+function keywordsLocal(text: string): string {
+  const stopWords = new Set(
+    'a an and are as at be building by for from in into is of on or the their this to with'.split(' ')
+  );
+  const words = String(text || '')
+    .replace(/<<<UNTRUSTED_USER_CONTENT>>>|<<<END_UNTRUSTED_USER_CONTENT>>>/g, '')
+    .match(/[A-Za-z][A-Za-z0-9+#.-]{2,}/g) || [];
+  const unique = Array.from(new Set(words.map((word) => word.trim())))
+    .filter((word) => !stopWords.has(word.toLowerCase()))
+    .slice(0, 12);
+  return unique.join(', ');
+}
+
 function copilotLocal(system: string, user: string): string {
   const surface = /surface[=:]\s*([a-z_]+)/i.exec(system + user)?.[1] || 'generic';
   const intent = detectIntentLocal(user);
@@ -123,6 +136,8 @@ export class NativeAIProvider implements AIProvider {
       text = copilotLocal(system, user);
     } else if (/summar/i.test(system) || /summar/i.test(user)) {
       text = summarizeLocal(user);
+    } else if (/keyword|skills|seo/i.test(system + user)) {
+      text = keywordsLocal(user);
     } else if (/rewrite|composer|draft/i.test(system) || /rewrite/i.test(user)) {
       text = rewriteLocal(user, system + user);
     } else if (/classif/i.test(system)) {

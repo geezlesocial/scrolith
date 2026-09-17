@@ -249,7 +249,12 @@ export class ScrolithaAssistant {
       userId: input.userId,
       input: `${instruction}\n\nText:\n${text}`,
       locale: input.locale || 'en',
-      policy: { privacyLevel: 'PERSONAL', preferInternalProvider: true, allowCache: false },
+      policy: {
+        privacyLevel: 'PERSONAL',
+        preferInternalProvider: true,
+        deterministicOnly: true,
+        allowCache: false
+      },
       metadata: { surface: 'rewrite', mode }
     });
     if (mode === 'summarize' || mode === 'executive_summary') inc('summariesGenerated');
@@ -296,7 +301,12 @@ export class ScrolithaAssistant {
       userId: input.userId,
       input: `Mode: ${input.mode}\nInstruction: ${modeHelp[input.mode] || 'Improve writing.'}\nSurface: ${input.surface || 'generic'}\n\nText:\n${text}`,
       locale: input.locale || 'en',
-      policy: { privacyLevel: 'PERSONAL', preferInternalProvider: true, allowCache: false },
+      policy: {
+        privacyLevel: 'PERSONAL',
+        preferInternalProvider: true,
+        deterministicOnly: true,
+        allowCache: false
+      },
       metadata: { surface: 'composer', mode: input.mode, uiSurface: input.surface }
     });
     inc('composerAssists');

@@ -358,8 +358,16 @@ export class ScrolithaAI {
       ];
 
       if (!useNetworkProviders) {
-        if (input.policy?.requireOllama || isScrolithaLocalOnly()) {
+        if (input.policy?.requireOllama) {
           chain = ollamaEnabled ? [{ provider: 'OLLAMA', model: SCROLITHA_LOCAL_MODEL }] : [];
+        } else if (isScrolithaLocalOnly()) {
+          // Local-only mode may use the network-isolated native provider as a
+          // resilience fallback when Ollama is unavailable. Explicit
+          // requireOllama callers retain the strict Ollama-only contract.
+          chain = ollamaEnabled ? [{ provider: 'OLLAMA', model: SCROLITHA_LOCAL_MODEL }] : [];
+          if (isProviderEnabled('NATIVE', providerCfg)) {
+            chain.push({ provider: 'NATIVE', model: 'scrolitha-native-33.3' });
+          }
         } else {
           // Deterministic native intelligence remains available without network provider calls.
           chain = chain.filter((c) => c.provider === 'NATIVE' || c.provider === 'MOCK');
