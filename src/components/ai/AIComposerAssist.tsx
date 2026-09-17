@@ -132,7 +132,8 @@ const AIComposerAssist: React.FC<AIComposerAssistProps> = ({
       if (controller.signal.aborted || requestId !== requestIdRef.current) return;
       const message = String(err?.message || 'Request failed');
       if (/abort/i.test(message)) return;
-      setError(message);
+      const apiReason = String(err?.response?.data?.error || err?.response?.data?.data?.reason || '').trim();
+      setError(apiReason || message);
       setLive('AI draft failed');
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
@@ -263,9 +264,17 @@ const AIComposerAssist: React.FC<AIComposerAssistProps> = ({
         ) : null}
       </div>
       {error ? (
-        <p className="mt-2 text-xs text-red-700" role="alert">
-          {error}
-        </p>
+        <div className="mt-2 text-xs text-red-700" role="alert">
+          <div>{error}</div>
+          {/CONSENT_(AI_FEATURES|SUGGESTIONS)_DISABLED|CONSENT_PRIVATE_CONTENT_DENIED/i.test(error) ? (
+            <a
+              href="/settings/ai"
+              className="mt-1 inline-block font-semibold text-violet-700 underline underline-offset-2"
+            >
+              Enable Scrolitha AI suggestions in Settings
+            </a>
+          ) : null}
+        </div>
       ) : null}
       {warning ? (
         <p className="mt-2 text-xs text-amber-800" role="status">
