@@ -34,13 +34,14 @@ export class DistributedRateLimitStore implements Store {
   async increment(key: string): Promise<IncrementResponse> {
     const redisKey = `${this.prefix}${key}`;
     try {
-      const result = await this.redis.multi()
-        .incr(redisKey)
-        .pexpire(redisKey, this.windowMs)
-        .pttl(redisKey)
-        .exec();
-      const totalHits = Number(result?.[0]?.[1] || 0);
-      const ttl = Number(result?.[2]?.[1] || this.windowMs);
+      const result = await this.redis.eval(
+        'local hits = redis.call("INCR", KEYS[1]); if hits == 1 then redis.call("PEXPIRE", KEYS[1], ARGV[1]); end; return { hits, redis.call("PTTL", KEYS[1]) };',
+        1,
+        redisKey,
+        String(this.windowMs)
+      ) as [number | string, number | string];
+      const totalHits = Number(result?.[0] || 0);
+      const ttl = Number(result?.[1] || this.windowMs);
       if (!Number.isFinite(totalHits) || totalHits <= 0) throw new Error('Invalid Redis rate-limit response');
       return { totalHits, resetTime: new Date(Date.now() + Math.max(1_000, ttl)) };
     } catch (error) {
