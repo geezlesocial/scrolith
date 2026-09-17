@@ -17,6 +17,7 @@ import { runtimePolicy } from './config/runtimePolicy';
 import { isScrolithFrontendRevisionOrigin } from './config/cors';
 import { classifyApiRateLimitRoute } from './middleware/apiRateLimitPolicy';
 import { createDistributedRateLimitStore } from './middleware/distributedRateLimitStore';
+import { jwtSecret } from './utils/security/requiredSecret';
 
 // Import routes
 import cmsRoutes from './routes/cms';
@@ -365,7 +366,7 @@ const io = new Server(server, {
   connectTimeout: 45000,
   pingTimeout: 60000,
   pingInterval: 25000,
-  allowEIO3: true, // For compatibility with older clients
+  // All supported web and mobile clients use Socket.IO protocol v4.
   // Media must use authenticated upload APIs; realtime events remain small.
   maxHttpBufferSize: 256 * 1024,
   httpCompression: false,
@@ -736,8 +737,7 @@ const authenticateSocketFromHandshake = async (socket: any) => {
     : tokenRaw;
   if (!token) return null;
 
-  const secret = process.env.JWT_SECRET;
-  if (!secret) return null;
+  const secret = jwtSecret();
   const decoded = jwt.verify(token, secret) as any;
   if (!decoded || !decoded.id) return null;
 
@@ -1150,7 +1150,8 @@ communityNs.use(async (socket, next) => {
 });
 
 communityNs.on('connection', (socket) => {
-  console.log('Client connected to /community namespace', { id: socket.id, handshake: socket.handshake.query });
+  // Never log handshake query values because legacy clients may send tokens there.
+  console.log('Client connected to /community namespace', { id: socket.id });
   traceMessages('socket.connected', {
     socketId: socket.id,
     userId: (socket as any).data?.user?.id || null,

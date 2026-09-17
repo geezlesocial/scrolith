@@ -127,7 +127,7 @@ export function validateEnv() {
   if (missingCritical.length > 0) {
     console.error('Missing critical environment variables:');
     missingCritical.forEach((m) => console.error('  -', m));
-    if (process.env.NODE_ENV === 'production') {
+    if (isProd) {
       console.error('Environment is production; aborting startup due to missing critical variables.');
       process.exit(1);
     }
