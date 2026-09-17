@@ -16,6 +16,7 @@ import { resolveDirectMediaUrl, resolveFileBaseUrl } from './utils/mediaUrl';
 import { runtimePolicy } from './config/runtimePolicy';
 import { isScrolithFrontendRevisionOrigin } from './config/cors';
 import { classifyApiRateLimitRoute } from './middleware/apiRateLimitPolicy';
+import { createDistributedRateLimitStore } from './middleware/distributedRateLimitStore';
 
 // Import routes
 import cmsRoutes from './routes/cms';
@@ -3840,6 +3841,7 @@ const isAuthCriticalPath = (req: { path?: string; originalUrl?: string; baseUrl?
 };
 
 const limiter = rateLimit({
+  store: createDistributedRateLimitStore(),
   windowMs: apiRateLimitWindowMs,
   max: (req) => {
     const auth = String(req.headers.authorization || '').trim();
