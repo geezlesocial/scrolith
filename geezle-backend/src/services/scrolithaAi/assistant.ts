@@ -252,7 +252,6 @@ export class ScrolithaAssistant {
       policy: {
         privacyLevel: 'PERSONAL',
         preferInternalProvider: true,
-        deterministicOnly: true,
         allowCache: false
       },
       metadata: { surface: 'rewrite', mode }
@@ -304,7 +303,9 @@ export class ScrolithaAssistant {
       policy: {
         privacyLevel: 'PERSONAL',
         preferInternalProvider: true,
+        preferNative: /^profile(?:-|$)/i.test(String(input.surface || '')),
         deterministicOnly: true,
+        timeoutMs: 8_000,
         allowCache: false
       },
       metadata: { surface: 'composer', mode: input.mode, uiSurface: input.surface }
@@ -336,7 +337,11 @@ export class ScrolithaAssistant {
       userId: input.userId,
       input: text,
       locale: target,
-      policy: { privacyLevel: 'PERSONAL', preferInternalProvider: true, allowCache: false },
+      policy: {
+        privacyLevel: 'PERSONAL',
+        preferInternalProvider: true,
+        allowCache: false
+      },
       metadata: { surface: 'translation', source: detected, target }
     });
     inc('translationRequests');
