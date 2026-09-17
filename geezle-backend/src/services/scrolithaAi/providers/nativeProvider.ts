@@ -51,7 +51,14 @@ function summarizeLocal(text: string, maxSentences = 3): string {
 }
 
 function rewriteLocal(text: string, mode: string): string {
-  const body = String(text || '').replace(/<<<UNTRUSTED_USER_CONTENT>>>|<<<END_UNTRUSTED_USER_CONTENT>>>/g, '').trim();
+  const raw = String(text || '');
+  const wrapped = /<<<UNTRUSTED_USER_CONTENT>>>([\s\S]*?)<<<END_UNTRUSTED_USER_CONTENT>>>/i.exec(raw);
+  const body = (wrapped ? wrapped[1] : raw)
+    .replace(/^\s*Text:\s*/i, '')
+    .replace(/^(?:Mode|Instruction|Surface):[^\n]*\n/gi, '')
+    .replace(/<<<UNTRUSTED_USER_CONTENT>>>|<<<END_UNTRUSTED_USER_CONTENT>>>/g, '')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
   if (mode.includes('bullet')) {
     const parts = body.split(/[,;.]/).map((p) => p.trim()).filter((p) => p.length > 2).slice(0, 8);
     return parts.map((p) => `• ${p}`).join('\n');

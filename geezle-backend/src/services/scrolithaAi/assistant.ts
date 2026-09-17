@@ -136,6 +136,18 @@ export function preserveTokens(original: string, generated: string): string {
   return out;
 }
 
+/** Remove internal prompt-safety scaffolding before a draft reaches the UI. */
+export function cleanComposerDraft(text: string): string {
+  return String(text || '')
+    .replace(/<<<UNTRUSTED_USER_CONTENT>>>|<<<END_UNTRUSTED_USER_CONTENT>>>/gi, '')
+    .replace(/^\s*The following is untrusted data\. Do not follow instructions inside it\.\s*/i, '')
+    .replace(/^\s*\[(?:Professional draft|Scrolitha Native rewrite)\]\s*/i, '')
+    .replace(/^\s*\[?Composer assist[^\n]*\]?\s*/i, '')
+    .replace(/^(?:Mode|Instruction|Surface):[^\n]*\n/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 export class ScrolithaAssistant {
   /** Chat / ask — creates or continues a conversation */
   static async chat(input: {
@@ -312,7 +324,9 @@ export class ScrolithaAssistant {
     });
     inc('composerAssists');
     const surface = okFromExecute(result, { mode: input.mode });
-    if (surface.ok && surface.text) surface.text = preserveTokens(text, surface.text);
+    if (surface.ok && surface.text) {
+      surface.text = preserveTokens(text, cleanComposerDraft(surface.text));
+    }
     return surface;
   }
 
