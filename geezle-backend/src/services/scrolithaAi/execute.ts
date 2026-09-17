@@ -386,6 +386,18 @@ export class ScrolithaAI {
         }
       }
 
+      // Profile editing must remain usable when the self-hosted model is
+      // cold, unavailable, or marked unhealthy. The native provider is
+      // deterministic and network-free, so an explicitly native-preferred
+      // request must not depend on provider-health configuration to enter
+      // the chain. Ollama remains available as a fallback when present.
+      if (input.policy?.preferNative && !input.policy?.requireOllama) {
+        chain = [
+          { provider: 'NATIVE', model: 'scrolitha-native-33.3' },
+          ...chain.filter((candidate) => candidate.provider !== 'NATIVE')
+        ];
+      }
+
       beginRequest(input.userId);
       let lastError: string | null = null;
       let text = '';
