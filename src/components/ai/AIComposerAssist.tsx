@@ -25,6 +25,7 @@ const GENERIC_MODES = [
   { id: 'casual', label: 'Casual' },
   { id: 'grammar', label: 'Grammar' },
   { id: 'spelling', label: 'Spelling' },
+  { id: 'keywords', label: 'Keywords' },
   { id: 'hashtags', label: 'Hashtags' },
   { id: 'emoji', label: 'Emoji' }
 ] as const;

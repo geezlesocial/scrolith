@@ -21,6 +21,7 @@ import { resolvePostAttachmentMediaUrl } from '../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../utils/userAvatar';
 import EnterpriseAvatar from '../components/common/EnterpriseAvatar';
 import EnterpriseImage from '../components/common/EnterpriseImage';
+import AIComposerAssist from '../components/ai/AIComposerAssist';
 
 const LocationPicker = React.lazy(() => import('../components/common/LocationPicker'));
 
@@ -1153,6 +1154,19 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false, activeRol
                                             value={profile.bio}
                                             onChange={e => setProfile({...profile, bio: e.target.value})}
                                         />
+                                        <AIComposerAssist
+                                            value={profile.bio?.trim() || [
+                                                profile.title && `Professional title: ${profile.title}`,
+                                                profile.skills?.length ? `Skills: ${profile.skills.join(', ')}` : '',
+                                                profile.experience?.length ? `Experience: ${profile.experience.map((item) => `${item.title} at ${item.company}`).filter(Boolean).join('; ')}` : '',
+                                                profile.location && `Location: ${profile.location}`
+                                            ].filter(Boolean).join('\n')}
+                                            surface="profile-about"
+                                            defaultMode="professional"
+                                            compact
+                                            className="mt-3"
+                                            onApplyDraft={(draft) => setProfile((current) => current ? { ...current, bio: draft } : current)}
+                                        />
                                     </div>
 
                                     <div>
@@ -1343,6 +1357,14 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false, activeRol
                                                 </div>
                                             </div>
                                             <textarea placeholder="Description of role..." className="h-20 w-full rounded-lg border border-gray-300 p-2 text-sm" value={exp.description} onChange={e => updateExperience(exp.id, 'description', e.target.value)} />
+                                            <AIComposerAssist
+                                                value={exp.description?.trim() || `Role: ${exp.title || 'Professional role'}\nCompany: ${exp.company || 'Company'}\nWrite a concise, achievement-focused experience description.`}
+                                                surface="profile-experience"
+                                                defaultMode="professional"
+                                                compact
+                                                className="mt-3"
+                                                onApplyDraft={(draft) => updateExperience(exp.id, 'description', draft)}
+                                            />
                                         </div>
                                     ))}
                                     {profile.experience.length === 0 && <p className="text-center text-gray-500 italic">No experience added yet.</p>}
@@ -1483,6 +1505,20 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false, activeRol
                                             value={profile.skills.join(', ')}
                                             onChange={e => setProfile({...profile, skills: e.target.value.split(',').map(s => s.trim())})}
                                         />
+                                        <AIComposerAssist
+                                            value={profile.skills.filter(Boolean).join(', ') || [
+                                                profile.title && `Position: ${profile.title}`,
+                                                profile.bio && `About: ${profile.bio}`
+                                            ].filter(Boolean).join('\n')}
+                                            surface="profile-skills"
+                                            defaultMode="keywords"
+                                            compact
+                                            className="mt-3"
+                                            onApplyDraft={(draft) => setProfile((current) => current ? {
+                                                ...current,
+                                                skills: draft.split(/[\n,;•]+/).map((skill) => skill.replace(/^[-*\d.)]+\s*/, '').trim()).filter(Boolean)
+                                            } : current)}
+                                        />
                                         <div className="flex flex-wrap gap-2 mt-3">
                                             {profile.skills.filter(s => s).map((s, i) => (
                                                 <span key={i} className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full font-medium">{s}</span>
@@ -1541,6 +1577,14 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false, activeRol
                                                                 rows={3}
                                                                 value={item.description}
                                                                 onChange={(e) => updatePortfolioItem(item.id, 'description', e.target.value)}
+                                                            />
+                                                            <AIComposerAssist
+                                                                value={item.description?.trim() || `Project: ${item.title || 'Portfolio project'}\nLink: ${item.link || 'Not provided'}\nWrite a clear, outcome-focused portfolio description.`}
+                                                                surface="profile-portfolio"
+                                                                defaultMode="professional"
+                                                                compact
+                                                                className="md:col-span-2"
+                                                                onApplyDraft={(draft) => updatePortfolioItem(item.id, 'description', draft)}
                                                             />
                                                         </div>
                                                         <button
