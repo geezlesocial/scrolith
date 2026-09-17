@@ -15,12 +15,13 @@ import {
   consumeOAuthExchangeCode,
   createOAuthExchangeCode
 } from '../services/oauthExchange.service';
+import { jwtSecret } from '../utils/security/requiredSecret';
 
 type OAuthProviderKey = 'google' | 'facebook' | 'twitter' | 'linkedin';
 type OAuthMode = 'login' | 'signup';
 type ClientReturnTarget = 'web' | 'app';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret';
+const JWT_SECRET = jwtSecret();
 const STATE_EXPIRES_IN = '10m';
 const OAUTH_SUCCESS_PATH = String(process.env.OAUTH_SUCCESS_PATH || '/auth/oauth/callback').trim() || '/auth/oauth/callback';
 

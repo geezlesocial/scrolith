@@ -6,6 +6,7 @@ import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import prisma from '../utils/prismaClient';
 import { FileVisibility } from '@prisma/client';
+import { jwtSecret } from '../utils/security/requiredSecret';
 import {
   buildVariantsManifest,
   MediaProcessingService
@@ -40,7 +41,7 @@ const resolveOptionalRequester = (req: Request) => {
   }
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
   try {
-    const decoded = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET || 'dev_jwt_secret') as any;
+    const decoded = jwt.verify(authHeader.split(' ')[1], jwtSecret()) as any;
     const id = String(decoded?.id || '').trim();
     if (!id) return null;
     return { id, role: String(decoded?.role || '').toLowerCase() };

@@ -9,6 +9,7 @@ import {
   SEARCH_MODEL_VERSION
 } from '../contracts/constants';
 import { SearchContractError } from '../contracts/types';
+import { requiredSecret } from '../../../utils/security/requiredSecret';
 
 export type SearchCursorPayload = {
   v: typeof SEARCH_CURSOR_VERSION;
@@ -31,9 +32,9 @@ export type SearchCursorPayload = {
 const issuedCursorSigs = new Map<string, number>();
 const ISSUED_TTL_MS = SEARCH_CURSOR_TTL_MS;
 
-const cursorSecret = () =>
-  String(process.env.SEARCH_CURSOR_HMAC || process.env.DISCOVERY_CURSOR_HMAC || process.env.JWT_SECRET || 'search-dev-cursor')
-    .slice(0, 64);
+const cursorSecret = () => String(
+  process.env.SEARCH_CURSOR_HMAC || process.env.DISCOVERY_CURSOR_HMAC || requiredSecret('JWT_SECRET', 'search-dev-cursor')
+).slice(0, 64);
 
 const sign = (payload: Omit<SearchCursorPayload, 'sig'>): string =>
   createHmac('sha256', cursorSecret())

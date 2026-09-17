@@ -20,6 +20,7 @@ import {
   uploadBufferToDatabaseStorage
 } from './storage/databaseStorage';
 import { getSystemBackupRootDir } from '../utils/systemBackupPaths';
+import { requiredSecret } from '../utils/security/requiredSecret';
 
 export type BackupMode = 'full' | 'partial';
 export type RestoreMode = 'replace' | 'append';
@@ -144,8 +145,7 @@ const BACKUP_MAX_TOTAL_FILE_BYTES = Math.max(
   BACKUP_MAX_FILE_BYTES,
   Number(process.env.BACKUP_MAX_TOTAL_FILE_BYTES || 64 * 1024 * 1024)
 );
-const BACKUP_LICENSE_PEPPER =
-  process.env.BACKUP_LICENSE_PEPPER || process.env.JWT_SECRET || 'scrolith-backup-license-pepper';
+const BACKUP_LICENSE_PEPPER = process.env.BACKUP_LICENSE_PEPPER || requiredSecret('JWT_SECRET', 'scrolith-backup-license-pepper');
 const MANAGED_UPLOAD_OBJECT_TABLE = 'managed_upload_objects';
 const EXCLUDED_TABLES = new Set<string>(['_prisma_migrations', MANAGED_UPLOAD_OBJECT_TABLE]);
 const DEFAULT_STORAGE_PROVIDER = 'local';

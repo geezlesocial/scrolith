@@ -12,6 +12,7 @@ import {
   verifyTotp
 } from '../services/totp.service';
 import { getSystemControls, isAdminRole } from '../services/systemControls.service';
+import { jwtSecret } from '../utils/security/requiredSecret';
 
 const isWaived = (user: { twoFactorWaivedUntil?: Date | null }) => {
   if (!user?.twoFactorWaivedUntil) return false;
@@ -452,7 +453,7 @@ export const verify2FALogin = async (req: Request, res: Response) => {
     await prisma.appSetting.delete({ where: { scope: `2fa_challenge_${challengeToken}` } }).catch(() => undefined);
 
     const jwt = require('jsonwebtoken');
-    const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret';
+    const JWT_SECRET = jwtSecret();
     const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
     const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, {
       expiresIn: JWT_EXPIRES_IN

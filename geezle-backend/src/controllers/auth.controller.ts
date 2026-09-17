@@ -14,6 +14,7 @@ import {
 import { sendSystemMessage } from '../services/systemMessaging';
 import { toAbsoluteFrontendUrl } from '../services/notificationActionUrl.service';
 import prisma from '../utils/prismaClient';
+import { jwtSecret } from '../utils/security/requiredSecret';
 import {
   consumeApprovedLogin,
   evaluateLoginDevice,
@@ -206,7 +207,7 @@ export const mapUserPayload = (user: any) => {
 };
 
 // JWT Secret from environment variables (fallback for development)
-export const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret';
+export const JWT_SECRET = jwtSecret();
 export const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 const PASSWORD_RESET_TTL_MINUTES = Number(process.env.PASSWORD_RESET_TTL_MINUTES || 30);
@@ -224,9 +225,10 @@ const isMissingLoginField = (value: unknown) =>
 type ClientMeta = { ip?: string; userAgent?: string };
 
 export const getClientMeta = (req: Request): ClientMeta => {
-  const forwarded = (req.headers['x-forwarded-for'] || '') as string;
+  const headers = req.headers || {};
+  const forwarded = (headers['x-forwarded-for'] || '') as string;
   const ip = (forwarded.split(',')[0] || req.ip || '').trim();
-  const userAgent = String(req.headers['user-agent'] || '');
+  const userAgent = String(headers['user-agent'] || '');
   return { ip: ip || undefined, userAgent: userAgent || undefined };
 };
 

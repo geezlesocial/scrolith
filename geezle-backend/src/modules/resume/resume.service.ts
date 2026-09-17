@@ -5,6 +5,7 @@ import { ResumeParserService } from './resume.parser.service';
 import { ResumePdfService } from './resume.pdf.service';
 import { RESUME_REVIEW_COMPLIANCE_NOTICE } from './resume.prompts';
 import { ResumeStorageService } from './resume.storage.service';
+import { requiredSecret } from '../../utils/security/requiredSecret';
 import type { ProgressEvent, ResumeAnalysisInput, ResumeProfileSource, ResumeTemplate } from './resume.types';
 
 const prismaAny = prisma as any;
@@ -309,7 +310,7 @@ export const ResumeService = {
    * Import architecture: profile-source remains the supported import; JSON import stub accepts profile snapshot.
    */
   buildShareToken(resumeId: string) {
-    const secret = String(process.env.RESUME_SHARE_SECRET || process.env.JWT_SECRET || 'scrolith-resume-share').trim();
+    const secret = String(process.env.RESUME_SHARE_SECRET || requiredSecret('JWT_SECRET', 'scrolith-resume-share')).trim();
     const sig = createHmac('sha256', secret).update(String(resumeId)).digest('hex').slice(0, 32);
     return `${resumeId}.${sig}`;
   },

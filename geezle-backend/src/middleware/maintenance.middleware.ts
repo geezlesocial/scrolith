@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import prisma from '../utils/prismaClient';
+import { jwtSecret } from '../utils/security/requiredSecret';
 
 type MaintenanceCache = {
   enabled: boolean;
@@ -81,7 +82,7 @@ const hasPrivilegedAccess = (req: Request): boolean => {
   try {
     const token = getTokenFromRequest(req);
     if (!token) return false;
-    const secret = process.env.JWT_SECRET || 'dev_jwt_secret';
+    const secret = jwtSecret();
     const decoded = jwt.verify(token, secret) as { role?: string };
     return isPrivilegedRole(decoded?.role);
   } catch {

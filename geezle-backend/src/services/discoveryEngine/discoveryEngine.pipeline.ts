@@ -31,10 +31,12 @@ import {
 } from './discoveryEngine.collaborative';
 import { buildTrendingScores, applyTrendingFeatures } from './discoveryEngine.trending';
 import { DISCOVERY_POLICY_VERSION } from './discoveryEngine.versions';
+import { requiredSecret } from '../../utils/security/requiredSecret';
 
 const text = (v: unknown) => String(v || '').trim();
-const CURSOR_SECRET = () =>
-  String(process.env.DISCOVERY_CURSOR_HMAC || process.env.JWT_SECRET || 'discovery-dev-cursor').slice(0, 64);
+const CURSOR_SECRET = () => String(
+  process.env.DISCOVERY_CURSOR_HMAC || requiredSecret('JWT_SECRET', 'discovery-dev-cursor')
+).slice(0, 64);
 
 const normalizeSurface = (raw: unknown): DiscoverySurface => {
   const s = text(raw).toLowerCase();

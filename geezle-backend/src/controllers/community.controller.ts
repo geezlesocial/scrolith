@@ -4,6 +4,7 @@ import { getGcoinSettingsSafe } from '../utils/gcoinSettings';
 import jwt from 'jsonwebtoken';
 import prisma from '../utils/prismaClient';
 import { recordDbDuplicateMetric } from '../utils/observability/metricsRegistry';
+import { jwtSecret } from '../utils/security/requiredSecret';
 
 import realtime from '../utils/realtime';
 import { syncFileUsages, removeUsage } from '../utils/fileUsage';
@@ -601,7 +602,7 @@ const resolveOptionalUserFromRequest = async (req: Request): Promise<{ id: strin
   if (!token) return null;
 
   try {
-    const secret = process.env.JWT_SECRET || 'dev_jwt_secret';
+    const secret = jwtSecret();
     const decoded = jwt.verify(token, secret) as { id?: string };
     const userId = String(decoded?.id || '').trim();
     if (!userId) return null;

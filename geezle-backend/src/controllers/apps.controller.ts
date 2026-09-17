@@ -8,6 +8,7 @@ import {
   sendPushToUsers
 } from '../services/pushNotifications';
 import { buildNotificationActionUrl } from '../services/notificationActionUrl.service';
+import { jwtSecret } from '../utils/security/requiredSecret';
 
 const APP_DISTRIBUTION_SCOPE = 'app_distribution';
 const APP_CAMPAIGNS_SCOPE = 'app_distribution_campaigns';
@@ -240,7 +241,7 @@ const resolveOptionalRequester = (req: Request) => {
   const token = getTokenFromRequest(req);
   if (!token) return null;
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'dev_jwt_secret') as any;
+    const decoded = jwt.verify(token, jwtSecret()) as any;
     const id = asString(decoded?.id);
     if (!id) return null;
     return {

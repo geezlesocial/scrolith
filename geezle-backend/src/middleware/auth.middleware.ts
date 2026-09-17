@@ -3,6 +3,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import prisma from '../utils/prismaClient';
 import { Role } from '@prisma/client';
+import { jwtSecret } from '../utils/security/requiredSecret';
 
 // Extend Express Request type to include user
 declare global {
@@ -58,7 +59,7 @@ const resolveAuthenticatedUser = async (req: Request) => {
   }
 
   const token = authHeader.split(' ')[1];
-  const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret';
+  const JWT_SECRET = jwtSecret();
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as any;

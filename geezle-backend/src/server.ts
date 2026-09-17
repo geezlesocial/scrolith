@@ -365,14 +365,16 @@ const io = new Server(server, {
   pingTimeout: 60000,
   pingInterval: 25000,
   allowEIO3: true, // For compatibility with older clients
-  maxHttpBufferSize: 1e8,
+  // Media must use authenticated upload APIs; realtime events remain small.
+  maxHttpBufferSize: 256 * 1024,
   httpCompression: false,
   perMessageDeflate: false,
   cleanupEmptyChildNamespaces: true,
   cookie: {
     name: 'io',
     path: '/',
-    httpOnly: false,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax'
   }
 });

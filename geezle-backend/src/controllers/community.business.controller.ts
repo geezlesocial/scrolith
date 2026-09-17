@@ -10,6 +10,7 @@ import {
   resolveSubmittedContentOfferTags
 } from '../services/contentOfferTagging.service';
 import { normalizeUploadsPath, resolveDirectMediaUrl, resolveFileBaseUrl } from '../utils/mediaUrl';
+import { jwtSecret } from '../utils/security/requiredSecret';
 
 const PAGE_STATUS_ALIASES: Record<string, string> = {
   active: 'active',
@@ -79,7 +80,7 @@ const resolveOptionalUserFromRequest = async (req: Request): Promise<{ id: strin
   if (!token) return null;
 
   try {
-    const secret = process.env.JWT_SECRET || 'dev_jwt_secret';
+    const secret = jwtSecret();
     const decoded = jwt.verify(token, secret) as { id?: string };
     const userId = String(decoded?.id || '').trim();
     if (!userId) return null;
@@ -1709,5 +1710,4 @@ export const adminDeleteBusinessPage = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, error: error.message || 'Failed to delete page' });
   }
 };
-
 

@@ -8,8 +8,9 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import prisma from '../utils/prismaClient';
+import { jwtSecret } from '../utils/security/requiredSecret';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret';
+const JWT_SECRET = jwtSecret();
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 /** Exchange codes are intentionally short-lived */
 const EXCHANGE_TTL_MS = Math.max(30_000, Number(process.env.OAUTH_EXCHANGE_TTL_MS || 90_000));

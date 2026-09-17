@@ -7,6 +7,7 @@ import { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import prisma from '../utils/prismaClient';
 import { getSystemControls, isAdminRole, isKycSatisfied } from '../services/systemControls.service';
+import { jwtSecret } from '../utils/security/requiredSecret';
 
 // KYC is required for financial actions, not for publishing work.
 // Keep this list explicit so adding a new write route cannot silently change
@@ -39,7 +40,7 @@ const softUserFromJwt = (req: Request): { id?: string; role?: string } | null =>
         ? authHeader.slice(7).trim()
         : null;
     if (!token) return null;
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'dev_jwt_secret') as {
+    const decoded = jwt.verify(token, jwtSecret()) as {
       id?: string;
       role?: string;
     };

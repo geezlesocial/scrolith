@@ -4,6 +4,7 @@ import path from 'path';
 import { execFile } from 'child_process';
 import jwt from 'jsonwebtoken';
 import { Jimp } from 'jimp';
+import { jwtSecret } from '../utils/security/requiredSecret';
 // Prefer Node's crypto.randomUUID to avoid importing `uuid` (ESM issues in some test runners)
 const crypto = require('crypto');
 const uuidv4 = () => {
@@ -572,7 +573,7 @@ const resolveOptionalRequester = (req: Request) => {
   if (!token) return null;
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'dev_jwt_secret') as any;
+    const decoded = jwt.verify(token, jwtSecret()) as any;
     const id = String(decoded?.id || '').trim();
     if (!id) return null;
     return {

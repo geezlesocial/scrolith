@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { requiredSecret } from './security/requiredSecret';
 
 const ENCRYPTION_PREFIX = 'enc::';
 const KEY_LENGTH = 32;
@@ -6,10 +7,7 @@ const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 
 const deriveKey = () => {
-  const base =
-    process.env.SETTINGS_ENCRYPTION_KEY ||
-    process.env.JWT_SECRET ||
-    'scrolith-dev-settings-key';
+  const base = process.env.SETTINGS_ENCRYPTION_KEY || requiredSecret('JWT_SECRET', 'scrolith-dev-settings-key');
   return crypto.createHash('sha256').update(String(base)).digest().subarray(0, KEY_LENGTH);
 };
 
@@ -69,4 +67,3 @@ export const maskSecret = (value: unknown) => {
   if (raw.length <= 8) return '****';
   return `${raw.slice(0, 4)}****${raw.slice(-4)}`;
 };
-
