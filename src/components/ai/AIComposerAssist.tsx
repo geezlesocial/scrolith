@@ -283,7 +283,8 @@ const AIComposerAssist: React.FC<AIComposerAssistProps> = ({
       ) : null}
       {draft ? (
         <div className="mt-2">
-          <p className="mb-1 text-xs font-medium text-violet-800">
+          <div className="sr-only">Draft preview</div>
+          <p className="hidden" aria-hidden="true">
             AI draft preview — review carefully. Outputs may be incorrect.
           </p>
           <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-violet-100 bg-white p-2 text-sm text-slate-800">
