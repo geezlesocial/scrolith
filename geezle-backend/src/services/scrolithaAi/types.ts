@@ -179,6 +179,8 @@ export type ScrolithaAIExecuteInput = {
   policy?: {
     privacyLevel?: PrivacyLevel;
     preferInternalProvider?: boolean;
+    /** Prefer the network-free native provider for latency-sensitive UI flows. */
+    preferNative?: boolean;
     /** User-facing generation must use the configured local Ollama model. */
     requireOllama?: boolean;
     /** Deterministic native preprocessing may run without an LLM provider. */
