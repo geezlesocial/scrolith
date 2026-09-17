@@ -48,7 +48,9 @@ export const ScrolithaAssistantService = {
     return unwrap<AssistantResult>(res);
   },
   async composer(body: { text: string; mode: string; surface?: string; locale?: string }) {
-    const res = await api.post('/ai/assistant/composer', body);
+    // Profile editing is interactive. Keep this request below the global
+    // client timeout so a slow model cannot hold the editor hostage.
+    const res = await api.post('/ai/assistant/composer', body, { timeout: 10000 });
     return unwrap<AssistantResult>(res);
   },
   async translate(body: { text: string; targetLocale: string; sourceLocale?: string }) {
