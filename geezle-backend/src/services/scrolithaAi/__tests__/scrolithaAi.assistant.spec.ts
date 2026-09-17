@@ -182,6 +182,15 @@ describe('Phase 33.1 assistant surfaces', () => {
     });
     expect(comp.ok).toBe(true);
     expect(comp.draftOnly).toBe(true);
+
+    const keywords = await ScrolithaAssistant.composer({
+      userId: USER,
+      text: 'Full-stack developer building React and Node.js applications',
+      mode: 'keywords',
+      surface: 'profile-skills'
+    });
+    expect(keywords.ok).toBe(true);
+    expect(keywords.draftOnly).toBe(true);
   });
 
   it('translates preserving tokens', async () => {

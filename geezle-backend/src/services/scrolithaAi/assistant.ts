@@ -286,6 +286,7 @@ export class ScrolithaAssistant {
       casual: 'Casual tone.',
       grammar: 'Fix grammar only.',
       spelling: 'Fix spelling only.',
+      keywords: 'Suggest concise, role-relevant keywords and skills. Return a comma-separated list only.',
       hashtags: 'Suggest relevant hashtags (append as a short list).',
       emoji: 'Suggest tasteful emoji placement (do not overuse).'
     };

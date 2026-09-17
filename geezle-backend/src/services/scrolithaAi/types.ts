@@ -453,6 +453,7 @@ export type ComposerMode =
   | 'casual'
   | 'grammar'
   | 'spelling'
+  | 'keywords'
   | 'hashtags'
   | 'emoji';
 
