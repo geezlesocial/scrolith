@@ -4,6 +4,8 @@
  * Business logic never imports Redis clients directly.
  */
 import { enterpriseCache } from './scrolitha.enterpriseCache';
+import Redis from 'ioredis';
+import { connectWithManagedIdentity } from '../redis/entraRedis';
 
 export type SessionTurn = {
   role: 'user' | 'assistant' | 'system';
@@ -64,7 +66,7 @@ export interface DistributedSessionStore extends SessionStore {
 
 export type SessionStoreConfig = {
   /** in_process (default) | distributed_placeholder | custom */
-  mode: 'in_process' | 'distributed_placeholder' | 'custom';
+  mode: 'in_process' | 'redis' | 'distributed_placeholder' | 'custom';
   /** Future: redis URL / memorystore host — ignored until infra approved */
   connectionUrl?: string | null;
   defaultTtlMs?: number;
@@ -146,6 +148,67 @@ class DistributedSessionStorePlaceholder implements DistributedSessionStore {
   }
 }
 
+class RedisSessionStore implements DistributedSessionStore {
+  readonly adapterName = 'redis';
+  readonly capabilities = {
+    distributed: true as const,
+    supportsTtl: true,
+    supportsAtomicGetSet: true,
+    supportsCrossInstance: true as const
+  };
+
+  private readonly redis: Redis;
+  private readonly prefix: string;
+
+  constructor(private readonly config: SessionStoreConfig) {
+    if (!config.connectionUrl) throw new Error('SCROLITHA_SESSION_REDIS_URL is required for Redis sessions');
+    this.prefix = String(config.keyPrefix || 'scrolitha:sess:');
+    this.redis = new Redis(config.connectionUrl, {
+      lazyConnect: true,
+      enableOfflineQueue: false,
+      maxRetriesPerRequest: 1,
+      connectTimeout: 2_000,
+      retryStrategy: () => null
+    });
+  }
+
+  private key(sessionKey: string) { return `${this.prefix}${sessionKey}`; }
+
+  private async ready() {
+    if (this.redis.status === 'wait') {
+      const clientId = String(process.env.REDIS_ENTRA_CLIENT_ID || '').trim();
+      const username = String(process.env.REDIS_ENTRA_OBJECT_ID || '').trim() || undefined;
+      if (clientId) await connectWithManagedIdentity(this.redis, { clientId, username });
+      else await this.redis.connect();
+    }
+  }
+
+  async get(sessionKey: string): Promise<SessionRecord | null> {
+    await this.ready();
+    const raw = await this.redis.get(this.key(sessionKey));
+    if (!raw) return null;
+    try { return JSON.parse(raw) as SessionRecord; }
+    catch { await this.delete(sessionKey); return null; }
+  }
+
+  async set(record: SessionRecord, ttlMs = DEFAULT_TTL_MS): Promise<void> {
+    await this.ready();
+    await this.redis.set(this.key(record.sessionKey), JSON.stringify(record), 'PX', Math.max(1_000, ttlMs));
+  }
+
+  async delete(sessionKey: string): Promise<void> {
+    await this.ready();
+    await this.redis.del(this.key(sessionKey));
+  }
+
+  async ping(): Promise<boolean> {
+    await this.ready();
+    return (await this.redis.ping()) === 'PONG';
+  }
+
+  async close(): Promise<void> { await this.redis.quit().catch(() => undefined); }
+}
+
 let activeStore: SessionStore = new InProcessSessionStore();
 let activeConfig: SessionStoreConfig = { mode: 'in_process' };
 
@@ -166,13 +229,15 @@ export const configureSessionStore = (config?: Partial<SessionStoreConfig>) => {
   const mode = (config?.mode ||
     String(process.env.SCROLITHA_SESSION_STORE || 'in_process').toLowerCase()) as SessionStoreConfig['mode'];
   activeConfig = {
-    mode: mode === 'distributed_placeholder' || mode === 'custom' ? mode : 'in_process',
+    mode: mode === 'redis' || mode === 'distributed_placeholder' || mode === 'custom' ? mode : 'in_process',
     connectionUrl: config?.connectionUrl ?? process.env.SCROLITHA_SESSION_REDIS_URL ?? null,
     defaultTtlMs: config?.defaultTtlMs ?? DEFAULT_TTL_MS,
     keyPrefix: config?.keyPrefix ?? 'scrolitha:sess:'
   };
 
-  if (activeConfig.mode === 'distributed_placeholder') {
+  if (activeConfig.mode === 'redis') {
+    activeStore = new RedisSessionStore(activeConfig);
+  } else if (activeConfig.mode === 'distributed_placeholder') {
     // Still no infra dependency — ready for drop-in Redis implementation.
     activeStore = new DistributedSessionStorePlaceholder(activeConfig);
   } else if (activeConfig.mode === 'custom' && config && (config as any).adapter) {
@@ -210,6 +275,7 @@ export const sessionStore = {
 };
 
 export const createInProcessSessionStore = () => new InProcessSessionStore();
+export const createRedisSessionStore = (config: SessionStoreConfig) => new RedisSessionStore(config);
 export const createDistributedSessionStorePlaceholder = (config?: Partial<SessionStoreConfig>) =>
   new DistributedSessionStorePlaceholder({ mode: 'distributed_placeholder', ...config });
 

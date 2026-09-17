@@ -8,6 +8,7 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import type { Request, Response, NextFunction } from 'express';
 import { createHash } from 'crypto';
 import { isProductionRuntime } from '../utils/security/isProductionRuntime';
+import { createSensitiveRateLimitStore } from './distributedRateLimitStore';
 
 const hashIdentity = (value: string) =>
   createHash('sha256')
@@ -43,6 +44,7 @@ const rateLimitHandler = (req: Request, res: Response) => {
 
 /** Login: 10 / 15 min per IP; additional soft key includes email hash when present. */
 export const loginRateLimiter = rateLimit({
+  store: createSensitiveRateLimitStore('scrolith:ratelimit:auth:login:'),
   windowMs: 15 * 60 * 1000,
   max: Number(process.env.AUTH_LOGIN_RATE_MAX || 10),
   standardHeaders: true,
@@ -57,6 +59,7 @@ export const loginRateLimiter = rateLimit({
 
 /** Registration: 5 / hour per IP */
 export const registerRateLimiter = rateLimit({
+  store: createSensitiveRateLimitStore('scrolith:ratelimit:auth:register:'),
   windowMs: 60 * 60 * 1000,
   max: Number(process.env.AUTH_REGISTER_RATE_MAX || 5),
   standardHeaders: true,
@@ -67,6 +70,7 @@ export const registerRateLimiter = rateLimit({
 
 /** Admin / user 2FA verify: 10 / 15 min per IP + challenge token hash */
 export const admin2faVerifyRateLimiter = rateLimit({
+  store: createSensitiveRateLimitStore('scrolith:ratelimit:auth:2fa:'),
   windowMs: 15 * 60 * 1000,
   max: Number(process.env.AUTH_2FA_VERIFY_RATE_MAX || 10),
   standardHeaders: true,
@@ -81,6 +85,7 @@ export const admin2faVerifyRateLimiter = rateLimit({
 
 /** Password reset request: 5 / 15 min per IP */
 export const forgotPasswordRateLimiter = rateLimit({
+  store: createSensitiveRateLimitStore('scrolith:ratelimit:auth:forgot:'),
   windowMs: 15 * 60 * 1000,
   max: Number(process.env.AUTH_FORGOT_RATE_MAX || 5),
   standardHeaders: true,
@@ -95,6 +100,7 @@ export const forgotPasswordRateLimiter = rateLimit({
 
 /** Password reset confirm: 10 / 15 min per IP */
 export const resetPasswordRateLimiter = rateLimit({
+  store: createSensitiveRateLimitStore('scrolith:ratelimit:auth:reset:'),
   windowMs: 15 * 60 * 1000,
   max: Number(process.env.AUTH_RESET_RATE_MAX || 10),
   standardHeaders: true,

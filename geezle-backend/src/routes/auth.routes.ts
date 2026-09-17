@@ -41,6 +41,7 @@ import {
   registerRateLimiter,
   resetPasswordRateLimiter
 } from '../middleware/authRateLimit.middleware';
+import { createSensitiveRateLimitStore } from '../middleware/distributedRateLimitStore';
 
 const router = express.Router();
 
@@ -49,6 +50,12 @@ router.get('/health', (_req, res) => {
   res.json({ success: true, service: 'auth' });
 });
 
+// Sensitive public ceremonies use shared Redis-backed stores across replicas.
+const oauthRateLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 30, store: createSensitiveRateLimitStore('scrolith:ratelimit:auth:oauth:') });
+const oauthExchangeRateLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 30, store: createSensitiveRateLimitStore('scrolith:ratelimit:auth:oauth-exchange:') });
+const passkeyOptionsRateLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 20, store: createSensitiveRateLimitStore('scrolith:ratelimit:auth:passkey-options:') });
+const passkeyVerifyRateLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 20, store: createSensitiveRateLimitStore('scrolith:ratelimit:auth:passkey-verify:') });
+
 // Public routes — dedicated auth rate limits (no client header bypass)
 router.post('/register', registerRateLimiter, register);
 router.post('/login', loginRateLimiter, login);
@@ -56,19 +63,17 @@ router.post('/login/approval/exchange', loginRateLimiter, exchangeApprovedLogin)
 router.post('/2fa/verify', admin2faVerifyRateLimiter, verify2FALogin);
 router.post('/forgot-password', forgotPasswordRateLimiter, forgotPassword);
 router.post('/reset-password', resetPasswordRateLimiter, resetPassword);
-router.get('/oauth/:provider', startOAuth);
-router.get('/oauth/:provider/callback', handleOAuthCallback);
+router.get('/oauth/:provider', oauthRateLimiter, startOAuth);
+router.get('/oauth/:provider/callback', oauthRateLimiter, handleOAuthCallback);
 // Phase 25B — exchange one-time OAuth completion code for session JWT (never in URL).
 router.post(
   '/oauth/exchange',
-  createRateLimiter({ windowMs: 60 * 1000, max: 30 }),
+  oauthExchangeRateLimiter,
   exchangeOAuthCode
 );
 
 // WebAuthn/passkey ceremonies are feature-flagged server-side so the API can
 // ship ahead of controlled user exposure.
-const passkeyOptionsRateLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 20 });
-const passkeyVerifyRateLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 20 });
 router.post('/passkeys/authentication/options', passkeyOptionsRateLimiter, beginPasskeyAuthentication);
 router.post('/passkeys/authentication/verify', passkeyVerifyRateLimiter, completePasskeyAuthentication);
 

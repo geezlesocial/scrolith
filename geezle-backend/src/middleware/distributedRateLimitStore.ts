@@ -1,5 +1,6 @@
 import Redis from 'ioredis';
 import { MemoryStore, type ClientRateLimitInfo, type IncrementResponse, type Options, type Store } from 'express-rate-limit';
+import { connectWithManagedIdentity } from '../services/redis/entraRedis';
 
 /**
  * Redis-backed hit counter for multi-replica deployments. The bounded memory
@@ -12,9 +13,12 @@ export class DistributedRateLimitStore implements Store {
   private readonly redis: Redis;
   private readonly fallback = new MemoryStore();
   readonly prefix: string;
+  private readonly failClosed: boolean;
+  private readyPromise: Promise<unknown> = Promise.resolve();
+  private stopRedisAuth: (() => void) | undefined;
   private windowMs = 60_000;
 
-  constructor(redisUrl: string, prefix = 'scrolith:ratelimit:') {
+  constructor(redisUrl: string, prefix = 'scrolith:ratelimit:', options: { failClosed?: boolean; entraClientId?: string } = {}) {
     this.redis = new Redis(redisUrl, {
       lazyConnect: true,
       enableOfflineQueue: false,
@@ -23,17 +27,25 @@ export class DistributedRateLimitStore implements Store {
       retryStrategy: () => null
     });
     this.prefix = prefix;
+    this.failClosed = options.failClosed ?? false;
+    this.entraClientId = options.entraClientId;
   }
+
+  private readonly entraClientId?: string;
 
   init(options: Options) {
     this.windowMs = Number(options.windowMs || this.windowMs);
     this.fallback.init?.(options);
-    void this.redis.connect().catch(() => undefined);
+    const username = String(process.env.REDIS_ENTRA_OBJECT_ID || '').trim() || undefined;
+    this.readyPromise = this.entraClientId
+      ? connectWithManagedIdentity(this.redis, { clientId: this.entraClientId, username }).then((stop) => { this.stopRedisAuth = stop; })
+      : this.redis.connect();
   }
 
   async increment(key: string): Promise<IncrementResponse> {
     const redisKey = `${this.prefix}${key}`;
     try {
+      await this.readyPromise;
       const result = await this.redis.eval(
         'local hits = redis.call("INCR", KEYS[1]); if hits == 1 then redis.call("PEXPIRE", KEYS[1], ARGV[1]); end; return { hits, redis.call("PTTL", KEYS[1]) };',
         1,
@@ -45,7 +57,10 @@ export class DistributedRateLimitStore implements Store {
       if (!Number.isFinite(totalHits) || totalHits <= 0) throw new Error('Invalid Redis rate-limit response');
       return { totalHits, resetTime: new Date(Date.now() + Math.max(1_000, ttl)) };
     } catch (error) {
-      console.warn('[rate-limit] Redis unavailable; using local fallback:', String((error as any)?.message || error).slice(0, 160));
+      console.warn('[rate-limit] Redis unavailable; applying protected fallback:', String((error as any)?.message || error).slice(0, 160));
+      if (this.failClosed) {
+        return { totalHits: Number.MAX_SAFE_INTEGER, resetTime: new Date(Date.now() + this.windowMs) };
+      }
       return this.fallback.increment(key);
     }
   }
@@ -78,12 +93,40 @@ export class DistributedRateLimitStore implements Store {
   }
 
   async shutdown() {
+    this.stopRedisAuth?.();
     await this.redis.quit().catch(() => undefined);
     await this.fallback.shutdown?.();
   }
 }
 
-export const createDistributedRateLimitStore = (): DistributedRateLimitStore | undefined => {
+class FailClosedRateLimitStore implements Store {
+  readonly localKeys = false;
+  private windowMs = 60_000;
+
+  init(options: Options) {
+    this.windowMs = Number(options.windowMs || this.windowMs);
+  }
+
+  async increment(_key: string): Promise<IncrementResponse> {
+    return { totalHits: Number.MAX_SAFE_INTEGER, resetTime: new Date(Date.now() + this.windowMs) };
+  }
+
+  async decrement(_key: string) {}
+  async resetKey(_key: string) {}
+  async get(_key: string): Promise<ClientRateLimitInfo | undefined> { return undefined; }
+  async shutdown() {}
+}
+
+export const createDistributedRateLimitStore = (prefix = 'scrolith:ratelimit:'): DistributedRateLimitStore | undefined => {
   const url = String(process.env.REDIS_URL || process.env.REDIS || '').trim();
-  return url ? new DistributedRateLimitStore(url) : undefined;
+  if (!url) return undefined;
+  const runtime = String(process.env.NODE_ENV || '').toLowerCase();
+  const failClosed = ['production', 'staging'].includes(runtime) || String(process.env.REDIS_RATE_LIMIT_FAIL_CLOSED || '').toLowerCase() === 'true';
+  const entraClientId = String(process.env.REDIS_ENTRA_CLIENT_ID || '').trim() || undefined;
+  return new DistributedRateLimitStore(url, prefix, { failClosed, entraClientId });
+};
+
+/** Sensitive authentication controls must never fall back to per-process memory. */
+export const createSensitiveRateLimitStore = (prefix: string): Store => {
+  return createDistributedRateLimitStore(prefix) || new FailClosedRateLimitStore();
 };

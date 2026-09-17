@@ -1,0 +1,72 @@
+import Redis from 'ioredis';
+import { connectWithManagedIdentity } from '../services/redis/entraRedis';
+import { DistributedRateLimitStore } from '../middleware/distributedRateLimitStore';
+import { createRedisSessionStore } from '../services/scrolitha/scrolitha.sessionStore';
+
+const required = ['REDIS_URL', 'REDIS_ENTRA_CLIENT_ID', 'REDIS_ENTRA_OBJECT_ID'];
+for (const name of required) if (!process.env[name]) throw new Error(`${name} is required for Redis runtime tests`);
+
+describe('staging Redis runtime contract', () => {
+  const prefix = `runtime-test:${process.pid}:`;
+  let redis: Redis;
+  let stopAuth: (() => void) | undefined;
+
+  beforeAll(async () => {
+    redis = new Redis(process.env.REDIS_URL!, { lazyConnect: true, enableOfflineQueue: false, retryStrategy: () => null });
+    stopAuth = await connectWithManagedIdentity(redis, {
+      clientId: process.env.REDIS_ENTRA_CLIENT_ID!,
+      username: process.env.REDIS_ENTRA_OBJECT_ID!
+    });
+  });
+
+  afterAll(async () => {
+    stopAuth?.();
+    await redis.quit().catch(() => undefined);
+  });
+
+  test('authenticates and executes synthetic commands over TLS', async () => {
+    const key = `${prefix}command`;
+    await expect(redis.ping()).resolves.toBe('PONG');
+    await redis.set(key, 'synthetic', 'PX', 30_000);
+    await expect(redis.get(key)).resolves.toBe('synthetic');
+    await expect(redis.pttl(key)).resolves.toBeGreaterThan(0);
+    await redis.del(key);
+  });
+
+  test('distributed limiter shares bounded TTL state and fails closed', async () => {
+    const storeA = new DistributedRateLimitStore(process.env.REDIS_URL!, `${prefix}limit:`, {
+      failClosed: true,
+      entraClientId: process.env.REDIS_ENTRA_CLIENT_ID
+    });
+    const storeB = new DistributedRateLimitStore(process.env.REDIS_URL!, `${prefix}limit:`, {
+      failClosed: true,
+      entraClientId: process.env.REDIS_ENTRA_CLIENT_ID
+    });
+    storeA.init({ windowMs: 30_000 } as any);
+    storeB.init({ windowMs: 30_000 } as any);
+    const first = await storeA.increment('same-user');
+    expect(first.totalHits).toBe(1);
+    expect(first.resetTime.getTime()).toBeGreaterThan(Date.now());
+    const second = await storeB.increment('same-user');
+    expect(second.totalHits).toBe(2);
+    await storeA.shutdown();
+    await storeB.shutdown();
+  });
+
+  test('Redis-backed session keys isolate users and active accounts', async () => {
+    const store = createRedisSessionStore({
+      mode: 'redis',
+      connectionUrl: process.env.REDIS_URL!,
+      keyPrefix: `${prefix}session:`
+    });
+    const a = { sessionKey: 'a', userId: 'user-a', turns: [], dismissedSuggestionKeys: [], createdAt: Date.now(), updatedAt: Date.now() };
+    const b = { ...a, sessionKey: 'b', userId: 'user-b' };
+    await store.set(a, 30_000);
+    await store.set(b, 30_000);
+    await expect(store.get('a')).resolves.toMatchObject({ userId: 'user-a' });
+    await expect(store.get('b')).resolves.toMatchObject({ userId: 'user-b' });
+    await store.delete('a');
+    await expect(store.get('a')).resolves.toBeNull();
+    await store.close();
+  });
+});
