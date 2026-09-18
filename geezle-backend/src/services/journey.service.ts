@@ -1,7 +1,9 @@
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
+import { runtimePolicy } from '../config/runtimePolicy';
 import { sendSystemEmail } from './email.service';
 import { sendPushToUser } from './pushNotifications';
+import { createJourneyRuntimeController } from './journeyRuntime';
 import {
   buildNotificationActionUrl,
   normalizeNotificationActionUrl,
@@ -286,7 +288,6 @@ const JOURNEY_POLL_INTERVAL_MS = 15_000;
 const JOURNEY_BATCH_SIZE = 25;
 
 let journeySeeded = false;
-let runtimeStarted = false;
 let processingJourneyStepRuns = false;
 
 const cleanString = (value: unknown) => String(value ?? '').trim();
@@ -1020,21 +1021,17 @@ export const processDueJourneyStepRuns = async () => {
   }
 };
 
-export const ensureJourneyRuntimeReady = () => {
-  if (runtimeStarted || process.env.JEST_WORKER_ID || process.env.NODE_ENV === 'test') return;
-  runtimeStarted = true;
-  const timer = setInterval(() => {
-    void processDueJourneyStepRuns().catch((error) => {
-      console.error('[journeys] failed to process due journey step runs', error);
-    });
-  }, JOURNEY_POLL_INTERVAL_MS);
-  if (typeof (timer as any).unref === 'function') {
-    (timer as any).unref();
+const journeyRuntime = createJourneyRuntimeController({
+  enabled: () => runtimePolicy.backgroundWorkersEnabled,
+  poll: processDueJourneyStepRuns,
+  intervalMs: JOURNEY_POLL_INTERVAL_MS,
+  onError: (error) => {
+    console.error('[journeys] failed to process due journey step runs', error);
   }
-  void processDueJourneyStepRuns().catch((error) => {
-    console.error('[journeys] failed to process initial journey step runs', error);
-  });
-};
+});
+
+export const ensureJourneyRuntimeReady = () => journeyRuntime.ensure();
+export const shutdownJourneyRuntime = () => journeyRuntime.shutdown();
 
 export const ensureJourneySeeds = async () => {
   if (journeySeeded) return;
