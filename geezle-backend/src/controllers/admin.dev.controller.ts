@@ -10,9 +10,10 @@ import {
   normalizeDeveloperBaseUrl
 } from '../services/developerPlatform.service';
 import { sendSystemMessage } from '../services/systemMessaging';
+import { getTrustedClientIp } from '../utils/security/clientIdentity';
 
 const getRequestMeta = (req: Request) => ({
-  ip: String(req.ip || req.headers['x-forwarded-for'] || '').slice(0, 255) || null,
+  ip: getTrustedClientIp(req).slice(0, 255) || null,
   userAgent: String(req.headers['user-agent'] || '').slice(0, 512) || null
 });
 

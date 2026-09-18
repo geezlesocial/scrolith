@@ -19,6 +19,7 @@ import { isScrolithFrontendRevisionOrigin } from './config/cors';
 import { classifyApiRateLimitRoute } from './middleware/apiRateLimitPolicy';
 import { createDistributedRateLimitStore } from './middleware/distributedRateLimitStore';
 import { jwtSecret } from './utils/security/requiredSecret';
+import { getTrustedClientIp } from './utils/security/clientIdentity';
 
 // Import routes
 import cmsRoutes from './routes/cms';
@@ -4436,8 +4437,7 @@ app.get('/metrics', async (req: Request, res: Response) => {
     const metricsUser = process.env.METRICS_USERNAME;
     const metricsPass = process.env.METRICS_PASSWORD;
 
-    const clientIpRaw = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '').toString();
-    const clientIp = clientIpRaw.replace(/^::ffff:/, '').split(',')[0].trim();
+    const clientIp = getTrustedClientIp(req).replace(/^::ffff:/, '').trim();
 
     // support CIDR entries in allow list (e.g. 10.0.0.0/8)
     const isValidIpv4 = (ip: string) => /^\d{1,3}(?:\.\d{1,3}){3}$/.test(ip);

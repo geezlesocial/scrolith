@@ -9,6 +9,7 @@ import {
 } from '../services/pushNotifications';
 import { buildNotificationActionUrl } from '../services/notificationActionUrl.service';
 import { jwtSecret } from '../utils/security/requiredSecret';
+import { getTrustedClientIp } from '../utils/security/clientIdentity';
 
 const APP_DISTRIBUTION_SCOPE = 'app_distribution';
 const APP_CAMPAIGNS_SCOPE = 'app_distribution_campaigns';
@@ -255,12 +256,7 @@ const resolveOptionalRequester = (req: Request) => {
 };
 
 const resolveClientIp = (req: Request) => {
-  const fromForwarded = asString(req.headers['x-forwarded-for']);
-  if (fromForwarded) return fromForwarded.split(',')[0].trim();
-  const fromReal = asString(req.headers['x-real-ip']);
-  if (fromReal) return fromReal;
-  const fromSocket = asString(req.socket?.remoteAddress);
-  return fromSocket;
+  return getTrustedClientIp(req);
 };
 
 const resolveGeo = (req: Request) => {

@@ -15,6 +15,7 @@ import { sendSystemMessage } from '../services/systemMessaging';
 import { toAbsoluteFrontendUrl } from '../services/notificationActionUrl.service';
 import prisma from '../utils/prismaClient';
 import { jwtSecret } from '../utils/security/requiredSecret';
+import { getTrustedClientIp } from '../utils/security/clientIdentity';
 import {
   consumeApprovedLogin,
   evaluateLoginDevice,
@@ -226,8 +227,7 @@ type ClientMeta = { ip?: string; userAgent?: string };
 
 export const getClientMeta = (req: Request): ClientMeta => {
   const headers = req.headers || {};
-  const forwarded = (headers['x-forwarded-for'] || '') as string;
-  const ip = (forwarded.split(',')[0] || req.ip || '').trim();
+  const ip = getTrustedClientIp(req);
   const userAgent = String(headers['user-agent'] || '');
   return { ip: ip || undefined, userAgent: userAgent || undefined };
 };

@@ -2,14 +2,9 @@ import { Request, Response } from 'express';
 import { HumanVerificationService } from '../services/humanVerification';
 import type { HumanVerificationEndpoint } from '../services/humanVerification/types';
 import { ALL_ENDPOINTS } from '../services/humanVerification/types';
+import { getTrustedClientIp } from '../utils/security/clientIdentity';
 
-const clientIp = (req: Request) =>
-  String(
-    (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-      req.ip ||
-      req.socket?.remoteAddress ||
-      ''
-  );
+const clientIp = (req: Request) => getTrustedClientIp(req);
 
 const clientCtx = (req: Request) => ({
   ipAddress: clientIp(req),

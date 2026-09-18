@@ -1,6 +1,7 @@
 import { Request } from 'express';
 import prisma from '../utils/prismaClient';
 import { ensureAdminStaffProfile, isAdminRole } from './rbac.service';
+import { getTrustedClientIp } from '../utils/security/clientIdentity';
 
 type AdminAuditSeverity = 'info' | 'warning' | 'critical';
 type AdminAuditStatus = 'success' | 'denied' | 'error' | 'pending';
@@ -75,14 +76,13 @@ const ensureActorStaffId = async (userId?: string | null, actorStaffId?: string 
 };
 
 export const extractRequestAuditMeta = async (req: Request) => {
-  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
   const actorUserId = String(req.user?.id || '').trim() || null;
   const actorRole = String(req.user?.role || '').trim() || null;
   return {
     actorUserId,
     actorRole,
     actorStaffId: await ensureActorStaffId(actorUserId, req.staffContext?.staffId || null, actorRole),
-    ipAddress: forwarded || req.ip || null,
+    ipAddress: getTrustedClientIp(req) || null,
     userAgent: String(req.headers['user-agent'] || '').trim() || null
   };
 };

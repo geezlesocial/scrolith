@@ -4,6 +4,7 @@ import { authMiddleware } from '../middleware/auth.middleware';
 import { requirePermission, resolveStaffContext, staffOnlyMiddleware } from '../middleware/rbac.middleware';
 import { dispatchMessageReceiptNotifications } from '../services/messageNotifications';
 import { ensureAdminStaffProfile, isAdminRole } from '../services/rbac.service';
+import { getTrustedClientIp } from '../utils/security/clientIdentity';
 
 const router = express.Router();
 
@@ -115,7 +116,6 @@ const writeAuditLog = async (
       staffId = await ensureAdminStaffProfile(String(req.user?.id || ''));
     }
     if (!staffId) return;
-    const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
     await prisma.moderationAuditLog.create({
       data: {
         staffId,
@@ -123,7 +123,7 @@ const writeAuditLog = async (
         targetType,
         targetId: targetId || null,
         metadata: metadata || null,
-        ipAddress: forwarded || req.ip || null,
+        ipAddress: getTrustedClientIp(req) || null,
         userAgent: String(req.headers['user-agent'] || '')
       }
     });

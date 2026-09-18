@@ -4,11 +4,12 @@
  * Keys use IP + hashed email (never plaintext email in keys/logs).
  */
 
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator, type Store } from 'express-rate-limit';
 import type { Request, Response, NextFunction } from 'express';
 import { createHash } from 'crypto';
 import { isProductionRuntime } from '../utils/security/isProductionRuntime';
 import { createSensitiveRateLimitStore } from './distributedRateLimitStore';
+import { getTrustedClientIp } from '../utils/security/clientIdentity';
 
 const hashIdentity = (value: string) =>
   createHash('sha256')
@@ -18,18 +19,12 @@ const hashIdentity = (value: string) =>
 
 const clientIp = (req: Request): string => {
   try {
-    const conn = req.connection as unknown as { remoteAddress?: string } | undefined;
-    const rawIp = (req.ip || (conn && conn.remoteAddress) || '').toString();
+    const rawIp = getTrustedClientIp(req);
     if (!rawIp) return 'unknown';
     return ipKeyGenerator(rawIp);
   } catch {
     return 'unknown';
   }
-};
-
-const emailFromBody = (req: Request): string => {
-  const raw = (req.body && (req.body.email || req.body.username || req.body.login)) || '';
-  return String(raw).trim().toLowerCase();
 };
 
 const rateLimitHandler = (req: Request, res: Response) => {
@@ -40,6 +35,40 @@ const rateLimitHandler = (req: Request, res: Response) => {
     error: 'Too many authentication attempts. Please try again later.',
     code: 'AUTH_RATE_LIMITED'
   });
+};
+
+const requestValue = (req: Request, names: string[]): string => {
+  const body = (req.body || {}) as Record<string, unknown>;
+  const query = (req.query || {}) as Record<string, unknown>;
+  for (const name of names) {
+    const value = body[name] ?? query[name];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+};
+
+export const identifierHash = (value: string): string =>
+  hashIdentity(value || 'none');
+
+export const createIdentifierRateLimiter = (options: {
+  prefix: string;
+  windowMs: number;
+  max: number;
+  getIdentifier: (req: Request) => string;
+  store?: Store;
+}) => rateLimit({
+  store: options.store || createSensitiveRateLimitStore(options.prefix),
+  windowMs: options.windowMs,
+  max: options.max,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitHandler,
+  keyGenerator: (req) => `${options.prefix}${identifierHash(options.getIdentifier(req))}`
+});
+
+const emailFromBody = (req: Request): string => {
+  const raw = (req.body && (req.body.email || req.body.username || req.body.login)) || '';
+  return String(raw).trim().toLowerCase();
 };
 
 /** Login: 10 / 15 min per IP; additional soft key includes email hash when present. */
@@ -57,6 +86,13 @@ export const loginRateLimiter = rateLimit({
   }
 });
 
+export const loginIdentifierRateLimiter = createIdentifierRateLimiter({
+  prefix: 'scrolith:ratelimit:auth:login:identifier:',
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.AUTH_LOGIN_RATE_MAX || 10),
+  getIdentifier: (req) => emailFromBody(req)
+});
+
 /** Registration: 5 / hour per IP */
 export const registerRateLimiter = rateLimit({
   store: createSensitiveRateLimitStore('scrolith:ratelimit:auth:register:'),
@@ -66,6 +102,13 @@ export const registerRateLimiter = rateLimit({
   legacyHeaders: false,
   handler: rateLimitHandler,
   keyGenerator: (req) => `auth:register:${clientIp(req)}`
+});
+
+export const registerIdentifierRateLimiter = createIdentifierRateLimiter({
+  prefix: 'scrolith:ratelimit:auth:register:identifier:',
+  windowMs: 60 * 60 * 1000,
+  max: Number(process.env.AUTH_REGISTER_RATE_MAX || 5),
+  getIdentifier: (req) => requestValue(req, ['email', 'username', 'login'])
 });
 
 /** Admin / user 2FA verify: 10 / 15 min per IP + challenge token hash */
@@ -83,6 +126,13 @@ export const admin2faVerifyRateLimiter = rateLimit({
   }
 });
 
+export const admin2faIdentifierRateLimiter = createIdentifierRateLimiter({
+  prefix: 'scrolith:ratelimit:auth:2fa:identifier:',
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.AUTH_2FA_VERIFY_RATE_MAX || 10),
+  getIdentifier: (req) => requestValue(req, ['challengeToken', 'challenge_token', 'userId', 'user_id'])
+});
+
 /** Password reset request: 5 / 15 min per IP */
 export const forgotPasswordRateLimiter = rateLimit({
   store: createSensitiveRateLimitStore('scrolith:ratelimit:auth:forgot:'),
@@ -98,6 +148,13 @@ export const forgotPasswordRateLimiter = rateLimit({
   }
 });
 
+export const forgotPasswordIdentifierRateLimiter = createIdentifierRateLimiter({
+  prefix: 'scrolith:ratelimit:auth:forgot:identifier:',
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.AUTH_FORGOT_RATE_MAX || 5),
+  getIdentifier: (req) => emailFromBody(req)
+});
+
 /** Password reset confirm: 10 / 15 min per IP */
 export const resetPasswordRateLimiter = rateLimit({
   store: createSensitiveRateLimitStore('scrolith:ratelimit:auth:reset:'),
@@ -107,6 +164,13 @@ export const resetPasswordRateLimiter = rateLimit({
   legacyHeaders: false,
   handler: rateLimitHandler,
   keyGenerator: (req) => `auth:reset:${clientIp(req)}`
+});
+
+export const resetPasswordIdentifierRateLimiter = createIdentifierRateLimiter({
+  prefix: 'scrolith:ratelimit:auth:reset:identifier:',
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.AUTH_RESET_RATE_MAX || 10),
+  getIdentifier: (req) => requestValue(req, ['token', 'resetToken', 'reset_token', 'challengeToken', 'challenge_token'])
 });
 
 /**

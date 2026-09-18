@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { HumanVerificationService } from '../services/humanVerification';
 import type { HumanVerificationEndpoint } from '../services/humanVerification/types';
+import { getTrustedClientIp } from './security/clientIdentity';
 
 const extractToken = (body: any) =>
   body?.humanVerificationToken ||
@@ -10,11 +11,7 @@ const extractToken = (body: any) =>
   null;
 
 const clientCtx = (req: Request) => ({
-  ipAddress: String(
-    (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-      req.ip ||
-      ''
-  ),
+  ipAddress: getTrustedClientIp(req),
   userAgent: String(req.headers['user-agent'] || ''),
   fingerprint: String(bodyFingerprint(req) || ''),
   sessionId: String(req.body?.sessionId || req.headers['x-session-id'] || '') || null,

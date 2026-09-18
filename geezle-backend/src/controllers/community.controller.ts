@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import prisma from '../utils/prismaClient';
 import { recordDbDuplicateMetric } from '../utils/observability/metricsRegistry';
 import { jwtSecret } from '../utils/security/requiredSecret';
+import { getTrustedClientIp } from '../utils/security/clientIdentity';
 
 import realtime from '../utils/realtime';
 import { syncFileUsages, removeUsage } from '../utils/fileUsage';
@@ -3711,7 +3712,7 @@ export const createPost = async (req: Request, res: Response) => {
               ? 'admin'
               : 'user',
           isAdmin: req.user?.role === 'ADMIN',
-          ipAddress: (req.headers['x-forwarded-for'] as string)?.split(',')?.[0]?.trim() || req.ip || null,
+          ipAddress: getTrustedClientIp(req) || null,
           userAgent: req.headers['user-agent']?.toString() || null
         }
       });
@@ -4300,7 +4301,7 @@ export const updatePost = async (req: Request, res: Response) => {
           role: req.user?.role || 'user',
           scope: isPrivileged ? 'admin' : 'user',
           isAdmin: req.user?.role === 'ADMIN',
-          ipAddress: (req.headers['x-forwarded-for'] as string)?.split(',')?.[0]?.trim() || req.ip || null,
+          ipAddress: getTrustedClientIp(req) || null,
           userAgent: req.headers['user-agent']?.toString() || null
         }
       });

@@ -1,6 +1,7 @@
 import type { Request } from 'express';
 import prisma from '../../utils/prismaClient';
 import type { ScrolithaActor } from './scrolitha.types';
+import { getTrustedClientIp } from '../../utils/security/clientIdentity';
 
 type AuthenticatedRequest = Request & {
   user?: {
@@ -20,7 +21,7 @@ export const resolveActorFromRequest = (req: Request): ScrolithaActor => {
     scope: isAdmin ? 'admin' : 'user',
     isAdmin,
     email: user?.email ? String(user.email).trim().toLowerCase() : null,
-    ipAddress: (req.headers['x-forwarded-for'] as string)?.split(',')?.[0]?.trim() || req.ip || null,
+    ipAddress: getTrustedClientIp(req) || null,
     userAgent: req.headers['user-agent']?.toString() || null
   };
 };

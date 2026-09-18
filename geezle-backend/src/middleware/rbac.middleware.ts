@@ -3,6 +3,7 @@ import prisma from '../utils/prismaClient';
 import { createSecurityAlert } from '../services/securityAlert.service';
 import { writeAdminAuditEvent } from '../services/adminAudit.service';
 import { ensureRbacSeeded, getStaffContext, StaffContext } from '../services/rbac.service';
+import { getTrustedClientIp } from '../utils/security/clientIdentity';
 
 declare global {
   namespace Express {
@@ -60,7 +61,7 @@ const safeWriteDeniedDecision = async (req: Request, permissionKey: string, reas
       severity: isSensitivePermission(permissionKey) ? 'critical' : 'warning',
       status: 'denied',
       message: reason,
-      ipAddress: String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip || null,
+      ipAddress: getTrustedClientIp(req) || null,
       userAgent: String(req.headers['user-agent'] || '').trim() || null,
       metadata: {
         method: req.method,

@@ -36,10 +36,16 @@ import {
 } from '../controllers/passkey.controller';
 import {
   admin2faVerifyRateLimiter,
+  admin2faIdentifierRateLimiter,
   forgotPasswordRateLimiter,
+  forgotPasswordIdentifierRateLimiter,
   loginRateLimiter,
+  loginIdentifierRateLimiter,
   registerRateLimiter,
-  resetPasswordRateLimiter
+  registerIdentifierRateLimiter,
+  resetPasswordRateLimiter,
+  resetPasswordIdentifierRateLimiter,
+  createIdentifierRateLimiter
 } from '../middleware/authRateLimit.middleware';
 import { createSensitiveRateLimitStore } from '../middleware/distributedRateLimitStore';
 
@@ -52,30 +58,35 @@ router.get('/health', (_req, res) => {
 
 // Sensitive public ceremonies use shared Redis-backed stores across replicas.
 const oauthRateLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 30, store: createSensitiveRateLimitStore('scrolith:ratelimit:auth:oauth:') });
+const oauthIdentifierRateLimiter = createIdentifierRateLimiter({ prefix: 'scrolith:ratelimit:auth:oauth:identifier:', windowMs: 15 * 60 * 1000, max: 30, getIdentifier: (req) => String(req.query?.state || req.query?.code || '') });
 const oauthExchangeRateLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 30, store: createSensitiveRateLimitStore('scrolith:ratelimit:auth:oauth-exchange:') });
+const oauthExchangeIdentifierRateLimiter = createIdentifierRateLimiter({ prefix: 'scrolith:ratelimit:auth:oauth-exchange:identifier:', windowMs: 60 * 1000, max: 30, getIdentifier: (req) => String(req.body?.code || req.body?.state || '') });
 const passkeyOptionsRateLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 20, store: createSensitiveRateLimitStore('scrolith:ratelimit:auth:passkey-options:') });
+const passkeyOptionsIdentifierRateLimiter = createIdentifierRateLimiter({ prefix: 'scrolith:ratelimit:auth:passkey-options:identifier:', windowMs: 60 * 1000, max: 20, getIdentifier: (req) => String(req.body?.email || req.body?.username || req.body?.userId || '') });
 const passkeyVerifyRateLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 20, store: createSensitiveRateLimitStore('scrolith:ratelimit:auth:passkey-verify:') });
+const passkeyVerifyIdentifierRateLimiter = createIdentifierRateLimiter({ prefix: 'scrolith:ratelimit:auth:passkey-verify:identifier:', windowMs: 15 * 60 * 1000, max: 20, getIdentifier: (req) => String(req.body?.challenge || req.body?.challengeToken || req.body?.credentialId || req.body?.userId || '') });
 
 // Public routes — dedicated auth rate limits (no client header bypass)
-router.post('/register', registerRateLimiter, register);
-router.post('/login', loginRateLimiter, login);
-router.post('/login/approval/exchange', loginRateLimiter, exchangeApprovedLogin);
-router.post('/2fa/verify', admin2faVerifyRateLimiter, verify2FALogin);
-router.post('/forgot-password', forgotPasswordRateLimiter, forgotPassword);
-router.post('/reset-password', resetPasswordRateLimiter, resetPassword);
-router.get('/oauth/:provider', oauthRateLimiter, startOAuth);
-router.get('/oauth/:provider/callback', oauthRateLimiter, handleOAuthCallback);
+router.post('/register', registerRateLimiter, registerIdentifierRateLimiter, register);
+router.post('/login', loginRateLimiter, loginIdentifierRateLimiter, login);
+router.post('/login/approval/exchange', loginRateLimiter, loginIdentifierRateLimiter, exchangeApprovedLogin);
+router.post('/2fa/verify', admin2faVerifyRateLimiter, admin2faIdentifierRateLimiter, verify2FALogin);
+router.post('/forgot-password', forgotPasswordRateLimiter, forgotPasswordIdentifierRateLimiter, forgotPassword);
+router.post('/reset-password', resetPasswordRateLimiter, resetPasswordIdentifierRateLimiter, resetPassword);
+router.get('/oauth/:provider', oauthRateLimiter, oauthIdentifierRateLimiter, startOAuth);
+router.get('/oauth/:provider/callback', oauthRateLimiter, oauthIdentifierRateLimiter, handleOAuthCallback);
 // Phase 25B — exchange one-time OAuth completion code for session JWT (never in URL).
 router.post(
   '/oauth/exchange',
   oauthExchangeRateLimiter,
+  oauthExchangeIdentifierRateLimiter,
   exchangeOAuthCode
 );
 
 // WebAuthn/passkey ceremonies are feature-flagged server-side so the API can
 // ship ahead of controlled user exposure.
-router.post('/passkeys/authentication/options', passkeyOptionsRateLimiter, beginPasskeyAuthentication);
-router.post('/passkeys/authentication/verify', passkeyVerifyRateLimiter, completePasskeyAuthentication);
+router.post('/passkeys/authentication/options', passkeyOptionsRateLimiter, passkeyOptionsIdentifierRateLimiter, beginPasskeyAuthentication);
+router.post('/passkeys/authentication/verify', passkeyVerifyRateLimiter, passkeyVerifyIdentifierRateLimiter, completePasskeyAuthentication);
 
 // Protected routes
 router.get('/me', authMiddleware, getCurrentUser);
@@ -86,8 +97,8 @@ router.post('/2fa/disable', authMiddleware, disableMy2FA);
 router.get('/follow-onboarding', authMiddleware, getFollowOnboardingController);
 router.post('/follow-onboarding/complete', authMiddleware, completeFollowOnboardingController);
 router.post('/logout', authMiddleware, logout);
-router.post('/passkeys/registration/options', authMiddleware, passkeyOptionsRateLimiter, beginPasskeyRegistration);
-router.post('/passkeys/registration/verify', authMiddleware, passkeyVerifyRateLimiter, completePasskeyRegistration);
+router.post('/passkeys/registration/options', authMiddleware, passkeyOptionsRateLimiter, passkeyOptionsIdentifierRateLimiter, beginPasskeyRegistration);
+router.post('/passkeys/registration/verify', authMiddleware, passkeyVerifyRateLimiter, passkeyVerifyIdentifierRateLimiter, completePasskeyRegistration);
 router.get('/passkeys', authMiddleware, listPasskeys);
 router.patch('/passkeys/:id', authMiddleware, renamePasskey);
 router.delete('/passkeys/:id', authMiddleware, revokePasskey);
