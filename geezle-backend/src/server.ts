@@ -14,6 +14,7 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import validateEnv from './utils/validateEnv';
 import { resolveDirectMediaUrl, resolveFileBaseUrl } from './utils/mediaUrl';
 import { runtimePolicy } from './config/runtimePolicy';
+import { getRuntimeStartupPlan } from './config/runtimeStartup';
 import { isScrolithFrontendRevisionOrigin } from './config/cors';
 import { classifyApiRateLimitRoute } from './middleware/apiRateLimitPolicy';
 import { createDistributedRateLimitStore } from './middleware/distributedRateLimitStore';
@@ -5076,16 +5077,21 @@ app.use((err: Error, req: Request, res: Response, next: any) => {
 
 // Start server (skip auto-listen during test runs to avoid port conflicts)
 const PORT = parseInt(process.env.PORT!) || 5000;
-if (runtimePolicy.backgroundWorkersEnabled) {
+if (!runtimePolicy.isTest) {
   void (async () => {
-    let prismaReadyForWorkers = false;
+    let prismaReady = false;
     try {
       await ensurePrismaReady();
-      prismaReadyForWorkers = true;
+      prismaReady = true;
       console.log(`[prisma] connection state: ${getPrismaConnectionState()}`);
     } catch (error) {
       console.error('[prisma] initial connect failed; continuing in degraded mode', error);
     }
+
+    const startupPlan = getRuntimeStartupPlan({
+      backgroundWorkersEnabled: runtimePolicy.backgroundWorkersEnabled,
+      prismaReady
+    });
 
     server.listen(PORT, async () => {
     console.log(`========================================`);
@@ -5113,18 +5119,18 @@ if (runtimePolicy.backgroundWorkersEnabled) {
     console.log('  /socket.io/*   - Socket.io WebSocket');
     console.log('========================================');
 
-    if (prismaReadyForWorkers) {
+    if (startupPlan.startBackgroundWorkers) {
       registerInsightsJobs(app);
       registerFxJobs(app).catch((error) => {
         console.error('[fx] Failed to register FX jobs:', error);
       });
       startDemoAutomationScheduler();
     } else {
-      console.warn('[startup] background workers not started because Prisma is not ready.');
+      console.warn('[startup] background workers are disabled or Prisma is not ready.');
     }
 
     // Initialize AdPayment reconciliation: run once and schedule periodically
-    if (prismaReadyForWorkers) {
+    if (startupPlan.startBackgroundWorkers) {
       try {
       if (process.env.STRIPE_SECRET_KEY) {
         // Run an initial reconciliation on startup
@@ -5151,10 +5157,10 @@ if (runtimePolicy.backgroundWorkersEnabled) {
         console.error('Failed to initialize reconcileAdPayments cron job:', err);
       }
     } else {
-      console.warn('[cron] AdPayment reconciliation not started because Prisma is not ready.');
+      console.warn('[cron] AdPayment reconciliation not started because workers are disabled or Prisma is not ready.');
     }
 
-    if (prismaReadyForWorkers) {
+    if (startupPlan.startBackgroundWorkers) {
       try {
       const talentCloudSettings = await getTalentCloudSettings();
       if (talentCloudSettings.enabled && talentCloudSettings.webhooksEnabled) {
@@ -5170,12 +5176,12 @@ if (runtimePolicy.backgroundWorkersEnabled) {
         console.error('[webhooks] Failed to initialize webhook dispatcher', error);
       }
     } else {
-      console.warn('[webhooks] dispatcher not started because Prisma is not ready.');
+      console.warn('[webhooks] dispatcher not started because workers are disabled or Prisma is not ready.');
     }
 
     // Phase 32.2 — digest worker + focus session cleanup (node-cron, 15-minute ticks)
     // Phase 32.6 — allowlist gate via NOTIFICATION_DIGEST_ALLOWLIST / REQUIRE_ALLOWLIST
-    if (prismaReadyForWorkers) {
+    if (startupPlan.startBackgroundWorkers) {
       try {
       const digestEnabled = String(process.env.NOTIFICATION_DIGEST_CRON_ENABLED || 'true').toLowerCase() !== 'false';
       if (digestEnabled) {
@@ -5209,11 +5215,11 @@ if (runtimePolicy.backgroundWorkersEnabled) {
         console.error('Failed to initialize digest worker cron:', err);
       }
     } else {
-      console.warn('[cron] digest worker not started because Prisma is not ready.');
+      console.warn('[cron] digest worker not started because workers are disabled or Prisma is not ready.');
     }
 
     // Phase 32.6 — retention purge worker (conservative daily). Kill switch env required.
-    if (prismaReadyForWorkers) {
+    if (startupPlan.startBackgroundWorkers) {
       try {
       const purgeEnabled =
         String(process.env.NOTIFICATION_RETENTION_PURGE_ENABLED || '').toLowerCase() === 'true';
@@ -5248,12 +5254,12 @@ if (runtimePolicy.backgroundWorkersEnabled) {
         console.error('Failed to initialize retention purge cron:', err);
       }
     } else {
-      console.warn('[cron] retention purge worker not started because Prisma is not ready.');
+      console.warn('[cron] retention purge worker not started because workers are disabled or Prisma is not ready.');
     }
   });
   })();
 } else {
-  console.log('Server auto-start skipped (test/runtime policy disabled background workers).');
+  console.log('Server auto-start skipped during test runtime.');
 }
 
 export default app;
