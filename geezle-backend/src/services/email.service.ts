@@ -1,4 +1,6 @@
 import prisma from '../utils/prismaClient';
+import * as net from 'node:net';
+import * as tls from 'node:tls';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const nodemailer = require('nodemailer');
 
@@ -20,6 +22,8 @@ export type EmailSettings = {
   region?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
+  requireTLS?: boolean;
+  allowUnauthenticated?: boolean;
 };
 
 export type EmailSendInput = {
@@ -77,6 +81,64 @@ const defaultHostByProvider = (provider: EmailProvider, region: string): string 
 };
 
 const defaultPortByProvider = (_provider: EmailProvider): number => 587;
+
+const parseBooleanEnv = (value: unknown): boolean | undefined => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return undefined;
+};
+
+/**
+ * Environment configuration is deliberately opt-in. The normal path below
+ * continues to resolve database-backed settings first.
+ */
+export const normalizeEnvironmentEmailSettings = (env: NodeJS.ProcessEnv = process.env): EmailSettings | null => {
+  const provider = parseProvider(env.EMAIL_PROVIDER || 'smtp');
+  const host = pickFirstString(env.EMAIL_HOST);
+  const portValue = String(env.EMAIL_PORT || '').trim();
+  const port = Number(portValue);
+  const fromName = pickFirstString(env.EMAIL_FROM_NAME);
+  const fromEmail = pickFirstString(env.EMAIL_FROM_EMAIL);
+  const encryption = String(env.EMAIL_ENCRYPTION || '').trim().toLowerCase() as EmailEncryption;
+  const secure = parseBooleanEnv(env.EMAIL_SECURE);
+  const requireTLS = parseBooleanEnv(env.EMAIL_REQUIRE_TLS);
+  const allowUnauthenticated = parseBooleanEnv(env.EMAIL_ALLOW_UNAUTHENTICATED) === true;
+
+  if (
+    !host ||
+    !portValue ||
+    !Number.isInteger(port) ||
+    port <= 0 ||
+    !fromName ||
+    !fromEmail ||
+    !EMAIL_REGEX.test(fromEmail) ||
+    !['tls', 'ssl', 'none'].includes(encryption)
+  ) {
+    return null;
+  }
+
+  const effectiveSecure = secure ?? encryption === 'ssl';
+  const effectiveRequireTLS = requireTLS ?? encryption === 'tls';
+  if ((encryption === 'ssl' && effectiveRequireTLS) || (effectiveSecure && effectiveRequireTLS)) {
+    return null;
+  }
+
+  return {
+    provider,
+    host,
+    port,
+    username: pickFirstString(env.EMAIL_USER) || undefined,
+    password: pickFirstString(env.EMAIL_PASS) || undefined,
+    secure: effectiveSecure,
+    encryption,
+    requireTLS: effectiveRequireTLS,
+    allowUnauthenticated,
+    fromName,
+    fromEmail
+  };
+};
 
 export const normalizeEmailSettings = (raw: any): EmailSettings | null => {
   const source = raw || {};
@@ -250,8 +312,10 @@ export const validateEmailSettings = (settings: EmailSettings | null): string[] 
   }
 
   if (settings.provider === 'smtp' || settings.provider === 'ses') {
-    if (!settings.username) errors.push(`${settings.provider.toUpperCase()} username is required`);
-    if (!settings.password) errors.push(`${settings.provider.toUpperCase()} password is required`);
+    if (!settings.allowUnauthenticated) {
+      if (!settings.username) errors.push(`${settings.provider.toUpperCase()} username is required`);
+      if (!settings.password) errors.push(`${settings.provider.toUpperCase()} password is required`);
+    }
   }
 
   if (settings.provider === 'brevo') {
@@ -293,7 +357,8 @@ export const buildEmailTransportOptions = (settings: EmailSettings) => {
     secure
   };
 
-  if (settings.encryption === 'tls') transport.requireTLS = true;
+  if (settings.requireTLS !== undefined) transport.requireTLS = settings.requireTLS;
+  else if (settings.encryption === 'tls') transport.requireTLS = true;
   if (settings.encryption === 'none') transport.ignoreTLS = true;
   if (authUser && authPass) transport.auth = { user: authUser, pass: authPass };
 
@@ -305,6 +370,10 @@ export const createEmailTransporter = (settings: EmailSettings) => {
 };
 
 export const getEmailSettings = async (): Promise<EmailSettings | null> => {
+  if (String(process.env.EMAIL_CONFIG_SOURCE || '').trim() === 'environment') {
+    return normalizeEnvironmentEmailSettings();
+  }
+
   try {
     const record = await prisma.appSetting.findUnique({ where: { scope: 'system' } });
     const data = record?.data as any;
@@ -317,6 +386,69 @@ export const getEmailSettings = async (): Promise<EmailSettings | null> => {
 
   // fallback to env if DB failed
   return normalizeEmailSettings({});
+};
+
+export type SmtpReadinessResult = {
+  ready: boolean;
+  errorCategory?: 'timeout' | 'connection_refused' | 'dns' | 'tls' | 'connection_error' | 'invalid_configuration';
+};
+
+const classifyConnectionError = (error: any): SmtpReadinessResult['errorCategory'] => {
+  if (error?.code === 'ETIMEDOUT') return 'timeout';
+  if (error?.code === 'ECONNREFUSED') return 'connection_refused';
+  if (error?.code === 'ENOTFOUND' || error?.code === 'EAI_AGAIN') return 'dns';
+  if (error?.code === 'ERR_TLS_CERT_ALTNAME_INVALID' || error?.code === 'EPROTO') return 'tls';
+  return 'connection_error';
+};
+
+/** Opens and closes a bounded TCP/TLS connection without speaking SMTP. */
+export const checkSmtpReadiness = async (
+  settings: EmailSettings | null,
+  timeoutMs = 2_000
+): Promise<SmtpReadinessResult> => {
+  if (!settings?.host || !settings.port) return { ready: false, errorCategory: 'invalid_configuration' };
+  const boundedTimeout = Math.max(250, Math.min(timeoutMs, 5_000));
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result: SmtpReadinessResult) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+    const socket = settings.secure
+      ? tls.connect({ host: settings.host, port: settings.port, servername: settings.host })
+      : net.createConnection({ host: settings.host, port: settings.port });
+
+    socket.setTimeout(boundedTimeout, () => {
+      socket.destroy();
+      finish({ ready: false, errorCategory: 'timeout' });
+    });
+    socket.once('secureConnect', () => {
+      socket.end();
+      finish({ ready: true });
+    });
+    socket.once('connect', () => {
+      if (!settings.secure) {
+        socket.end();
+        finish({ ready: true });
+      }
+    });
+    socket.once('error', (error) => {
+      socket.destroy();
+      finish({ ready: false, errorCategory: classifyConnectionError(error) });
+    });
+  });
+};
+
+const classifyEmailError = (error: any): string => {
+  const code = String(error?.code || '').toUpperCase();
+  if (code === 'ECONNREFUSED') return 'connection_refused';
+  if (code === 'ETIMEDOUT') return 'timeout';
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'dns';
+  if (code === 'EAUTH' || /auth|credentials|authentication/i.test(String(error?.message || ''))) return 'authentication';
+  if (/tls|certificate|secure/i.test(String(error?.message || ''))) return 'tls';
+  return 'smtp_error';
 };
 
 const getTransporter = async (): Promise<any | null> => {
@@ -352,11 +484,13 @@ export const sendSystemEmail = async (payload: EmailSendInput): Promise<{ succes
   const settings = await getEmailSettings();
   const validationErrors = validateEmailSettings(settings);
   if (validationErrors.length) {
+    console.warn('[email] delivery outcome', { outcome: 'rejected', errorCategory: 'invalid_configuration' });
     return { success: false, error: validationErrors[0] };
   }
 
   const transporter = await getTransporter();
   if (!transporter) {
+    console.warn('[email] delivery outcome', { outcome: 'rejected', errorCategory: 'transporter_unavailable' });
     return { success: false, error: 'Email transporter not initialized' };
   }
 
@@ -368,11 +502,11 @@ export const sendSystemEmail = async (payload: EmailSendInput): Promise<{ succes
       html: payload.html || undefined,
       text: payload.text || undefined
     });
+    console.info('[email] delivery outcome', { outcome: 'sent', transport: settings.provider });
     return { success: true };
   } catch (error: any) {
-    console.warn('[email] send failed', error);
-    return { success: false, error: error?.message || 'Email send failed' };
+    const errorCategory = classifyEmailError(error);
+    console.warn('[email] delivery outcome', { outcome: 'failed', errorCategory });
+    return { success: false, error: errorCategory };
   }
 };
-
-
