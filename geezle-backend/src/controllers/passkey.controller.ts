@@ -191,7 +191,7 @@ export const completePasskeyRegistration = async (req: Request, res: Response) =
     void logAuthEvent({ userId, event: 'passkey_registered', meta: { deviceType: verification.registrationInfo.credentialDeviceType, backedUp: verification.registrationInfo.credentialBackedUp } }, req);
     return res.status(201).json({ success: true, message: 'Passkey added successfully' });
   } catch (error: any) {
-    console.warn('[passkey] registration verification failed', { message: error?.message || String(error) });
+    console.warn('[passkey] registration verification failed', { reason: 'verification_failed' });
     return res.status(400).json({ success: false, error: 'Passkey registration could not be verified', code: 'PASSKEY_REGISTRATION_FAILED' });
   }
 };
@@ -296,7 +296,7 @@ export const completePasskeyAuthentication = async (req: Request, res: Response)
     void logAuthEvent({ userId: user.id, email: user.email, event: 'passkey_authenticated', meta: { credentialId: stored.credentialId, deviceType: verification.authenticationInfo.credentialDeviceType, backedUp: verification.authenticationInfo.credentialBackedUp } }, req);
     return res.json({ success: true, user: mapUserPayload(user), token, accessToken: token });
   } catch (error: any) {
-    console.warn('[passkey] authentication verification failed', { message: error?.message || String(error) });
+    console.warn('[passkey] authentication verification failed', { reason: 'verification_failed' });
     void logAuthEvent({ userId: stored.userId, event: 'passkey_authentication_failed', meta: { reason: 'verification_failed' } }, req);
     return res.status(401).json({ success: false, error: 'Passkey authentication failed', code: 'PASSKEY_AUTH_FAILED' });
   }

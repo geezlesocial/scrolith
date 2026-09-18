@@ -93,6 +93,33 @@ describe('auth login controller', () => {
     );
   });
 
+  test('authentication failure logs contain no identifier or credential values', async () => {
+    const res = createResponse();
+    const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const identifier = 'sensitive-login@example.invalid';
+    const password = 'SensitivePassword123!';
+    mockPrisma.user.findUnique.mockRejectedValue(new Error(`database failure email=${identifier} password=${password}`));
+
+    await login({ body: { email: identifier, password } } as any, res as any);
+
+    const output = [
+      ...log.mock.calls,
+      ...warn.mock.calls,
+      ...error.mock.calls
+    ].flat().map((value) => typeof value === 'string' ? value : JSON.stringify(value)).join(' ');
+    expect(output).not.toContain(identifier);
+    expect(output).not.toContain(password);
+    expect(output).not.toContain('database failure');
+    expect(output).toContain('database_error');
+    expect(res.status).toHaveBeenCalledWith(500);
+
+    log.mockRestore();
+    warn.mockRestore();
+    error.mockRestore();
+  });
+
   test('user with missing password hash returns 401 instead of 500', async () => {
     const res = createResponse();
     mockPrisma.user.findUnique.mockResolvedValue(await createUser({ passwordHash: null }));

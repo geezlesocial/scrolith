@@ -20,6 +20,7 @@ import { classifyApiRateLimitRoute } from './middleware/apiRateLimitPolicy';
 import { createDistributedRateLimitStore } from './middleware/distributedRateLimitStore';
 import { jwtSecret } from './utils/security/requiredSecret';
 import { getTrustedClientIp } from './utils/security/clientIdentity';
+import { handleBasicHealth, isBasicHealthPath } from './middleware/basicHealth';
 
 // Import routes
 import cmsRoutes from './routes/cms';
@@ -3901,6 +3902,7 @@ const limiter = rateLimit({
   // Skip rate limiting only for non-production local/dev — never via client headers.
   skip: (req) => {
     try {
+      if (isBasicHealthPath(req)) return true;
       if (req.path.includes('/socket.io/')) return true;
       // OAuth start is a browser redirect, not an API thrash vector.
       const originalUrl = String(req.originalUrl || '').toLowerCase();
@@ -4313,37 +4315,9 @@ const buildHealthPayload = () => ({
   }
 });
 
-const buildPublicHealthPayload = () => ({
-  status: getPrismaConnectionState() === 'degraded' ? 'DEGRADED' : 'OK',
-  database: { status: getPrismaConnectionState() },
-  timestamp: new Date().toISOString()
-});
-
-const healthHandler = (req: Request, res: Response) => {
-  try {
-    res.setHeader('Cache-Control', 'no-store');
-    if (req.method === 'HEAD') {
-      res.status(200).end();
-      return;
-    }
-    res.json(buildPublicHealthPayload());
-  } catch (error) {
-    console.error('Health check error:', error);
-    if (req.method === 'HEAD') {
-      res.status(500).end();
-      return;
-    }
-    res.status(500).json({
-      status: 'ERROR',
-      error: 'Health check failed',
-      timestamp: new Date().toISOString()
-    });
-  }
-};
-
 // Health check endpoint
-app.head('/api/health', healthHandler);
-app.get('/api/health', healthHandler);
+app.head('/api/health', handleBasicHealth);
+app.get('/api/health', handleBasicHealth);
 
 // Detailed route maps and socket metadata are operational data, not a public
 // product contract. Keep them available to authenticated platform admins.

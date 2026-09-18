@@ -103,14 +103,14 @@ export const safeFindUserByEmail = async (email: string) => {
       select: { ...fullUserSelect, passwordHash: true }
     });
   } catch (error) {
-    console.warn('[auth] Full user select failed (email). Falling back to base select.', (error as any)?.message || error);
+    logAuthFailure('user_lookup_fallback', error);
     try {
       return await prisma.user.findUnique({
         where: { email },
         select: baseLoginSelect
       });
     } catch (fallbackError) {
-      console.warn('[auth] Base user select failed (email). Falling back to minimal select.', (fallbackError as any)?.message || fallbackError);
+      logAuthFailure('user_lookup_minimal_fallback', fallbackError);
       return await prisma.user.findUnique({
         where: { email },
         select: minimalLoginSelect
@@ -127,14 +127,14 @@ export const safeFindUserById = async (id?: string | null) => {
       select: fullUserSelect
     });
   } catch (error) {
-    console.warn('[auth] Full user select failed (id). Falling back to base select.', (error as any)?.message || error);
+    logAuthFailure('user_id_lookup_fallback', error);
     try {
       return await prisma.user.findUnique({
         where: { id },
         select: baseMeSelect
       });
     } catch (fallbackError) {
-      console.warn('[auth] Base user select failed (id). Falling back to minimal select.', (fallbackError as any)?.message || fallbackError);
+      logAuthFailure('user_id_lookup_minimal_fallback', fallbackError);
       return await prisma.user.findUnique({
         where: { id },
         select: minimalMeSelect
@@ -213,6 +213,17 @@ export const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 const PASSWORD_RESET_TTL_MINUTES = Number(process.env.PASSWORD_RESET_TTL_MINUTES || 30);
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
+const authFailureReason = (error: unknown): string => {
+  const code = String((error as { code?: unknown })?.code || '').toUpperCase();
+  const message = String((error as { message?: unknown })?.message || '').toLowerCase();
+  if (code === 'P2025' || message.includes('not found')) return 'not_found';
+  if (code.startsWith('P') || message.includes('prisma') || message.includes('database')) return 'database_error';
+  if (message.includes('timeout')) return 'timeout';
+  return 'internal_error';
+};
+const logAuthFailure = (event: string, error?: unknown) => {
+  console.warn(`[auth] ${event}`, { reason: error ? authFailureReason(error) : 'unspecified' });
+};
 const invalidCredentialsResponse = (res: Response) =>
   res.status(401).json({
     success: false,
@@ -247,7 +258,7 @@ export const logAuthEvent = async (payload: { userId?: string | null; email?: st
       }
     });
   } catch (error) {
-    console.warn('[auth] Failed to write audit log', error);
+    logAuthFailure('audit_write_failed', error);
   }
 };
 
@@ -261,14 +272,6 @@ const isStrongPassword = (value: string) => {
 // Registration Controller
 export const register = async (req: Request, res: Response) => {
   try {
-    // Request-level logging: log body keys and a sanitized version (never log raw passwords)
-    const regBody = (req.body || {}) as Record<string, any>;
-    const regBodyKeys = Object.keys(regBody);
-    const regSanitized = { ...regBody };
-    if ('password' in regSanitized) regSanitized.password = '<<redacted>>';
-    if ('passwordHash' in regSanitized) regSanitized.passwordHash = '<<redacted>>';
-    console.log('[auth.register] bodyKeys:', regBodyKeys);
-    console.log('[auth.register] sanitizedBody:', regSanitized);
     let { email, name, password, role = 'EMPLOYER' } = req.body; // Default role to EMPLOYER if not provided
     const recaptchaToken = req.body?.recaptchaToken || req.body?.recaptcha_token;
 
@@ -364,7 +367,7 @@ export const register = async (req: Request, res: Response) => {
       token,
     });
   } catch (error) {
-    console.error('Registration error:', error, (error as any)?.stack);
+    logAuthFailure('registration_failed', error);
     // Check if it's a Prisma validation error (e.g., unknown argument, constraint violation)
     if (error instanceof Error && ('code' in error || error.message.includes('Unknown argument') || error.message.includes('Argument'))) {
       return res.status(500).json({ error: 'Database schema error during registration. Please contact support.' });
@@ -377,21 +380,12 @@ export const register = async (req: Request, res: Response) => {
 // Login Controller
 export const login = async (req: Request, res: Response) => {
   try {
-    // Request-level logging: log body keys and a sanitized version (never log raw passwords)
-    const body = (req.body || {}) as Record<string, any>;
-    const bodyKeys = Object.keys(body);
-    const sanitized = { ...body };
-    if ('password' in sanitized) sanitized.password = '<<redacted>>';
-    if ('passwordHash' in sanitized) sanitized.passwordHash = '<<redacted>>';
-    console.log('[auth.login] bodyKeys:', bodyKeys);
-    console.log('[auth.login] sanitizedBody:', sanitized);
-
     const rawEmail = req.body?.email;
     const rawPassword = req.body?.password;
     const email = typeof rawEmail === 'string' ? normalizeEmail(rawEmail) : '';
     const password = typeof rawPassword === 'string' ? rawPassword : '';
 
-    console.log('[auth.login] attempt', { email });
+    console.log('[auth.login] attempt');
 
     // Validate input
     if (isMissingLoginField(rawEmail) || isMissingLoginField(rawPassword)) {
@@ -407,7 +401,7 @@ export const login = async (req: Request, res: Response) => {
 
     // Find user by normalized email (safe select with fallback for older schemas)
     const user = await safeFindUserByEmail(email);
-    console.log('[auth.login] user found?', !!user);
+    console.log('[auth.login] lookup_completed', { found: Boolean(user) });
 
     // Check if user exists and password is correct
     if (!user) {
@@ -415,7 +409,7 @@ export const login = async (req: Request, res: Response) => {
       return invalidCredentialsResponse(res);
     }
     if (user.isActive === false) {
-      console.warn('[auth.login] inactive user login blocked', { userId: user.id, email });
+      console.warn('[auth.login] inactive user login blocked');
       return res.status(403).json({
         success: false,
         error: 'Account is disabled or suspended',
@@ -423,18 +417,14 @@ export const login = async (req: Request, res: Response) => {
       });
     }
     if (typeof user.passwordHash !== 'string' || user.passwordHash.trim().length === 0) {
-      console.log('[auth.login] no passwordHash for user', user.id);
+      console.log('[auth.login] password_unavailable');
       return invalidCredentialsResponse(res);
     }
     let pwMatch = false;
     try {
       pwMatch = await bcrypt.compare(password, user.passwordHash);
     } catch (compareError) {
-      console.warn('[auth.login] password compare failed; treating as invalid credentials', {
-        userId: user.id,
-        email,
-        message: (compareError as any)?.message || compareError
-      });
+      logAuthFailure('password_compare_failed', compareError);
       return invalidCredentialsResponse(res);
     }
     console.log('[auth.login] password match?', pwMatch);
@@ -454,11 +444,7 @@ export const login = async (req: Request, res: Response) => {
         }
       });
     } catch (staffError) {
-      console.error('[auth.login] Staff account check failed', {
-        userId: user.id,
-        email,
-        message: (staffError as any)?.message || staffError
-      });
+      logAuthFailure('staff_account_check_failed', staffError);
       return res.status(500).json({
         success: false,
         error: 'Unable to complete login. Please try again shortly.',
@@ -492,7 +478,7 @@ export const login = async (req: Request, res: Response) => {
         });
       }
     } catch (e) {
-      console.warn('Failed to update lastLoginAt for user', user.id, e);
+      logAuthFailure('last_login_update_failed', e);
     }
 
     // Admin / enrolled-user 2FA gate — MUST fail closed on any error (never issue session JWT)
@@ -521,16 +507,7 @@ export const login = async (req: Request, res: Response) => {
         });
       }
     } catch (twoFaErr) {
-      console.error(
-        JSON.stringify({
-          severity: 'ERROR',
-          time: new Date().toISOString(),
-          message: 'security.2fa_gate_failed_closed',
-          component: 'auth.login',
-          userId: user.id
-          // never log secrets / codes
-        })
-      );
+      logAuthFailure('2fa_gate_failed', twoFaErr);
       return res.status(503).json({
         success: false,
         error: 'Unable to complete security verification. Please try again shortly.',
@@ -569,7 +546,6 @@ export const login = async (req: Request, res: Response) => {
     }
 
     // Generate JWT token
-    console.log('[auth.login] signing token with JWT_SECRET present?', !!JWT_SECRET);
     let token = '';
     try {
       token = (jwt as any).sign(
@@ -578,11 +554,7 @@ export const login = async (req: Request, res: Response) => {
         { expiresIn: JWT_EXPIRES_IN as string }
       );
     } catch (signError) {
-      console.error('[auth.login] JWT signing failed', {
-        userId: user.id,
-        email,
-        message: (signError as any)?.message || signError
-      });
+      logAuthFailure('jwt_signing_failed', signError);
       return res.status(500).json({
         success: false,
         error: 'Unable to complete login. Please try again shortly.',
@@ -608,7 +580,7 @@ export const login = async (req: Request, res: Response) => {
       forcePasswordReset: Boolean(staffProfile?.forcePasswordReset),
     });
   } catch (error) {
-    console.error('Login error:', error, (error as any)?.stack);
+    logAuthFailure('login_failed', error);
     return res.status(500).json({
       success: false,
       error: 'Internal server error during login',
@@ -671,7 +643,7 @@ export const getCurrentUser = async (req: Request, res: Response) => {
 
     return res.status(200).json({ user: mapUserPayload(user) });
   } catch (error) {
-    console.error('Get current user error:', error);
+    logAuthFailure('current_user_failed', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -697,7 +669,7 @@ export const getFollowOnboardingController = async (req: Request, res: Response)
       }
     });
   } catch (error) {
-    console.error('Get follow onboarding error:', error);
+    logAuthFailure('follow_onboarding_load_failed', error);
     return res.status(500).json({ success: false, error: 'Failed to load follow onboarding state' });
   }
 };
@@ -721,7 +693,7 @@ export const completeFollowOnboardingController = async (req: Request, res: Resp
   } catch (error: any) {
     const message = String(error?.message || 'Unable to complete follow onboarding');
     const status = message.toLowerCase().includes('follow at least') ? 409 : 500;
-    console.error('Complete follow onboarding error:', error);
+    logAuthFailure('follow_onboarding_complete_failed', error);
     return res.status(status).json({ success: false, error: message });
   }
 };
@@ -793,7 +765,7 @@ export const forgotPassword = async (req: Request, res: Response) => {
       message: 'If an account exists for this email, a reset link has been sent.'
     });
   } catch (error) {
-    console.error('Forgot password error:', error);
+    logAuthFailure('forgot_password_failed', error);
     return res.status(500).json({ success: false, error: 'Failed to process request' });
   }
 };
@@ -849,7 +821,7 @@ export const resetPassword = async (req: Request, res: Response) => {
 
     return res.json({ success: true, message: 'Password updated successfully' });
   } catch (error) {
-    console.error('Reset password error:', error);
+    logAuthFailure('reset_password_failed', error);
     return res.status(500).json({ success: false, error: 'Failed to reset password' });
   }
 };
