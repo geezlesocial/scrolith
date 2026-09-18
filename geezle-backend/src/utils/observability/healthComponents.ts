@@ -7,6 +7,7 @@ import net from 'net';
 import { getPrismaConnectionState } from '../prismaClient';
 import prisma from '../prismaClient';
 import { recordDbMetric, recordRedisMetric } from './metricsRegistry';
+import { connectWithManagedIdentity } from '../../services/redis/entraRedis';
 
 export type ComponentStatus = 'up' | 'down' | 'degraded' | 'skipped';
 
@@ -77,11 +78,28 @@ const checkRedis = async (): Promise<ComponentCheck> => {
       lazyConnect: true,
       enableOfflineQueue: false
     });
+    client.on('error', (error: unknown) => {
+      const message = String((error as any)?.message || 'Redis unavailable')
+        .replace(/rediss?:\/\/\S+/gi, '[redacted]')
+        .replace(/(?:token|password|secret|credential)\S*/gi, '[redacted]')
+        .replace(/[\r\n]+/g, ' ')
+        .slice(0, 160);
+      console.warn('[health] Redis probe unavailable:', message);
+    });
+    let stopRedisAuth: (() => void) | undefined;
     try {
-      await withTimeout(client.connect(), 2000, 'redis-connect');
+      const clientId = String(process.env.REDIS_ENTRA_CLIENT_ID || '').trim();
+      const username = String(process.env.REDIS_ENTRA_OBJECT_ID || '').trim();
+      if (!clientId || !username) throw new Error('Redis Entra configuration unavailable');
+      stopRedisAuth = await withTimeout(
+        connectWithManagedIdentity(client, { clientId, username }),
+        2_000,
+        'redis-auth'
+      );
       const pong = await withTimeout(client.ping(), 1500, 'redis-ping');
       const latencyMs = Date.now() - started;
       recordRedisMetric({ result: 'ok', op: 'ping', latencyMs });
+      stopRedisAuth?.();
       await client.quit().catch(() => undefined);
       return {
         name: 'redis',
@@ -89,6 +107,7 @@ const checkRedis = async (): Promise<ComponentCheck> => {
         latencyMs
       };
     } catch (error: any) {
+      stopRedisAuth?.();
       recordRedisMetric({ result: 'error', op: 'ping' });
       try {
         client.disconnect();

@@ -1,4 +1,5 @@
 import Redis from 'ioredis';
+import { connectWithManagedIdentity } from '../services/redis/entraRedis';
 
 // Test-mode override: set GCOIN_TEST_WINDOWS=1 to shorten windows for fast CI/local tests
 const TEST_MODE = (process.env.GCOIN_TEST_WINDOWS || '') === '1';
@@ -11,23 +12,57 @@ export const CONVERSION_LIMIT_PER_DAY = 3;
 
 const redisUrl = process.env.REDIS_URL || process.env.REDIS || '';
 let redis: Redis | null = null;
-if (redisUrl) {
+let redisReady: Promise<Redis> | null = null;
+let stopRedisAuth: (() => void) | undefined;
+
+const safeRedisError = (error: unknown): string => {
+  const value = error as { code?: unknown; message?: unknown };
+  const code = typeof value?.code === 'string' ? value.code.slice(0, 40) : '';
+  const message = String(value?.message || 'Redis unavailable')
+    .replace(/rediss?:\/\/\S+/gi, '[redacted]')
+    .replace(/(?:token|password|secret|credential)\S*/gi, '[redacted]')
+    .replace(/[\r\n]+/g, ' ')
+    .slice(0, 160);
+  return code ? `${code}: ${message}` : message;
+};
+
+const reportRedisError = (error: unknown) => {
+  console.warn('[gcoin] Redis protection store unavailable:', safeRedisError(error));
+};
+
+const getRedis = async (): Promise<Redis> => {
+  if (!redisUrl) throw new Error('Gcoin protection store unavailable');
+  if (redisReady) return redisReady;
+
+  const client = new Redis(redisUrl, {
+    lazyConnect: true,
+    enableOfflineQueue: false,
+    maxRetriesPerRequest: 1,
+    connectTimeout: 2_000,
+    retryStrategy: () => null
+  });
+  client.on('error', reportRedisError);
+  redis = client;
+  redisReady = (async () => {
+    const clientId = String(process.env.REDIS_ENTRA_CLIENT_ID || '').trim();
+    const username = String(process.env.REDIS_ENTRA_OBJECT_ID || '').trim();
+    if (!clientId || !username) throw new Error('Redis Entra configuration unavailable');
+    stopRedisAuth = await connectWithManagedIdentity(client, { clientId, username });
+    return client;
+  })();
+
   try {
-    redis = new Redis(redisUrl);
-  } catch (e) {
-    console.warn('Failed to init Redis for gcoin limits, falling back to memory', e);
-    redis = null as any;
+    return await redisReady;
+  } catch (error) {
+    reportRedisError(error);
+    stopRedisAuth?.();
+    stopRedisAuth = undefined;
+    client.disconnect();
+    redis = null;
+    redisReady = null;
+    throw new Error('Gcoin protection store unavailable');
   }
-}
-
-// In-memory fallback for environments without Redis (dev/tests)
-const transferWindows = new Map<string, number[]>();
-const conversionWindows = new Map<string, number[]>();
-
-function prune(arr: number[], spanMs: number) {
-  const cutoff = Date.now() - spanMs;
-  while (arr.length && arr[0] < cutoff) arr.shift();
-}
+};
 
 const TRANSFER_LUA = `
 -- ARGV: now, minWindow, hourWindow, limitMin, limitHour, ttlSeconds
@@ -54,27 +89,18 @@ return 1
 `;
 
 export async function tryRecordTransfer(userId: string) {
-  if (!redis) {
-    const arr = transferWindows.get(userId) || [];
-    prune(arr, HOURS);
-    const arrMin = arr.filter((t) => t > Date.now() - MINUTES);
-    if (arr.length >= TRANSFER_LIMIT_PER_HOUR) return false;
-    if (arrMin.length >= TRANSFER_LIMIT_PER_MIN) return false;
-    arr.push(Date.now());
-    transferWindows.set(userId, arr);
-    return true;
-  }
   const key = `gcoin:transfers:${userId}`;
   const now = Date.now();
   const minWindow = now - MINUTES;
   const hourWindow = now - HOURS;
   const ttl = Math.ceil((HOURS * 2) / 1000);
   try {
-    const res = await redis.eval(TRANSFER_LUA, 1, key, now.toString(), minWindow.toString(), hourWindow.toString(), TRANSFER_LIMIT_PER_MIN.toString(), TRANSFER_LIMIT_PER_HOUR.toString(), ttl.toString());
+    const client = await getRedis();
+    const res = await client.eval(TRANSFER_LUA, 1, key, now.toString(), minWindow.toString(), hourWindow.toString(), TRANSFER_LIMIT_PER_MIN.toString(), TRANSFER_LIMIT_PER_HOUR.toString(), ttl.toString());
     return Number(res) === 1;
-  } catch (e) {
-    console.warn('Redis tryRecordTransfer error, allowing by default', e);
-    return true;
+  } catch (error) {
+    reportRedisError(error);
+    return false;
   }
 }
 
@@ -97,30 +123,22 @@ return 1
 `;
 
 export async function tryRecordConversion(userId: string) {
-  if (!redis) {
-    const arr = conversionWindows.get(userId) || [];
-    prune(arr, 24 * HOURS);
-    if (arr.length >= CONVERSION_LIMIT_PER_DAY) return false;
-    arr.push(Date.now());
-    conversionWindows.set(userId, arr);
-    return true;
-  }
   const key = `gcoin:conversions:${userId}`;
   const now = Date.now();
   const dayWindow = now - 24 * HOURS;
   const ttl = Math.ceil((24 * HOURS) / 1000 + 60);
   try {
-    const res = await redis.eval(CONVERSION_LUA, 1, key, now.toString(), dayWindow.toString(), CONVERSION_LIMIT_PER_DAY.toString(), ttl.toString());
+    const client = await getRedis();
+    const res = await client.eval(CONVERSION_LUA, 1, key, now.toString(), dayWindow.toString(), CONVERSION_LIMIT_PER_DAY.toString(), ttl.toString());
     return Number(res) === 1;
-  } catch (e) {
-    console.warn('Redis tryRecordConversion error, allowing by default', e);
-    return true;
+  } catch (error) {
+    reportRedisError(error);
+    return false;
   }
 }
 
 export function resetAll() {
-  transferWindows.clear();
-  conversionWindows.clear();
+  // Retained for test and call-site compatibility; protection state is Redis-owned.
 }
 
 export default {};
