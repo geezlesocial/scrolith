@@ -12,12 +12,16 @@ export class DistributedRateLimitStore implements Store {
   private readonly fallback = new MemoryStore();
   readonly prefix: string;
   private readonly failClosed: boolean;
-  private readyPromise: Promise<unknown> = Promise.resolve();
+  private connectionPromise: Promise<void> | undefined;
+  private state: 'idle' | 'connecting' | 'ready' | 'unavailable' | 'closed' = 'idle';
+  private lastFailureAt = 0;
   private stopRedisAuth: (() => void) | undefined;
   private windowMs = 60_000;
 
   constructor(redisUrl: string, prefix = 'scrolith:ratelimit:', options: { failClosed?: boolean; entraClientId?: string } = {}) {
-    this.redis = createRedisClient(redisUrl, { clientId: options.entraClientId, requireManagedIdentity: options.failClosed ?? false });
+    // Configuration errors must be reported on the protected request path, not
+    // thrown during route/module setup before the HTTP server binds.
+    this.redis = createRedisClient(redisUrl, { clientId: options.entraClientId, requireManagedIdentity: false });
     this.prefix = prefix;
     this.failClosed = options.failClosed ?? false;
     this.entraClientId = options.entraClientId;
@@ -28,16 +32,76 @@ export class DistributedRateLimitStore implements Store {
   init(options: Options) {
     this.windowMs = Number(options.windowMs || this.windowMs);
     this.fallback.init?.(options);
+    // express-rate-limit calls init while routes are being registered. Keep
+    // Redis connection establishment lazy so a DNS/refusal failure cannot
+    // create an unhandled rejection before HTTP startup.
+  }
+
+  getRedisState(): 'idle' | 'connecting' | 'ready' | 'unavailable' | 'closed' {
+    return this.state;
+  }
+
+  private retryCooldownMs(): number {
+    const configured = Number(process.env.REDIS_RATE_LIMIT_RETRY_COOLDOWN_MS || 1_000);
+    return Number.isFinite(configured) ? Math.min(30_000, Math.max(250, configured)) : 1_000;
+  }
+
+  private failureCategory(error: unknown): string {
+    const code = typeof (error as { code?: unknown })?.code === 'string' ? String((error as { code: string }).code) : '';
+    const message = String((error as { message?: unknown })?.message || '').toLowerCase();
+    if (code === 'ENOTFOUND' || message.includes('enotfound')) return 'dns_unavailable';
+    if (code === 'ECONNREFUSED' || message.includes('refused')) return 'connection_refused';
+    if (code === 'ETIMEDOUT' || message.includes('timeout')) return 'timeout';
+    if (message.includes('noauth') || message.includes('authentication')) return 'authentication_failed';
+    return 'redis_unavailable';
+  }
+
+  private async ensureReady(): Promise<void> {
+    if (this.state === 'ready') return;
+    if (this.state === 'closed') throw new Error('Redis rate-limit store is closed');
+
+    const now = Date.now();
+    if (this.state === 'unavailable' && now - this.lastFailureAt < this.retryCooldownMs()) {
+      throw new Error('Redis rate-limit store unavailable');
+    }
+    if (this.connectionPromise) return this.connectionPromise;
+
+    this.state = 'connecting';
     const username = String(process.env.REDIS_ENTRA_OBJECT_ID || '').trim() || undefined;
-    this.readyPromise = this.entraClientId
-      ? connectRedisClient(this.redis, { clientId: this.entraClientId, username }, this.failClosed).then((stop) => { this.stopRedisAuth = stop; })
-      : connectRedisClient(this.redis, undefined, this.failClosed);
+    const attempt = (async () => {
+      try {
+        const stop = this.entraClientId
+          ? await connectRedisClient(this.redis, { clientId: this.entraClientId, username }, this.failClosed)
+          : await connectRedisClient(this.redis, undefined, this.failClosed);
+        if (this.state === 'closed') {
+          stop?.();
+          throw new Error('Redis rate-limit store is closed');
+        }
+        this.stopRedisAuth = stop;
+        this.state = 'ready';
+        this.lastFailureAt = 0;
+      } catch (error) {
+        this.state = 'unavailable';
+        this.lastFailureAt = Date.now();
+        console.warn('[rate-limit] Redis unavailable; protected requests denied', { reason: this.failureCategory(error) });
+        throw error;
+      } finally {
+        this.connectionPromise = undefined;
+      }
+    })();
+
+    this.connectionPromise = attempt;
+    // A caller normally awaits this promise, but this terminal handler also
+    // prevents process-level unhandled-rejection handling from seeing a
+    // failed readiness attempt during concurrent request/startup transitions.
+    void attempt.catch(() => undefined);
+    return attempt;
   }
 
   async increment(key: string): Promise<IncrementResponse> {
     const redisKey = `${this.prefix}${key}`;
     try {
-      await this.readyPromise;
+      await this.ensureReady();
       const result = await this.redis.eval(
         'local hits = redis.call("INCR", KEYS[1]); if hits == 1 then redis.call("PEXPIRE", KEYS[1], ARGV[1]); end; return { hits, redis.call("PTTL", KEYS[1]) };',
         1,
@@ -49,7 +113,6 @@ export class DistributedRateLimitStore implements Store {
       if (!Number.isFinite(totalHits) || totalHits <= 0) throw new Error('Invalid Redis rate-limit response');
       return { totalHits, resetTime: new Date(Date.now() + Math.max(1_000, ttl)) };
     } catch (error) {
-      console.warn('[rate-limit] Redis unavailable; applying protected fallback:', String((error as any)?.message || error).slice(0, 160));
       if (this.failClosed) {
         return { totalHits: Number.MAX_SAFE_INTEGER, resetTime: new Date(Date.now() + this.windowMs) };
       }
@@ -85,6 +148,7 @@ export class DistributedRateLimitStore implements Store {
   }
 
   async shutdown() {
+    this.state = 'closed';
     this.stopRedisAuth?.();
     await this.redis.quit().catch(() => undefined);
     await this.fallback.shutdown?.();
