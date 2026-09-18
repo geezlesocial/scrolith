@@ -7,7 +7,7 @@ import net from 'net';
 import { getPrismaConnectionState } from '../prismaClient';
 import prisma from '../prismaClient';
 import { recordDbMetric, recordRedisMetric } from './metricsRegistry';
-import { connectWithManagedIdentity } from '../../services/redis/entraRedis';
+import { connectRedisClient, createRedisClient } from '../../services/redis/entraRedis';
 
 export type ComponentStatus = 'up' | 'down' | 'degraded' | 'skipped';
 
@@ -69,30 +69,16 @@ const checkRedis = async (): Promise<ComponentCheck> => {
   }
   const started = Date.now();
   try {
-    // Lazy require to avoid hard dependency at boot when unused.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const Redis = require('ioredis');
-    const client = new Redis(url, {
-      connectTimeout: 2000,
-      maxRetriesPerRequest: 1,
-      lazyConnect: true,
-      enableOfflineQueue: false
-    });
-    client.on('error', (error: unknown) => {
-      const message = String((error as any)?.message || 'Redis unavailable')
-        .replace(/rediss?:\/\/\S+/gi, '[redacted]')
-        .replace(/(?:token|password|secret|credential)\S*/gi, '[redacted]')
-        .replace(/[\r\n]+/g, ' ')
-        .slice(0, 160);
-      console.warn('[health] Redis probe unavailable:', message);
-    });
+    const clientId = String(process.env.REDIS_ENTRA_CLIENT_ID || '').trim();
+    const username = String(process.env.REDIS_ENTRA_OBJECT_ID || '').trim();
+    const client = createRedisClient(url, { clientId, requireManagedIdentity: true });
     let stopRedisAuth: (() => void) | undefined;
     try {
       const clientId = String(process.env.REDIS_ENTRA_CLIENT_ID || '').trim();
       const username = String(process.env.REDIS_ENTRA_OBJECT_ID || '').trim();
       if (!clientId || !username) throw new Error('Redis Entra configuration unavailable');
       stopRedisAuth = await withTimeout(
-        connectWithManagedIdentity(client, { clientId, username }),
+        connectRedisClient(client, { clientId, username }, true),
         2_000,
         'redis-auth'
       );

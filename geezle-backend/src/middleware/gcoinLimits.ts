@@ -1,5 +1,5 @@
-import Redis from 'ioredis';
-import { connectWithManagedIdentity } from '../services/redis/entraRedis';
+import type Redis from 'ioredis';
+import { connectRedisClient, createRedisClient } from '../services/redis/entraRedis';
 
 // Test-mode override: set GCOIN_TEST_WINDOWS=1 to shorten windows for fast CI/local tests
 const TEST_MODE = (process.env.GCOIN_TEST_WINDOWS || '') === '1';
@@ -11,6 +11,7 @@ export const TRANSFER_LIMIT_PER_HOUR = 10;
 export const CONVERSION_LIMIT_PER_DAY = 3;
 
 const redisUrl = process.env.REDIS_URL || process.env.REDIS || '';
+const protectedRuntime = ['production', 'staging'].includes(String(process.env.NODE_ENV || '').toLowerCase());
 let redis: Redis | null = null;
 let redisReady: Promise<Redis> | null = null;
 let stopRedisAuth: (() => void) | undefined;
@@ -34,20 +35,13 @@ const getRedis = async (): Promise<Redis> => {
   if (!redisUrl) throw new Error('Gcoin protection store unavailable');
   if (redisReady) return redisReady;
 
-  const client = new Redis(redisUrl, {
-    lazyConnect: true,
-    enableOfflineQueue: false,
-    maxRetriesPerRequest: 1,
-    connectTimeout: 2_000,
-    retryStrategy: () => null
-  });
-  client.on('error', reportRedisError);
-  redis = client;
   redisReady = (async () => {
+    const client = createRedisClient(redisUrl, { clientId: String(process.env.REDIS_ENTRA_CLIENT_ID || '').trim(), requireManagedIdentity: protectedRuntime });
+    redis = client;
     const clientId = String(process.env.REDIS_ENTRA_CLIENT_ID || '').trim();
     const username = String(process.env.REDIS_ENTRA_OBJECT_ID || '').trim();
     if (!clientId || !username) throw new Error('Redis Entra configuration unavailable');
-    stopRedisAuth = await connectWithManagedIdentity(client, { clientId, username });
+    stopRedisAuth = await connectRedisClient(client, { clientId, username }, protectedRuntime);
     return client;
   })();
 
@@ -57,7 +51,7 @@ const getRedis = async (): Promise<Redis> => {
     reportRedisError(error);
     stopRedisAuth?.();
     stopRedisAuth = undefined;
-    client.disconnect();
+    redis?.disconnect();
     redis = null;
     redisReady = null;
     throw new Error('Gcoin protection store unavailable');

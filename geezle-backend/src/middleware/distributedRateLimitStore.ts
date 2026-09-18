@@ -1,12 +1,10 @@
-import Redis from 'ioredis';
+import type Redis from 'ioredis';
 import { MemoryStore, type ClientRateLimitInfo, type IncrementResponse, type Options, type Store } from 'express-rate-limit';
-import { connectWithManagedIdentity } from '../services/redis/entraRedis';
+import { connectRedisClient, createRedisClient } from '../services/redis/entraRedis';
 
 /**
- * Redis-backed hit counter for multi-replica deployments. The bounded memory
- * store is used only as a temporary safety fallback if Redis is unavailable;
- * callers can observe the warning and recover distributed enforcement when it
- * returns.
+ * Redis-backed hit counter for multi-replica deployments. Protected runtimes
+ * fail closed; only local development may use the bounded memory fallback.
  */
 export class DistributedRateLimitStore implements Store {
   readonly localKeys = false;
@@ -19,13 +17,7 @@ export class DistributedRateLimitStore implements Store {
   private windowMs = 60_000;
 
   constructor(redisUrl: string, prefix = 'scrolith:ratelimit:', options: { failClosed?: boolean; entraClientId?: string } = {}) {
-    this.redis = new Redis(redisUrl, {
-      lazyConnect: true,
-      enableOfflineQueue: false,
-      maxRetriesPerRequest: 1,
-      connectTimeout: 2_000,
-      retryStrategy: () => null
-    });
+    this.redis = createRedisClient(redisUrl, { clientId: options.entraClientId, requireManagedIdentity: options.failClosed ?? false });
     this.prefix = prefix;
     this.failClosed = options.failClosed ?? false;
     this.entraClientId = options.entraClientId;
@@ -38,8 +30,8 @@ export class DistributedRateLimitStore implements Store {
     this.fallback.init?.(options);
     const username = String(process.env.REDIS_ENTRA_OBJECT_ID || '').trim() || undefined;
     this.readyPromise = this.entraClientId
-      ? connectWithManagedIdentity(this.redis, { clientId: this.entraClientId, username }).then((stop) => { this.stopRedisAuth = stop; })
-      : this.redis.connect();
+      ? connectRedisClient(this.redis, { clientId: this.entraClientId, username }, this.failClosed).then((stop) => { this.stopRedisAuth = stop; })
+      : connectRedisClient(this.redis, undefined, this.failClosed);
   }
 
   async increment(key: string): Promise<IncrementResponse> {
@@ -69,7 +61,7 @@ export class DistributedRateLimitStore implements Store {
     try {
       await this.redis.decr(`${this.prefix}${key}`);
     } catch {
-      await this.fallback.decrement(key);
+      if (!this.failClosed) await this.fallback.decrement(key);
     }
   }
 
@@ -77,7 +69,7 @@ export class DistributedRateLimitStore implements Store {
     try {
       await this.redis.del(`${this.prefix}${key}`);
     } catch {
-      await this.fallback.resetKey(key);
+      if (!this.failClosed) await this.fallback.resetKey(key);
     }
   }
 
@@ -88,7 +80,7 @@ export class DistributedRateLimitStore implements Store {
       const ttl = await this.redis.pttl(`${this.prefix}${key}`);
       return { totalHits: Number(raw), resetTime: new Date(Date.now() + Math.max(1_000, ttl)) };
     } catch {
-      return this.fallback.get?.(key);
+      return this.failClosed ? undefined : this.fallback.get?.(key);
     }
   }
 

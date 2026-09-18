@@ -4,8 +4,8 @@
  * Business logic never imports Redis clients directly.
  */
 import { enterpriseCache } from './scrolitha.enterpriseCache';
-import Redis from 'ioredis';
-import { connectWithManagedIdentity } from '../redis/entraRedis';
+import type Redis from 'ioredis';
+import { connectRedisClient, createRedisClient } from '../redis/entraRedis';
 
 export type SessionTurn = {
   role: 'user' | 'assistant' | 'system';
@@ -159,28 +159,36 @@ class RedisSessionStore implements DistributedSessionStore {
 
   private readonly redis: Redis;
   private readonly prefix: string;
+  private connectionPromise: Promise<void> | null = null;
+  private stopRedisAuth: (() => void) | undefined;
 
   constructor(private readonly config: SessionStoreConfig) {
     if (!config.connectionUrl) throw new Error('SCROLITHA_SESSION_REDIS_URL is required for Redis sessions');
     this.prefix = String(config.keyPrefix || 'scrolitha:sess:');
-    this.redis = new Redis(config.connectionUrl, {
-      lazyConnect: true,
-      enableOfflineQueue: false,
-      maxRetriesPerRequest: 1,
-      connectTimeout: 2_000,
-      retryStrategy: () => null
+    const clientId = String(process.env.REDIS_ENTRA_CLIENT_ID || '').trim() || undefined;
+    this.redis = createRedisClient(config.connectionUrl, {
+      clientId,
+      requireManagedIdentity: ['production', 'staging'].includes(String(process.env.NODE_ENV || '').toLowerCase())
     });
   }
 
   private key(sessionKey: string) { return `${this.prefix}${sessionKey}`; }
 
   private async ready() {
-    if (this.redis.status === 'wait') {
+    if (this.redis.status === 'ready') return;
+    if (!this.connectionPromise) {
       const clientId = String(process.env.REDIS_ENTRA_CLIENT_ID || '').trim();
       const username = String(process.env.REDIS_ENTRA_OBJECT_ID || '').trim() || undefined;
-      if (clientId) await connectWithManagedIdentity(this.redis, { clientId, username });
-      else await this.redis.connect();
+      this.connectionPromise = connectRedisClient(
+        this.redis,
+        clientId ? { clientId, username } : undefined,
+        ['production', 'staging'].includes(String(process.env.NODE_ENV || '').toLowerCase())
+      ).then((stop) => { this.stopRedisAuth = stop; }).catch((error) => {
+        this.connectionPromise = null;
+        throw error;
+      });
     }
+    await this.connectionPromise;
   }
 
   async get(sessionKey: string): Promise<SessionRecord | null> {
@@ -206,7 +214,11 @@ class RedisSessionStore implements DistributedSessionStore {
     return (await this.redis.ping()) === 'PONG';
   }
 
-  async close(): Promise<void> { await this.redis.quit().catch(() => undefined); }
+  async close(): Promise<void> {
+    this.stopRedisAuth?.();
+    this.stopRedisAuth = undefined;
+    await this.redis.quit().catch(() => undefined);
+  }
 }
 
 let activeStore: SessionStore = new InProcessSessionStore();
