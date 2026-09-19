@@ -1,4 +1,4 @@
-import { Decimal } from '@prisma/client/runtime/library';
+import { Decimal } from '@prisma/client/runtime/client';
 
 export const calculateEqualDistribution = (poolAmount: Decimal | number | string, partnerCount: number) => {
   if (!Number.isInteger(partnerCount) || partnerCount <= 0) throw new Error('Partner count must be positive');

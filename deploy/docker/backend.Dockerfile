@@ -1,4 +1,4 @@
-FROM node:20-alpine AS runtime
+FROM node:22.18-alpine AS runtime
 
 WORKDIR /app/geezle-backend
 
@@ -8,6 +8,7 @@ RUN npm ci --include=dev \
 
 COPY geezle-backend/src ./src
 COPY geezle-backend/prisma ./prisma
+COPY geezle-backend/prisma.config.ts ./
 COPY geezle-backend/scripts ./scripts
 COPY geezle-backend/tsconfig*.json ./
 

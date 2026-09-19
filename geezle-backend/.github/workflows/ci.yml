@@ -12,9 +12,27 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://scrolith_test:local_test_password@127.0.0.1:5432/scrolith_test
+      SHADOW_DATABASE_URL: postgresql://scrolith_test:local_test_password@127.0.0.1:5432/scrolith_shadow
     strategy:
       matrix:
-        node-version: [18]
+        node-version: [22.18.0]
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: scrolith_test
+          POSTGRES_PASSWORD: local_test_password
+          POSTGRES_DB: scrolith_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scrolith_test -d scrolith_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
 
     steps:
       - name: Checkout
@@ -26,13 +44,51 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
 
+      - name: Create isolated shadow database
+        env:
+          PGPASSWORD: local_test_password
+        run: |
+          psql --host=127.0.0.1 --username=scrolith_test --dbname=postgres --command="CREATE DATABASE scrolith_shadow OWNER scrolith_test;"
+
       - name: Install dependencies
         run: npm ci
 
       - name: Generate Prisma client
         run: npx prisma generate
 
+      - name: Validate and apply isolated Prisma migrations
+        run: |
+          npx prisma validate
+          npx prisma migrate deploy
+          npx prisma migrate status
+          npx prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script
+
       - name: Run test suite
         env:
           CI: true
         run: npx jest --runInBand --verbose --detectOpenHandles
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Check patch formatting
+        run: git diff --check
+
+      - name: Build backend Docker image
+        run: docker build --file Dockerfile.acr.temp --tag scrolith-backend:prisma7-ci .
+
+      - name: Production dependency audit
+        shell: bash
+        run: |
+          npm audit --omit=dev --json > audit-production.json || true
+          node -e "const r=require('./audit-production.json'); console.log(JSON.stringify(r.metadata?.vulnerabilities||{}))"
+
+      - name: Full dependency audit
+        shell: bash
+        run: |
+          npm audit --json > audit-full.json || true
+          node -e "const r=require('./audit-full.json'); console.log(JSON.stringify(r.metadata?.vulnerabilities||{}))"
+
+      - name: Remove audit artifacts
+        if: always()
+        run: rm -f audit-production.json audit-full.json

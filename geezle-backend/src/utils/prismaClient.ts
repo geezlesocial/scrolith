@@ -1,4 +1,6 @@
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -117,9 +119,6 @@ const assertPrismaEngineCompatibility = () => {
 
 assertPrismaEngineCompatibility();
 const normalizedDatabaseUrl = normalizePrismaDatabaseUrl(String(process.env.DATABASE_URL || '').trim());
-if (normalizedDatabaseUrl) {
-  process.env.DATABASE_URL = normalizedDatabaseUrl;
-}
 
 const prismaLogConfig = prismaSlowQueryLoggingEnabled
   ? [
@@ -132,18 +131,24 @@ const prismaLogConfig = prismaSlowQueryLoggingEnabled
       { emit: 'stdout' as const, level: 'error' as const }
     ];
 
+const databasePool = normalizedDatabaseUrl
+  ? new Pool({
+      connectionString: normalizedDatabaseUrl,
+      max: prismaConnectionLimit,
+      connectionTimeoutMillis: prismaConnectTimeoutSeconds * 1000,
+      idleTimeoutMillis: prismaPoolTimeoutSeconds * 1000
+    })
+  : null;
+const prismaAdapter = databasePool ? new PrismaPg(databasePool) : undefined;
 const prisma = global.__prisma || new PrismaClient({
-  log: prismaLogConfig,
-  ...(normalizedDatabaseUrl
-    ? {
-        datasources: {
-          db: {
-            url: normalizedDatabaseUrl
-          }
-        }
-      }
-    : {})
+  adapter: prismaAdapter as any,
+  log: prismaLogConfig
 });
+
+export const disconnectPrisma = async () => {
+  await prisma.$disconnect();
+  await databasePool?.end();
+};
 
 const prismaRetryableCodes = new Set(['P1001', 'P1002', 'P1017', 'P2024', 'P2037']);
 const prismaRetryableMessagePatterns = [

@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
 import { Prisma } from '@prisma/client';
-import { Decimal } from '@prisma/client/runtime/library';
+import { Decimal } from '@prisma/client/runtime/client';
 import prisma from '../utils/prismaClient';
 import { encryptSecret } from '../utils/secretCipher';
 import { getStripeClient } from './stripeConfig.service';
