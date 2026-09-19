@@ -78,6 +78,22 @@ jobs:
           docker image inspect scrolith-backend:g2.3 \
             --format 'Healthcheck={{json .Config.Healthcheck}} User={{json .Config.User}}'
 
+      - name: Verify production-only runtime contents
+        working-directory: geezle-backend
+        run: |
+          docker run --rm --entrypoint sh scrolith-backend:g2.3 -c '
+            test ! -e /usr/local/bin/npm &&
+            test ! -e /usr/local/bin/npx &&
+            test ! -d /usr/local/lib/node_modules/npm &&
+            test ! -d /app/geezle-backend/node_modules/jest &&
+            test ! -d /app/geezle-backend/node_modules/typescript &&
+            test -d /app/geezle-backend/node_modules/@prisma/client &&
+            test -d /app/geezle-backend/node_modules/.prisma &&
+            test -f /app/geezle-backend/dist/server.js
+          '
+          docker run --rm --entrypoint node scrolith-backend:g2.3 \
+            -e "require('./node_modules/@prisma/client')"
+
       - name: Scan image with Trivy
         run: >-
           docker run --rm

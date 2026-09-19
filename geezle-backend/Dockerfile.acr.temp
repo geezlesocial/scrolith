@@ -1,44 +1,34 @@
-# Node 22.23.2 Alpine 3.24; amd64 immutable base digest.
-FROM node:22.23.2-alpine3.24@sha256:b64da1de5a51067ab8e75f0bc8dbd0905d8894baa22261f439a4572f41291e50 AS runtime
+# Node 22.23.2 Alpine 3.24; amd64 immutable builder/runtime base digest.
+FROM node:22.23.2-alpine3.24@sha256:b64da1de5a51067ab8e75f0bc8dbd0905d8894baa22261f439a4572f41291e50 AS builder
 
 WORKDIR /app/geezle-backend
-
 COPY package*.json ./
-RUN npm install --global npm@11.6.1 --no-audit --no-fund \
-  && npm install --global tar@7.5.19 --no-audit --no-fund \
-  && NPM_TAR_ROOT="$(npm root -g)/tar" \
-  && test "$(NPM_TAR_ROOT="$NPM_TAR_ROOT" node -p 'require(process.env.NPM_TAR_ROOT+"/package.json").version')" = "7.5.19" \
-  && rm -rf "$(npm root -g)/npm/node_modules/tar" \
-  && mkdir -p "$(npm root -g)/npm/node_modules/tar" \
-  && cp -a "$(npm root -g)/tar/." "$(npm root -g)/npm/node_modules/tar/" \
-  && test "$(NPM_TAR_ROOT="$(npm root -g)/npm/node_modules/tar" node -p 'require(process.env.NPM_TAR_ROOT+"/package.json").version')" = "7.5.19" \
-  && npm ci --include=dev \
-  && npm cache clean --force
-
+RUN npm ci --include=dev && npm cache clean --force
 COPY src ./src
 COPY prisma ./prisma
 COPY prisma.config.ts ./
 COPY scripts ./scripts
 COPY tsconfig*.json ./
-
 RUN DATABASE_URL=postgresql://prisma-build:prisma-build@127.0.0.1:5432/prisma_build \
   SHADOW_DATABASE_URL=postgresql://prisma-build:prisma-build@127.0.0.1:5432/prisma_build_shadow \
   npm run prisma:generate
 RUN npm run build:prod
+RUN find dist -type f -name '*.map' -delete
 
+FROM node:22.23.2-alpine3.24@sha256:b64da1de5a51067ab8e75f0bc8dbd0905d8894baa22261f439a4572f41291e50 AS runtime
+WORKDIR /app/geezle-backend
+COPY package*.json ./
+RUN npm ci --omit=dev \
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /root/.npm
+COPY --from=builder /app/geezle-backend/dist ./dist
+COPY --from=builder /app/geezle-backend/node_modules/.prisma ./node_modules/.prisma
 RUN addgroup -S appgroup \
   && adduser -S -G appgroup appuser \
   && mkdir -p uploads \
   && chown appuser:appgroup uploads
-
 ENV NODE_ENV=production
-
 USER appuser
-
 EXPOSE 8080
-
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-
-# SECURITY: do not migrate on boot — migrations are a release-job step.
 CMD ["node", "dist/server.js"]
