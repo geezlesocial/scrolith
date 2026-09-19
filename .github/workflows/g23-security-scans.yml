@@ -1,0 +1,171 @@
+name: G2.3 Security Scans
+
+on:
+  push:
+    branches:
+      - codex/staging-redis-remediation-20260917
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@a65a038433a26f4363cf9f029e3b9ceac831ad5d # v3.28.10
+        with:
+          languages: javascript-typescript
+          build-mode: none
+          queries: security-extended
+
+      - name: Analyze with CodeQL
+        id: codeql
+        uses: github/codeql-action/analyze@a65a038433a26f4363cf9f029e3b9ceac831ad5d # v3.28.10
+        with:
+          category: /g2.3-javascript-typescript
+          output: codeql-results
+          upload: always
+          wait-for-processing: true
+
+      - name: Secret scan committed source and history
+        id: gitleaks
+        continue-on-error: true
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: 'false'
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'true'
+          GITLEAKS_ENABLE_SUMMARY: 'true'
+
+      - name: Set up Node.js for dependency metadata
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
+        with:
+          node-version: 22.18.0
+          cache: npm
+          cache-dependency-path: geezle-backend/package-lock.json
+
+      - name: Build clean local image
+        working-directory: geezle-backend
+        run: docker build --file Dockerfile.acr.temp --tag scrolith-backend:g2.3 .
+
+      - name: Capture image identity and base provenance
+        id: image
+        working-directory: geezle-backend
+        run: |
+          digest="$(docker image inspect --format '{{.Id}}' scrolith-backend:g2.3)"
+          echo "IMAGE_DIGEST=$digest" >> "$GITHUB_ENV"
+          docker image inspect scrolith-backend:g2.3 > ../g2.3-image-inspect.json
+          docker history --no-trunc scrolith-backend:g2.3 > ../g2.3-image-history.txt
+          echo "Local immutable image digest: $digest"
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@76071ef0d7ec797419534a183b498b4d6366cf37 # v0.31.0
+        with:
+          version: v0.63.0
+          image-ref: scrolith-backend:g2.3
+          format: json
+          output: g2.3-trivy-image.json
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          ignore-unfixed: 'false'
+          exit-code: '0'
+
+      - name: Scan committed deployment configuration with Trivy
+        uses: aquasecurity/trivy-action@76071ef0d7ec797419534a183b498b4d6366cf37 # v0.31.0
+        with:
+          version: v0.63.0
+          scan-type: config
+          scan-ref: .
+          format: json
+          output: g2.3-trivy-iac.json
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          exit-code: '0'
+
+      - name: Generate image-level CycloneDX SBOM
+        uses: anchore/sbom-action@d94f46e13c6c62f59525ac9a1e147a99dc0b9bf5 # v0.24.0
+        with:
+          image: scrolith-backend:g2.3
+          format: cyclonedx-json
+          output-file: g2.3-sbom.cdx.json
+          artifact-name: g2.3-sbom-cyclonedx
+          syft-version: v1.18.1
+          upload-artifact: 'false'
+
+      - name: Record SBOM provenance and checksums
+        run: |
+          sha256sum g2.3-sbom.cdx.json > g2.3-sbom.cdx.sha256
+          cat > g2.3-sbom.metadata.json <<EOF
+          {"sourceCommit":"${GITHUB_SHA}","imageDigest":"${IMAGE_DIGEST}","generator":"Anchore SBOM Action / Syft v1.18.1","generatedAt":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","artifact":"g2.3-sbom.cdx.json"}
+          EOF
+
+      - name: Summarize scan severity counts and enforce critical gate
+        if: always()
+        env:
+          GITLEAKS_OUTCOME: ${{ steps.gitleaks.outcome }}
+        run: |
+          python3 - <<'PY'
+          import glob, json, os, sys
+
+          def trivy_counts(path):
+              counts = {k: 0 for k in ('UNKNOWN', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL')}
+              try:
+                  data = json.load(open(path, encoding='utf-8'))
+              except FileNotFoundError:
+                  return counts
+              for result in data.get('Results') or []:
+                  for finding in result.get('Vulnerabilities') or []:
+                      severity = str(finding.get('Severity', 'UNKNOWN')).upper()
+                      counts[severity] = counts.get(severity, 0) + 1
+              return counts
+
+          def codeql_counts():
+              counts = {'ERROR': 0, 'WARNING': 0, 'NOTE': 0}
+              for path in glob.glob('codeql-results/*.sarif'):
+                  data = json.load(open(path, encoding='utf-8'))
+                  for run in data.get('runs') or []:
+                      for result in run.get('results') or []:
+                          level = str(result.get('level', 'warning')).upper()
+                          counts[level] = counts.get(level, 0) + 1
+              return counts
+
+          image = trivy_counts('g2.3-trivy-image.json')
+          iac = trivy_counts('g2.3-trivy-iac.json')
+          codeql = codeql_counts()
+          print('TRIVY_IMAGE=' + json.dumps(image, sort_keys=True))
+          print('TRIVY_IAC=' + json.dumps(iac, sort_keys=True))
+          print('CODEQL=' + json.dumps(codeql, sort_keys=True))
+          print('GITLEAKS_OUTCOME=' + os.environ.get('GITLEAKS_OUTCOME', 'unknown'))
+
+          if image.get('CRITICAL', 0) or iac.get('CRITICAL', 0) or codeql.get('ERROR', 0):
+              print('G2.3 critical gate: FAILED')
+              sys.exit(1)
+          if os.environ.get('GITLEAKS_OUTCOME') == 'failure':
+              print('G2.3 secret gate: FAILED')
+              sys.exit(1)
+          print('G2.3 critical/secret gates: PASSED')
+          PY
+
+      - name: Upload redacted G2.3 evidence
+        if: always()
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.6.2
+        with:
+          name: g2.3-security-evidence-${{ github.sha }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            codeql-results/**/*.sarif
+            g2.3-trivy-image.json
+            g2.3-trivy-iac.json
+            g2.3-image-inspect.json
+            g2.3-image-history.txt
+            g2.3-sbom.cdx.json
+            g2.3-sbom.cdx.sha256
+            g2.3-sbom.metadata.json
