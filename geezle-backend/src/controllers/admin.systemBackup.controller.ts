@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import fs from 'fs';
+import os from 'os';
 import {
   deleteSystemBackups,
   getSystemBackupDownload,
@@ -14,6 +15,7 @@ import {
   verifySystemBackup
 } from '../services/systemBackup.service';
 import { downloadBlobBufferByName } from '../services/storage/blobStorage';
+import { requirePathWithin } from '../utils/security/safePath';
 
 const parseCsvOrArray = (value: unknown): string[] => {
   const raw = Array.isArray(value) ? value : String(value || '').split(/[\n,]/g);
@@ -213,15 +215,17 @@ export const downloadAdminSystemBackup = async (req: Request, res: Response) => 
 export const importAdminSystemBackup = async (req: Request, res: Response) => {
   const uploadFile = req.file;
   let loadedFromPath = false;
+  let safeUploadPath: string | undefined;
   try {
     if (!req.user?.id) {
       return res.status(401).json({ success: false, error: 'Authentication required.' });
     }
 
     const fromMemory = uploadFile?.buffer;
+    safeUploadPath = uploadFile?.path ? requirePathWithin(os.tmpdir(), uploadFile.path) : undefined;
     const fromDisk =
-      !fromMemory?.length && uploadFile?.path && fs.existsSync(uploadFile.path)
-        ? fs.readFileSync(uploadFile.path)
+      !fromMemory?.length && safeUploadPath && fs.existsSync(safeUploadPath)
+        ? fs.readFileSync(safeUploadPath)
         : null;
     const fileBuffer = fromMemory?.length ? fromMemory : fromDisk || undefined;
     loadedFromPath = Boolean(fromDisk?.length);
@@ -258,9 +262,9 @@ export const importAdminSystemBackup = async (req: Request, res: Response) => {
     });
     return toErrorResponse(res, error, 'Failed to import backup file.');
   } finally {
-    if (loadedFromPath && uploadFile?.path) {
+    if (loadedFromPath && safeUploadPath) {
       try {
-        fs.unlinkSync(uploadFile.path);
+        fs.unlinkSync(safeUploadPath);
       } catch {
         // temp file cleanup best effort
       }

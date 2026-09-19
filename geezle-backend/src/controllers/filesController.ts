@@ -1,10 +1,12 @@
 import type { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { execFile } from 'child_process';
 import jwt from 'jsonwebtoken';
 import { Jimp } from 'jimp';
 import { jwtSecret } from '../utils/security/requiredSecret';
+import { isPathWithin, requirePathWithin } from '../utils/security/safePath';
 // Prefer Node's crypto.randomUUID to avoid importing `uuid` (ESM issues in some test runners)
 const crypto = require('crypto');
 const uuidv4 = () => {
@@ -391,7 +393,9 @@ const getUploadedFileBuffer = (file: Express.Multer.File) => {
   if (file.buffer && Buffer.isBuffer(file.buffer)) {
     return file.buffer;
   }
-  const filePath = file.path || path.join(UPLOAD_DIR, file.filename || '');
+  const filePath = file.path
+    ? (isPathWithin(UPLOAD_DIR, file.path) || isPathWithin(os.tmpdir(), file.path) ? path.resolve(file.path) : requirePathWithin(UPLOAD_DIR, file.path))
+    : path.join(UPLOAD_DIR, file.filename || '');
   if (filePath && fs.existsSync(filePath)) {
     return fs.readFileSync(filePath);
   }
