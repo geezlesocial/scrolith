@@ -7,7 +7,8 @@ COPY geezle/package*.json ./
 ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org
 ENV CYPRESS_INSTALL_BINARY=0
 ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
-RUN npm ci --include=dev --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000 || npm install --include=dev --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
+RUN npm install --global npm@11.6.1 --no-audit --no-fund \
+  && npm ci --include=dev --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000 || npm install --include=dev --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
 
 COPY geezle/ ./
 
