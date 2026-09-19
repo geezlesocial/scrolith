@@ -82,14 +82,12 @@ jobs:
         working-directory: geezle-backend
         run: |
           docker run --rm --entrypoint sh scrolith-backend:g2.3 -c '
-            test ! -e /usr/local/bin/npm &&
-            test ! -e /usr/local/bin/npx &&
-            test ! -d /usr/local/lib/node_modules/npm &&
-            test ! -d /app/geezle-backend/node_modules/jest &&
-            test ! -d /app/geezle-backend/node_modules/typescript &&
-            test -d /app/geezle-backend/node_modules/@prisma/client &&
-            test -d /app/geezle-backend/node_modules/.prisma &&
-            test -f /app/geezle-backend/dist/server.js
+            for path in /usr/local/bin/npm /usr/local/bin/npx /usr/local/lib/node_modules/npm /app/geezle-backend/node_modules/jest /app/geezle-backend/node_modules/typescript; do
+              if test -e "$path"; then echo "UNEXPECTED_DEV_PATH=$path"; exit 1; fi
+            done
+            for path in /app/geezle-backend/node_modules/@prisma/client /app/geezle-backend/node_modules/.prisma /app/geezle-backend/dist/server.js; do
+              if test ! -e "$path"; then echo "MISSING_RUNTIME_PATH=$path"; exit 1; fi
+            done
           '
           docker run --rm --entrypoint node scrolith-backend:g2.3 \
             -e "require('./node_modules/@prisma/client')"
