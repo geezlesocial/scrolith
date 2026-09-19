@@ -8,7 +8,9 @@ RUN npm ci --include=dev \
 
 COPY . .
 
-RUN npm run prisma:generate
+RUN DATABASE_URL=postgresql://prisma-build:prisma-build@127.0.0.1:5432/prisma_build \
+  SHADOW_DATABASE_URL=postgresql://prisma-build:prisma-build@127.0.0.1:5432/prisma_build_shadow \
+  npm run prisma:generate
 RUN mkdir -p uploads && cp -f assets/brand/runtime-uploads/* uploads/
 RUN npm run build:prod
 

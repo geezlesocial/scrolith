@@ -12,7 +12,9 @@ COPY geezle-backend/prisma.config.ts ./
 COPY geezle-backend/scripts ./scripts
 COPY geezle-backend/tsconfig*.json ./
 
-RUN npm run prisma:generate
+RUN DATABASE_URL=postgresql://prisma-build:prisma-build@127.0.0.1:5432/prisma_build \
+  SHADOW_DATABASE_URL=postgresql://prisma-build:prisma-build@127.0.0.1:5432/prisma_build_shadow \
+  npm run prisma:generate
 RUN npm run build:prod
 
 ENV NODE_ENV=production
