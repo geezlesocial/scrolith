@@ -1,0 +1,104 @@
+name: Prisma 7 Verification
+
+on:
+  push:
+    branches:
+      - codex/staging-redis-remediation-20260917
+  workflow_dispatch: {}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: geezle-backend
+    env:
+      DATABASE_URL: postgresql://scrolith_test:local_test_password@127.0.0.1:5432/scrolith_test
+      SHADOW_DATABASE_URL: postgresql://scrolith_test:local_test_password@127.0.0.1:5432/scrolith_shadow
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: scrolith_test
+          POSTGRES_PASSWORD: local_test_password
+          POSTGRES_DB: scrolith_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scrolith_test -d scrolith_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22.18.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.18.0
+          cache: npm
+          cache-dependency-path: geezle-backend/package-lock.json
+
+      - name: Create isolated shadow database
+        env:
+          PGPASSWORD: local_test_password
+        run: |
+          psql --host=127.0.0.1 --username=scrolith_test --dbname=postgres --command="CREATE DATABASE scrolith_shadow OWNER scrolith_test;"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prisma validate and generate
+        run: |
+          npx prisma validate
+          npx prisma generate
+
+      - name: Prisma isolated migration verification
+        run: |
+          npx prisma migrate deploy
+          npx prisma migrate status
+          npx prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script
+
+      - name: Focused regression suites
+        env:
+          CI: true
+        run: >-
+          npx jest --config jest.config.cjs --runInBand --verbose --detectOpenHandles
+          src/auth.login.controller.test.ts
+          src/config/__tests__/runtimeStartup.spec.ts
+          src/middleware/__tests__/distributedRateLimitStore.startup.spec.ts
+          src/middleware/__tests__/authRateLimit.redis.spec.ts
+          src/services/redis/__tests__/entraRedis.unit.test.ts
+          src/services/redis/__tests__/redisLifecycle.unit.test.ts
+          src/utils/observability/__tests__/healthComponents.redis.spec.ts
+          src/services/__tests__/email.service.spec.ts
+          src/services/__tests__/foundingPartners.math.unit.test.ts
+          src/gcoin.redis-auth.unit.test.ts
+          src/gcoin.protection-failure.unit.test.ts
+
+      - name: TypeScript build
+        run: npm run build
+
+      - name: Check patch formatting
+        run: git diff --check
+
+      - name: Clean backend Docker build
+        run: docker build --file Dockerfile.acr.temp --tag scrolith-backend:prisma7-ci .
+
+      - name: Production dependency audit
+        shell: bash
+        run: |
+          npm audit --omit=dev --json > audit-production.json || true
+          node -e "const r=require('./audit-production.json'); console.log(JSON.stringify(r.metadata?.vulnerabilities||{}))"
+
+      - name: Full dependency audit
+        shell: bash
+        run: |
+          npm audit --json > audit-full.json || true
+          node -e "const r=require('./audit-full.json'); console.log(JSON.stringify(r.metadata?.vulnerabilities||{}))"
+
+      - name: Remove audit artifacts
+        if: always()
+        run: rm -f audit-production.json audit-full.json
