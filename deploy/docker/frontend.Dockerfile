@@ -9,8 +9,12 @@ ENV CYPRESS_INSTALL_BINARY=0
 ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
 RUN npm install --global npm@11.6.1 --no-audit --no-fund \
   && npm install --global tar@7.5.19 --no-audit --no-fund \
+  && NPM_TAR_ROOT="$(npm root -g)/tar" \
+  && test "$(NPM_TAR_ROOT="$NPM_TAR_ROOT" node -p 'require(process.env.NPM_TAR_ROOT+"/package.json").version')" = "7.5.19" \
   && rm -rf "$(npm root -g)/npm/node_modules/tar" \
-  && ln -s "$(npm root -g)/tar" "$(npm root -g)/npm/node_modules/tar" \
+  && mkdir -p "$(npm root -g)/npm/node_modules/tar" \
+  && cp -a "$(npm root -g)/tar/." "$(npm root -g)/npm/node_modules/tar/" \
+  && test "$(NPM_TAR_ROOT="$(npm root -g)/npm/node_modules/tar" node -p 'require(process.env.NPM_TAR_ROOT+"/package.json").version')" = "7.5.19" \
   && npm ci --include=dev --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000 || npm install --include=dev --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
 
 COPY geezle/ ./
