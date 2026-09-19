@@ -125,7 +125,8 @@ jobs:
               except FileNotFoundError:
                   return counts
               for result in data.get('Results') or []:
-                  for finding in result.get('Vulnerabilities') or []:
+                  findings = (result.get('Vulnerabilities') or []) + (result.get('Misconfigurations') or [])
+                  for finding in findings:
                       severity = str(finding.get('Severity', 'UNKNOWN')).upper()
                       counts[severity] = counts.get(severity, 0) + 1
               return counts
