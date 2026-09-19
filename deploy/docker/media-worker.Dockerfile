@@ -19,7 +19,8 @@ RUN apt-get update \
 WORKDIR /app/geezle-backend
 COPY geezle-backend/package*.json ./
 RUN npm ci --omit=dev \
-  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /root/.npm
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /root/.npm \
+    node_modules/prisma node_modules/@prisma/dev node_modules/typescript
 COPY --from=builder /app/geezle-backend/dist ./dist
 COPY --from=builder /app/geezle-backend/node_modules/.prisma ./node_modules/.prisma
 RUN groupadd --system appgroup \
