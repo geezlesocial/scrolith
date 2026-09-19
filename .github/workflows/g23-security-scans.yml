@@ -73,7 +73,7 @@ jobs:
           -v /var/run/docker.sock:/var/run/docker.sock
           -v "$GITHUB_WORKSPACE:/work"
           -w /work
-          aquasecurity/trivy:0.63.0
+          aquasec/trivy:0.63.0
           image scrolith-backend:g2.3
           --format json
           --output /work/g2.3-trivy-image.json
@@ -86,7 +86,7 @@ jobs:
           docker run --rm
           -v "$GITHUB_WORKSPACE:/work"
           -w /work
-          aquasecurity/trivy:0.63.0
+          aquasec/trivy:0.63.0
           config .
           --format json
           --output /work/g2.3-trivy-iac.json
