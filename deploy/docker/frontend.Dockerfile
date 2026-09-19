@@ -1,4 +1,5 @@
-FROM node:20-alpine AS build
+# Node 20.19.5 Alpine; amd64 immutable build-stage digest.
+FROM node:20.19.5-alpine@sha256:be8d32d651b3e0c9c2b28fdc1d3888408125d703232013cff955344d052027e5 AS build
 
 WORKDIR /workspace/geezle
 
@@ -18,11 +19,20 @@ ARG VITE_INSTANT_GRAPH_ENABLED=false
 
 RUN npm run build
 
-FROM nginx:1.27-alpine AS runtime
+# Nginx 1.29.1 Alpine; amd64 immutable runtime digest.
+FROM nginx:1.29.1-alpine@sha256:60e48a050b6408d0c5dd59b98b6e36bf0937a0bbe99304e3e9c0e63b7563443a AS runtime
 
 COPY deploy/nginx/frontend.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /workspace/geezle/dist /usr/share/nginx/html
 
+RUN mkdir -p /var/cache/nginx /var/log/nginx /var/lib/nginx /run \
+  && chown -R nginx:nginx /var/cache/nginx /var/log/nginx /var/lib/nginx /run /usr/share/nginx/html
+
+USER nginx
+
 EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD ["wget", "--spider", "--quiet", "http://127.0.0.1:8080/"]
 
 CMD ["nginx", "-g", "daemon off;"]

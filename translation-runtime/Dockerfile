@@ -1,4 +1,5 @@
-FROM python:3.11-slim
+# Python 3.11.13 slim Bookworm; amd64 immutable base digest.
+FROM python:3.11.13-slim-bookworm@sha256:cec9aa7aa96eea4fa036e9b82be1e6b325f2e3707f462d885868df51ec0a4b47
 
 WORKDIR /app
 
@@ -24,6 +25,16 @@ RUN python -m pip install --upgrade pip \
         python -m pip install --no-cache-dir -r requirements.model.txt; \
       fi
 
+RUN groupadd --system appgroup \
+    && useradd --system --gid appgroup --create-home appuser \
+    && mkdir -p /models/huggingface /models/fasttext \
+    && chown -R appuser:appgroup /app /models
+
+USER appuser
+
 EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
 
 CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT}"]

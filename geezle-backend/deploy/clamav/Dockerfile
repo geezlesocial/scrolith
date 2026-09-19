@@ -1,4 +1,5 @@
-FROM clamav/clamav:1.4.3
+# ClamAV 1.4.3; amd64 immutable runtime digest.
+FROM clamav/clamav:1.4.3@sha256:d39ad368e587cc204f71675c3982adbc6717b8c4cb309a7ee9a3213f7e684c50
 
 # The upstream image defaults to a Unix socket. Scrolith connects over the
 # private Container Apps TCP ingress, so provide an explicit TCP listener.
