@@ -8,5 +8,9 @@ RUN cp /etc/clamav/clamd.conf /etc/clamav/clamd-tcp.conf \
     && printf '\nTCPSocket 3310\nTCPAddr 0.0.0.0\n' >> /etc/clamav/clamd-tcp.conf
 
 USER clamav
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD ["clamdscan", "--ping", "1", "--config-file=/etc/clamav/clamd-tcp.conf"]
+
 ENTRYPOINT ["/bin/sh", "-c"]
 CMD ["freshclam --stdout || true; exec clamd --foreground --config-file=/etc/clamav/clamd-tcp.conf"]
