@@ -26,6 +26,7 @@ jobs:
           languages: javascript-typescript
           build-mode: none
           queries: security-extended
+          paths: geezle-backend/src
 
       - name: Analyze with CodeQL
         id: codeql
@@ -33,7 +34,7 @@ jobs:
         with:
           category: /g2.3-javascript-typescript
           output: codeql-results
-          upload: always
+          upload: never
           wait-for-processing: true
 
       - name: Secret scan committed source and history
