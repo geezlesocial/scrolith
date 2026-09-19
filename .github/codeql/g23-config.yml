@@ -1,0 +1,5 @@
+name: g23-backend
+paths:
+  - geezle-backend/src
+queries:
+  - security-extended
