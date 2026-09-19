@@ -37,20 +37,35 @@ describe('Gcoin Redis authentication and failure safety', () => {
       return client;
     }));
     jest.doMock('../services/redis/entraRedis', () => ({
-      connectWithManagedIdentity: jest.fn().mockResolvedValue(jest.fn())
+      createRedisClient: jest.fn().mockImplementation(() => {
+        const client = {
+          on: jest.fn(),
+          eval: jest.fn().mockResolvedValue(1),
+          disconnect: jest.fn()
+        };
+        mockClients.push(client);
+        return client;
+      }),
+      connectRedisClient: jest.fn().mockResolvedValue(jest.fn())
     }));
 
     let tryRecordTransfer!: (userId: string) => Promise<boolean>;
-    let connectWithManagedIdentity!: jest.Mock;
+    let createRedisClient!: jest.Mock;
+    let connectRedisClient!: jest.Mock;
     jest.isolateModules(() => {
       ({ tryRecordTransfer } = require('../middleware/gcoinLimits'));
-      ({ connectWithManagedIdentity } = require('../services/redis/entraRedis'));
+      ({ createRedisClient, connectRedisClient } = require('../services/redis/entraRedis'));
     });
 
     await expect(tryRecordTransfer('synthetic-user')).resolves.toBe(true);
-    expect(connectWithManagedIdentity).toHaveBeenCalledWith(
+    expect(createRedisClient).toHaveBeenCalledWith(
+      'rediss://redis-staging.invalid:10000',
+      { clientId: 'staging-client-id', requireManagedIdentity: true }
+    );
+    expect(connectRedisClient).toHaveBeenCalledWith(
       mockClients[0],
-      { clientId: 'staging-client-id', username: 'staging-object-id' }
+      { clientId: 'staging-client-id', username: 'staging-object-id' },
+      true
     );
     expect(mockClients[0].eval).toHaveBeenCalledTimes(1);
   });
@@ -62,7 +77,12 @@ describe('Gcoin Redis authentication and failure safety', () => {
       return client;
     }));
     jest.doMock('../services/redis/entraRedis', () => ({
-      connectWithManagedIdentity: jest.fn().mockRejectedValue(new Error('NOAUTH Authentication required'))
+      createRedisClient: jest.fn().mockImplementation(() => {
+        const client = { on: jest.fn(), eval: jest.fn(), disconnect: jest.fn() };
+        mockClients.push(client);
+        return client;
+      }),
+      connectRedisClient: jest.fn().mockRejectedValue(new Error('NOAUTH Authentication required'))
     }));
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
 
@@ -90,7 +110,12 @@ describe('Gcoin Redis authentication and failure safety', () => {
       return client;
     }));
     jest.doMock('../services/redis/entraRedis', () => ({
-      connectWithManagedIdentity: jest.fn().mockResolvedValue(jest.fn())
+      createRedisClient: jest.fn().mockReturnValue({
+        on: jest.fn(),
+        eval: jest.fn().mockRejectedValue(new Error('NOAUTH Authentication required')),
+        disconnect: jest.fn()
+      }),
+      connectRedisClient: jest.fn().mockResolvedValue(jest.fn())
     }));
 
     let tryRecordConversion!: (userId: string) => Promise<boolean>;

@@ -1,7 +1,10 @@
 const mockConnectWithManagedIdentity = jest.fn();
+const mockCreateRedisClient = jest.fn();
+const mockConnectRedisClient = jest.fn();
 
 jest.mock('../../../services/redis/entraRedis', () => ({
-  connectWithManagedIdentity: (...args: unknown[]) => mockConnectWithManagedIdentity(...args)
+  createRedisClient: (...args: unknown[]) => mockCreateRedisClient(...args),
+  connectRedisClient: (...args: unknown[]) => mockConnectRedisClient(...args)
 }));
 jest.mock('../../prismaClient', () => ({
   getPrismaConnectionState: () => 'ready',
@@ -23,11 +26,13 @@ describe('deep Redis health authentication', () => {
       REDIS_ENTRA_CLIENT_ID: 'staging-client-id',
       REDIS_ENTRA_OBJECT_ID: 'staging-object-id'
     };
-    mockConnectWithManagedIdentity.mockResolvedValue(jest.fn());
+    mockCreateRedisClient.mockReset();
+    mockConnectRedisClient.mockResolvedValue(jest.fn());
   });
 
   afterEach(() => {
-    mockConnectWithManagedIdentity.mockReset();
+    mockCreateRedisClient.mockReset();
+    mockConnectRedisClient.mockReset();
     jest.resetModules();
     jest.dontMock('ioredis');
     process.env = { ...originalEnv };
@@ -40,15 +45,21 @@ describe('deep Redis health authentication', () => {
       quit: jest.fn().mockResolvedValue('OK'),
       disconnect: jest.fn()
     };
+    mockCreateRedisClient.mockReturnValue(client);
     jest.doMock('ioredis', () => jest.fn().mockReturnValue(client));
     let runDeepHealthChecks!: () => Promise<any>;
     jest.isolateModules(() => ({ runDeepHealthChecks } = require('../healthComponents')));
 
     const report = await runDeepHealthChecks();
     expect(report.components.find((component: any) => component.name === 'redis')).toMatchObject({ status: 'up' });
-    expect(mockConnectWithManagedIdentity).toHaveBeenCalledWith(
+    expect(mockCreateRedisClient).toHaveBeenCalledWith(
+      'rediss://redis-staging.invalid:10000',
+      { clientId: 'staging-client-id', requireManagedIdentity: true }
+    );
+    expect(mockConnectRedisClient).toHaveBeenCalledWith(
       expect.anything(),
-      { clientId: 'staging-client-id', username: 'staging-object-id' }
+      { clientId: 'staging-client-id', username: 'staging-object-id' },
+      true
     );
     expect(client.ping).toHaveBeenCalledTimes(1);
   });
@@ -56,7 +67,7 @@ describe('deep Redis health authentication', () => {
   test('reports authentication failure without throwing an unhandled client error', async () => {
     const client = { on: jest.fn(), ping: jest.fn(), quit: jest.fn(), disconnect: jest.fn() };
     jest.doMock('ioredis', () => jest.fn().mockReturnValue(client));
-    mockConnectWithManagedIdentity.mockRejectedValue(new Error('NOAUTH Authentication required'));
+    mockConnectRedisClient.mockRejectedValue(new Error('NOAUTH Authentication required'));
     let runDeepHealthChecks!: () => Promise<any>;
     jest.isolateModules(() => ({ runDeepHealthChecks } = require('../healthComponents')));
     const report = await runDeepHealthChecks();

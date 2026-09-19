@@ -45,9 +45,11 @@ export const AVIF_QUALITY = 65;
 export const JPEG_QUALITY = 82;
 
 /** Lazy load Sharp so disabled/prod-upload path need not resolve native bindings. */
-const getSharp = (): typeof import('sharp') => {
+type SharpFactory = (input?: any, options?: any) => Sharp;
+
+const getSharp = (): SharpFactory => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  return require('sharp');
+  return require('sharp') as SharpFactory;
 };
 
 const checksumBuffer = (buf: Buffer) => crypto.createHash('sha256').update(buf).digest('hex');
