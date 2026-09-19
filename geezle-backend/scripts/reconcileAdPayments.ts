@@ -1,7 +1,14 @@
 import Stripe from 'stripe';
-import { PrismaClient } from '@prisma/client';
+import prisma, { disconnectPrisma } from '../src/utils/prismaClient';
 
-const prisma = new PrismaClient();
+let disconnectPromise: Promise<void> | undefined;
+
+export const closeReconciliationResources = async () => {
+  if (!disconnectPromise) {
+    disconnectPromise = disconnectPrisma();
+  }
+  return disconnectPromise;
+};
 
 export async function reconcileAdPayments() {
   console.log('Starting ad payment reconciliation...');
@@ -50,7 +57,26 @@ export async function reconcileAdPayments() {
   }
 }
 
-// If run directly, execute reconciliation and disconnect
+// If run directly, execute reconciliation and close the shared adapter/pool.
 if (require.main === module) {
-  reconcileAdPayments().then(() => prisma.$disconnect()).catch(async (e) => { console.error(e); await prisma.$disconnect(); process.exit(1); });
+  let shuttingDown = false;
+  const shutdown = async (exitCode: number) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    try {
+      await closeReconciliationResources();
+    } finally {
+      process.exit(exitCode);
+    }
+  };
+  const handleSignal = () => { void shutdown(1); };
+  process.once('SIGINT', handleSignal);
+  process.once('SIGTERM', handleSignal);
+
+  reconcileAdPayments()
+    .then(() => shutdown(0))
+    .catch(async (error) => {
+      console.error('[ad-payment-reconcile] reconciliation failed:', (error as any)?.message || error);
+      await shutdown(1);
+    });
 }

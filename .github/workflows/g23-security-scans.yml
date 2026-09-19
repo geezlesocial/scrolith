@@ -82,7 +82,7 @@ jobs:
         working-directory: geezle-backend
         run: |
           docker run --rm --entrypoint sh scrolith-backend:g2.3 -c '
-            for path in /usr/local/bin/npm /usr/local/bin/npx /usr/local/lib/node_modules/npm /app/geezle-backend/node_modules/jest /app/geezle-backend/node_modules/typescript /app/geezle-backend/node_modules/prisma /app/geezle-backend/node_modules/@prisma/dev; do
+            for path in /usr/local/bin/npm /usr/local/bin/npx /usr/local/lib/node_modules/npm /app/geezle-backend/node_modules/jest /app/geezle-backend/node_modules/typescript /app/geezle-backend/node_modules/prisma /app/geezle-backend/node_modules/@prisma/dev /app/geezle-backend/node_modules/@prisma/config /app/geezle-backend/node_modules/@prisma/studio-core /app/geezle-backend/node_modules/@visx /app/geezle-backend/node_modules/mysql2 /app/geezle-backend/node_modules/deepmerge-ts; do
               if test -e "$path"; then echo "UNEXPECTED_DEV_PATH=$path"; exit 1; fi
             done
             for path in /app/geezle-backend/node_modules/@prisma/client /app/geezle-backend/node_modules/.prisma /app/geezle-backend/dist/server.js; do

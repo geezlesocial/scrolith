@@ -20,7 +20,9 @@ WORKDIR /app/geezle-backend
 COPY package*.json ./
 RUN npm ci --omit=dev \
   && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /root/.npm \
-    node_modules/prisma node_modules/@prisma/dev node_modules/typescript
+    node_modules/prisma node_modules/@prisma/dev node_modules/@prisma/config \
+    node_modules/@prisma/studio-core node_modules/@visx node_modules/mysql2 \
+    node_modules/deepmerge-ts node_modules/typescript
 COPY --from=builder /app/geezle-backend/dist ./dist
 COPY --from=builder /app/geezle-backend/node_modules/.prisma ./node_modules/.prisma
 RUN addgroup -S appgroup \
