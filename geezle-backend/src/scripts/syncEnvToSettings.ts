@@ -11,6 +11,7 @@
 import dotenv from 'dotenv';
 import process from 'process';
 import readline from 'readline';
+import { redactPayload } from '../utils/security/redactPayload';
 
 dotenv.config();
 
@@ -29,6 +30,7 @@ for (let i = 0; i < argv.length; i++) {
 function nonEmpty(v: any) {
   return v !== undefined && v !== null && String(v).trim() !== '';
 }
+
 
 const candidates: Array<{ path: string; value: any }> = [];
 
@@ -99,7 +101,7 @@ async function buildPayloadInteractive() {
 async function postPayload(payload: any) {
   const url = `${target.replace(/\/$/, '')}/api/admin/system/settings`;
   console.log('Posting payload to', url);
-  console.log('Payload preview:', JSON.stringify(payload, null, 2));
+  console.log('Payload prepared for settings sync', { keyCount: Object.keys(payload).length });
 
   if (Object.keys(payload).length === 0) {
     console.log('No keys selected for update. Nothing to do.');
@@ -117,7 +119,7 @@ async function postPayload(payload: any) {
       user: process.env.USER || process.env.USERNAME || 'unknown',
       target: url,
       dryRun,
-      payload
+      payload: redactPayload(payload)
     };
     fs.appendFileSync(logPath, JSON.stringify(entry) + '\n');
   } catch (e) {
@@ -134,8 +136,7 @@ async function postPayload(payload: any) {
   const g = (global as unknown) as { fetch?: typeof fetch };
   if (typeof g.fetch !== 'function') {
     console.log('Global fetch not available. Use this curl command:');
-    const tmp = JSON.stringify(payload).replace(/"/g, '\\"');
-    console.log(`curl -X POST "${url}" -H "Content-Type: application/json" -d "${tmp}"`);
+    console.log('Request requires an HTTP client with the prepared settings payload; payload contents are intentionally not printed.');
     return;
   }
 
@@ -146,7 +147,7 @@ async function postPayload(payload: any) {
       body: JSON.stringify(payload)
     });
     const data = await res.json();
-    console.log('Response:', JSON.stringify(data, null, 2));
+    console.log('Settings sync completed', { status: res.status, responseReceived: Boolean(data) });
   } catch (err: any) {
     console.error('Failed to POST payload:', err.message || err);
   }
@@ -157,4 +158,4 @@ async function main() {
   await postPayload(payload);
 }
 
-main();
+if (require.main === module) void main();

@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import prisma from '../utils/prismaClient';
 import { encryptSecret, maybeDecryptSecret } from '../utils/secretCipher';
+import { configuredHttpsHosts, validateHttpsOutboundUrl } from '../utils/security/safeOutboundUrl';
 
 const SETTINGS_SCOPE = 'talent_cloud_phase4';
 
@@ -525,7 +526,9 @@ export const queueWebhookDelivery = async (endpointId: string, eventType: string
   if (cleanString(endpoint.status).toUpperCase() !== 'ACTIVE') throw new Error('Integration endpoint is not active');
   const secretPlain = cleanString(payload?.secretPlain);
   const storedSecret = getStoredWebhookSecret(endpoint);
-  const signature = signPayload(payload, secretPlain || storedSecret || endpoint.secretHash || 'scrolith');
+  const signingSecret = secretPlain || storedSecret;
+  if (!signingSecret) throw new Error('Webhook signing secret is not configured');
+  const signature = signPayload(payload, signingSecret);
   return prisma.webhookDeliveryLog.create({
     data: {
       endpointId,
@@ -630,11 +633,16 @@ export const dispatchWebhookDelivery = async (id: string) => {
   if (!targetUrl) throw new Error('Webhook endpoint target URL is required');
 
   const secret = getStoredWebhookSecret(endpoint);
-  const signature = signPayload(row.payload || {}, secret || row.signature || endpoint.secretHash || 'scrolith');
+  if (!secret) throw new Error('Webhook signing secret is not configured');
+  const safeUrl = await validateHttpsOutboundUrl(
+    targetUrl,
+    configuredHttpsHosts('WEBHOOK_ALLOWED_HOSTS', [])
+  );
+  const signature = signPayload(row.payload || {}, secret);
   const nextAttemptNumber = Number(row.attempts || 0) + 1;
 
   try {
-    const response = await fetch(targetUrl, {
+    const response = await fetch(safeUrl, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',

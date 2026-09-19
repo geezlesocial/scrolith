@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import Stripe from 'stripe';
 import prisma from '../utils/prismaClient';
+import { configuredHttpsHosts, validateHttpsOutboundUrl } from '../utils/security/safeOutboundUrl';
 import { initiateHostedCheckout, parseNotification } from '../services/payments/providers/payoneer';
 import {
   createAntomCashierPayment,
@@ -600,8 +601,10 @@ const getMonnifyBaseUrl = () => 'https://api.monnify.com';
 const getOpayBaseUrl = () => process.env.OPAY_BASE_URL || 'https://api.opaycheckout.com';
 const getDragonpayBaseUrl = () => process.env.DRAGONPAY_BASE_URL || 'https://gw.dragonpay.ph/Pay.aspx';
 
+const PAYMENT_PROVIDER_HOSTS = ['api-m.paypal.com', 'api-m.sandbox.paypal.com', 'api.paystack.co', 'api.flutterwave.com', 'api.paymongo.com', 'api.xendit.co', 'api.monnify.com', 'api.opaycheckout.com', 'gw.dragonpay.ph'];
+
 const fetchJson = async (url: string, options: any) => {
-  const response = await fetch(url, options);
+  const response = await fetch(await validateHttpsOutboundUrl(url, configuredHttpsHosts('PAYMENT_PROVIDER_ALLOWED_HOSTS', PAYMENT_PROVIDER_HOSTS)), options);
   const text = await response.text();
   const data = text ? JSON.parse(text) : null;
   if (!response.ok) {
@@ -1947,4 +1950,3 @@ export const handleAntomNotify = async (req: Request, res: Response) => {
     return res.status(500).json(antomNotifyAckFailure(error?.message || 'Notify error'));
   }
 };
-

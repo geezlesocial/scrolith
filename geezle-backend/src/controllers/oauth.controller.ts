@@ -16,6 +16,7 @@ import {
   createOAuthExchangeCode
 } from '../services/oauthExchange.service';
 import { jwtSecret } from '../utils/security/requiredSecret';
+import { scalarQuery } from '../utils/security/scalarQuery';
 
 type OAuthProviderKey = 'google' | 'facebook' | 'twitter' | 'linkedin';
 type OAuthMode = 'login' | 'signup';
@@ -277,11 +278,14 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Unsupported provider' });
   }
 
-  const { code, state, error, error_description } = req.query as Record<string, string>;
+  const code = scalarQuery(req.query.code);
+  const state = scalarQuery(req.query.state);
+  const error = scalarQuery(req.query.error);
+  const errorDescription = scalarQuery(req.query.error_description);
 
   if (error) {
     let returnTarget: ClientReturnTarget = 'web';
-    let redirect = sanitizeInternalRedirect(req.query.redirect as string, '/auth/login');
+    let redirect = sanitizeInternalRedirect(scalarQuery(req.query.redirect), '/auth/login');
     if (state) {
       try {
         const statePayload = decodeState(state);
@@ -293,11 +297,11 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
     }
     safeOAuthLog('warn', 'oauth_provider_error', {
       provider,
-      error: redactAuthLogMessage(error_description || error)
+      error: redactAuthLogMessage(errorDescription || error)
     });
     return sendOAuthError(
       res,
-      error_description || error || 'OAuth failed',
+      errorDescription || error || 'OAuth failed',
       redirect || '/auth/login',
       returnTarget
     );

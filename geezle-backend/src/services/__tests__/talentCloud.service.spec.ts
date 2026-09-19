@@ -55,6 +55,7 @@ jest.mock('../../utils/prismaClient', () => ({
 
 describe('talentCloud.service', () => {
   beforeEach(() => {
+    process.env.WEBHOOK_ALLOWED_HOSTS = 'example.com';
     jest.resetModules();
     jest.clearAllMocks();
     mockPrisma.appSetting.findUnique.mockResolvedValue({ data: { enabled: true, manualInvitesOnly: true, webhooksEnabled: true } });
@@ -74,9 +75,9 @@ describe('talentCloud.service', () => {
   test('queues signed webhook deliveries for active endpoints', async () => {
     mockPrisma.integrationEndpoint.findUnique.mockResolvedValue({
       id: 'endpoint-1',
-      secretHash: 'stored-secret',
+      secretHash: 'hash-only',
       status: 'ACTIVE',
-      metadata: {}
+      metadata: { webhookSecret: 'stored-secret' }
     });
     mockPrisma.webhookDeliveryLog.create.mockResolvedValue({
       id: 'delivery-1',
@@ -162,7 +163,7 @@ describe('talentCloud.service', () => {
     const result = await service.dispatchWebhookDelivery('delivery-2');
 
     expect(global.fetch).toHaveBeenCalledWith(
-      'https://example.com/hook',
+      expect.any(URL),
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
@@ -182,7 +183,7 @@ describe('talentCloud.service', () => {
         type: 'WEBHOOK',
         eventTypes: ['procurement.*'],
         secretHash: 'hash-a',
-        metadata: {}
+        metadata: { webhookSecret: 'secret-a' }
       },
       {
         id: 'endpoint-b',
@@ -190,7 +191,7 @@ describe('talentCloud.service', () => {
         type: 'WEBHOOK',
         eventTypes: ['managed_delivery.project.created'],
         secretHash: 'hash-b',
-        metadata: {}
+        metadata: { webhookSecret: 'secret-b' }
       }
     ]);
     mockPrisma.integrationEndpoint.findUnique.mockImplementation(async ({ where }: any) => ({
@@ -198,7 +199,7 @@ describe('talentCloud.service', () => {
       status: 'ACTIVE',
       type: 'WEBHOOK',
       secretHash: `hash-${where.id}`,
-      metadata: {}
+      metadata: { webhookSecret: 'secret-forwarder' }
     }));
     mockPrisma.webhookDeliveryLog.create
       .mockResolvedValueOnce({ id: 'delivery-a' })
@@ -241,6 +242,9 @@ describe('talentCloud.service', () => {
         receivedCount: 0
       }
     });
+    mockPrisma.integrationEndpoint.findUnique.mockImplementation(async ({ where }: any) => where.id === 'connector-1'
+      ? { id: 'connector-1', name: 'ERP Connector', type: 'INBOUND_CONNECTOR', status: 'ACTIVE', eventTypes: ['invoice.*'], secretHash: 'hash-connector', metadata: { providerKey: 'erp', authMode: 'HEADER', authHeaderName: 'x-scrolith-connector-key', connectorApiKey: 'abcd', connectorSharedSecret: 'shared-secret', receivedCount: 0 } }
+      : { id: where.id, status: 'ACTIVE', type: 'WEBHOOK', secretHash: 'hash-forwarder', metadata: { webhookSecret: 'secret-forwarder' } });
     mockPrisma.integrationEndpoint.findMany.mockResolvedValue([
       {
         id: 'endpoint-forwarder',
@@ -248,7 +252,7 @@ describe('talentCloud.service', () => {
         type: 'WEBHOOK',
         eventTypes: ['connector.erp.*', 'integrations.connector.ingested'],
         secretHash: 'hash-forwarder',
-        metadata: {}
+        metadata: { webhookSecret: 'secret-forwarder' }
       }
     ]);
     mockPrisma.integrationEndpoint.update.mockResolvedValue({
@@ -323,6 +327,9 @@ describe('talentCloud.service', () => {
       lastUsedAt: new Date('2026-06-24T12:00:00.000Z'),
       metadata: {}
     });
+    mockPrisma.integrationEndpoint.findUnique.mockImplementation(async ({ where }: any) => where.id === 'connector-2'
+      ? { id: 'connector-2', name: 'ERP Connector', type: 'INBOUND_CONNECTOR', status: 'ACTIVE', eventTypes: ['invoice.*'], secretHash: 'hash-connector', metadata: { providerKey: 'erp', authMode: 'HEADER', authHeaderName: 'x-scrolith-connector-key', connectorApiKey: 'abcd', connectorSharedSecret: 'shared-secret', receivedCount: 0 } }
+      : { id: where.id, status: 'ACTIVE', type: 'WEBHOOK', secretHash: 'hash-forwarder', metadata: { webhookSecret: 'secret-forwarder' } });
     mockPrisma.integrationEndpoint.findMany.mockResolvedValue([
       {
         id: 'endpoint-forwarder',
@@ -330,7 +337,7 @@ describe('talentCloud.service', () => {
         type: 'WEBHOOK',
         eventTypes: ['connector.erp.*', 'integrations.connector.ingested'],
         secretHash: 'hash-forwarder',
-        metadata: {}
+        metadata: { webhookSecret: 'secret-forwarder' }
       }
     ]);
     mockPrisma.integrationEndpoint.update.mockResolvedValue({
@@ -379,7 +386,7 @@ describe('talentCloud.service', () => {
       secretHash: 'stored-hash',
       scopes: ['talent_cloud.read'],
       status: 'ACTIVE',
-      metadata: {}
+      metadata: { webhookSecret: 'secret-connector' }
     });
 
     const service = await import('../talentCloud.service');
@@ -397,7 +404,7 @@ describe('talentCloud.service', () => {
       secretHash: 'stored-hash',
       scopes: ['talent_cloud.read'],
       status: 'ACTIVE',
-      metadata: {}
+      metadata: { webhookSecret: 'secret-forwarder' }
     });
     mockPrisma.apiCredential.update.mockResolvedValue({
       id: 'cred-read-1',
@@ -407,7 +414,7 @@ describe('talentCloud.service', () => {
       scopes: ['talent_cloud.read'],
       status: 'ACTIVE',
       lastUsedAt: new Date('2026-06-24T14:00:00.000Z'),
-      metadata: {}
+      metadata: { webhookSecret: 'secret-forwarder' }
     });
     mockPrisma.integrationEndpoint.findUnique.mockResolvedValue({
       id: 'connector-read-1',
@@ -459,7 +466,7 @@ describe('talentCloud.service', () => {
       secretHash: 'stored-hash',
       scopes: ['talent_cloud.read'],
       status: 'ACTIVE',
-      metadata: {}
+      metadata: { webhookSecret: 'secret-forwarder' }
     });
     mockPrisma.apiCredential.update.mockResolvedValue({
       id: 'cred-read-2',

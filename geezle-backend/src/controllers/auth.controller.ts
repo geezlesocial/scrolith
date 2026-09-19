@@ -508,7 +508,7 @@ export const login = async (req: Request, res: Response) => {
         });
       }
     } catch (twoFaErr) {
-      logAuthFailure('2fa_gate_failed', twoFaErr);
+          logAuthFailure('security.2fa_gate_failed_closed', twoFaErr);
       return res.status(503).json({
         success: false,
         error: 'Unable to complete security verification. Please try again shortly.',
