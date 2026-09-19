@@ -5,6 +5,7 @@ WORKDIR /app/geezle-backend
 
 COPY geezle-backend/package*.json ./
 RUN npm install --global npm@11.6.1 --no-audit --no-fund \
+  && npm install --prefix "$(npm root -g)/npm" --no-save --omit=dev tar@7.5.19 \
   && npm ci --include=dev \
   && npm cache clean --force
 
