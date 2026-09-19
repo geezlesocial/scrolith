@@ -1,4 +1,7 @@
 import prisma from '../utils/prismaClient';
+import { ANALYST_PERMISSION_KEYS, isAnalystRole } from './analystRole';
+
+export { ANALYST_PERMISSION_KEYS, isAnalystRole } from './analystRole';
 
 export type StaffContext = {
   isAdmin: boolean;
@@ -395,7 +398,7 @@ const DEFAULT_ROLE_SEEDS: RoleSeed[] = [
     name: 'Analyst',
     description: 'Read-only governance and audit visibility',
     isSystemRole: true,
-    permissionKeys: ['audit.read', 'approvals.read', 'security.alerts.read', 'settings.read', 'staff.read', 'procurement.read', 'budgets.read', 'invoices.read', 'risk.read', 'compliance.read', 'talent_cloud.read', 'integrations.read', 'webhooks.read', 'scrolitha.read', 'managed_delivery.read']
+    permissionKeys: [...ANALYST_PERMISSION_KEYS]
   }
 ];
 

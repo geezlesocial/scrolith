@@ -12,6 +12,7 @@ import {
   verifyTotp
 } from '../services/totp.service';
 import { getSystemControls, isAdminRole } from '../services/systemControls.service';
+import { isAnalystMfaRequiredByPolicy } from '../services/analystRole';
 import { jwtSecret } from '../utils/security/requiredSecret';
 
 const isWaived = (user: { twoFactorWaivedUntil?: Date | null }) => {
@@ -379,7 +380,7 @@ export const evaluateAdmin2FAGate = async (user: {
   if (isWaived(user)) return { required: false };
 
   const controls = await getSystemControls();
-  const adminPolicy = controls.admin2FA && isAdminRole(user.role);
+  const adminPolicy = controls.admin2FA && (isAdminRole(user.role) || isAnalystMfaRequiredByPolicy(user.role, controls.admin2FA));
   const userEnrolled = Boolean(user.twoFactorEnabled && user.twoFactorSecret);
 
   // Enrolled users always challenged at login (unless waived).

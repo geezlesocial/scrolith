@@ -3700,6 +3700,7 @@ model FileUsage {
 // Enums
 enum Role {
   ADMIN
+  ANALYST
   FREELANCER
   EMPLOYER
   CLIENT

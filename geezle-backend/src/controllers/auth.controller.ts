@@ -16,6 +16,7 @@ import { toAbsoluteFrontendUrl } from '../services/notificationActionUrl.service
 import prisma from '../utils/prismaClient';
 import { jwtSecret } from '../utils/security/requiredSecret';
 import { getTrustedClientIp } from '../utils/security/clientIdentity';
+import { buildAuthClaims } from '../services/authClaims';
 import {
   consumeApprovedLogin,
   evaluateLoginDevice,
@@ -355,7 +356,7 @@ export const register = async (req: Request, res: Response) => {
 
     // Generate JWT token
     const token = (jwt as any).sign(
-      { id: user.id, email: user.email, role: user.role },
+      buildAuthClaims({ id: user.id, email: user.email, role: user.role }),
       JWT_SECRET!,
       { expiresIn: JWT_EXPIRES_IN as string }
     );
@@ -549,7 +550,7 @@ export const login = async (req: Request, res: Response) => {
     let token = '';
     try {
       token = (jwt as any).sign(
-        { id: user.id, email: user.email, role: user.role },
+        buildAuthClaims({ id: user.id, email: user.email, role: user.role }),
         JWT_SECRET,
         { expiresIn: JWT_EXPIRES_IN as string }
       );
@@ -606,7 +607,7 @@ export const exchangeApprovedLogin = async (req: Request, res: Response) => {
     await registerTrustedDevice(user.id, getLoginApprovalMetadata(row));
     await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     const token = (jwt as any).sign(
-      { id: user.id, email: user.email, role: user.role },
+      buildAuthClaims({ id: user.id, email: user.email, role: user.role }),
       JWT_SECRET,
       { expiresIn: JWT_EXPIRES_IN as string }
     );
