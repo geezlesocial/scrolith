@@ -734,6 +734,14 @@ The USD 150 gate is not safely passed because subscription-specific endpoint pri
 - The local security gate remains strict for confirmed Critical/High CodeQL dispositions, Trivy Critical findings, Gitleaks failure, and all required build/test evidence. Untagged CodeQL findings remain evidence requiring manual disposition; they are not silently classified as safe.
 - G2 remains `BLOCKED` pending the complete security workflow, CodeQL finding classification/remediation, dependency High dispositions, and all other external evidence gates. No Azure, staging, production, traffic, database, secret, or candidate action occurred.
 
+#### G2.6C - SARIF and dependency reconciliation (2026-09-20)
+
+- Authoritative checkpoint: `48aa42f08096b81f991076b47d7c0e740899daea`; security run `35519290066` and Prisma run `35519290068` both passed.
+- CodeQL SARIF is 2.1.0 with 132 results and 105 rule definitions. Raw artifact SHA-256: `67f9209f6e22a54169c0605dc1b4f98607119eac198860a759ba3f9537064c4a`. The derived inventory has exactly 132 rows: 111 remain `likely vulnerability` pending manual call-path review and 21 are `build/test-only finding` based on test-only source paths. This inventory is not a claim that the 111 findings are safe.
+- Production audit: `0 Critical / 4 High / 31 Moderate / 1 Low`; full audit: `0 Critical / 10 High / 32 Moderate / 3 Low`. Prisma 7 tooling paths through `deepmerge-ts` and `mysql2` are absent from the final image but remain build/test supply-chain findings. No compatible Prisma 7 remediation or owner-approved time-bound exception exists.
+- Runtime image `sha256:41e40da5c28de896b633818d7d36cc80c0848499419522767fd4a1a63d1070eb` remains `0 Critical / 0 High`; SBOM checksum is `947bb545efe75242e09cf26ca1a649c1030c440628681648fe7ea26248b7fce7`. Gitleaks and Trivy IaC passed; Code Scanning publication remains unavailable under the private personal-repository plan.
+- G2 remains `BLOCKED`: unresolved likely Critical/High source findings require individual manual disposition/remediation, and Prisma/build dependency Highs have no approved exception. No Azure, staging, production, traffic, database, secret, or candidate action occurred.
+
 #### Verification and rollback plan
 
 After an approved cost gate, verify from the staging backend that the normal Redis hostname resolves to a private RFC1918 address, TCP 10000 is reachable, TLS 1.2 succeeds, and authenticated PING succeeds. Then verify API health, login/session, rate limiting, and Socket.IO behavior before setting `publicNetworkAccess=Disabled`.

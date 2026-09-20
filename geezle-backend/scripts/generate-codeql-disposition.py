@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 CATEGORIES = {
@@ -51,6 +53,7 @@ def main() -> int:
     output = Path(sys.argv[2])
     document = json.loads(source.read_text(encoding="utf-8"))
     rows: list[dict[str, str]] = []
+    review_date = os.environ.get("CODEQL_REVIEW_DATE") or datetime.now(timezone.utc).date().isoformat()
     for run_index, run in enumerate(document.get("runs") or []):
         rules = rule_map(run)
         for result_index, result in enumerate(run.get("results") or []):
@@ -79,7 +82,7 @@ def main() -> int:
                 "evidence": "Source location retained; manual call-path and runtime-image review required before final disposition.",
                 "remediation": "Review source path, add regression test if confirmed, or document positive safe-pattern evidence.",
                 "owner": "Security owner",
-                "review_date": "",
+                "review_date": review_date,
                 "expiry_date": "",
             })
     fields = [
