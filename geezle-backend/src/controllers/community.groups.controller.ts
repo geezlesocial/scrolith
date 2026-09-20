@@ -141,7 +141,7 @@ const normalizePostPermission = (value: unknown): 'admins' | 'members' | 'everyo
 };
 
 const normalizeSlug = (value: unknown) =>
-  String(value || '')
+  String(value || '').slice(0, 256)
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')

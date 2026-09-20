@@ -26,7 +26,7 @@ export const isProductionRuntime = (): boolean => {
   return false;
 };
 
-const stripTrailingSlash = (value: string) => value.replace(/\/+$/, '');
+const stripTrailingSlash = (value: string) => value.slice(0, 2048).replace(/\/+$/, '');
 
 /**
  * Validate and normalize an absolute frontend origin.

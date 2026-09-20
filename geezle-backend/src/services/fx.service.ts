@@ -214,7 +214,7 @@ const normalizeCurrencyList = (entries: any[], baseCurrency: string): EffectiveC
 };
 
 const normalizeBaseUrl = (value: any, fallback: string) => {
-  const raw = String(value || fallback || '').trim();
+  const raw = String(value || fallback || '').slice(0, 2048).trim();
   if (!raw) return fallback;
   return raw.replace(/\/+$/, '');
 };

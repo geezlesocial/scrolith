@@ -95,7 +95,7 @@ const assertRedirectUrisWithinPlatformUrls = (redirectUris: string[], platformUr
 };
 
 const normalizeBusinessPageSlug = (value: unknown) =>
-  String(value || '')
+  String(value || '').slice(0, 256)
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, '-')

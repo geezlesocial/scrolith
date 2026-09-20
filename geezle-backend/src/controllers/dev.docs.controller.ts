@@ -30,14 +30,14 @@ type DocsConfig = {
 const nowIso = () => new Date().toISOString();
 
 const toSlug = (value: unknown) =>
-  String(value || '')
+  String(value || '').slice(0, 256)
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
 
 const normalizeUrlPath = (value: unknown, fallback: string) => {
-  const raw = String(value || '').trim();
+  const raw = String(value || '').slice(0, 2048).trim();
   if (!raw) return fallback;
   if (raw.startsWith('http://') || raw.startsWith('https://')) {
     try {

@@ -352,7 +352,10 @@ export async function adminAIFeatureFlags(req: Request, res: Response) {
         return res.status(400).json({ success: false, error: 'Unsupported feature flag' });
       }
       const value = body.value !== undefined ? body.value : body.enabled;
-      body = { [flagName]: value };
+      const allowedFlag = (Object.keys(DEFAULT_AI_FEATURE_FLAGS) as Array<keyof typeof DEFAULT_AI_FEATURE_FLAGS>)
+        .find((key) => key === flagName);
+      if (!allowedFlag) return res.status(400).json({ success: false, error: 'Unsupported feature flag' });
+      body = { [allowedFlag]: value };
     }
     // High-risk: confirm header for kill switch / provider calls
     if (body.enableProviderCalls === true || body.killSwitch === true) {

@@ -80,7 +80,7 @@ export const verifyMediaWorkerBearerToken = async (
     return { ok: false, reason: 'OIDC_AUDIENCE_MISSING' };
   }
 
-  const header = String(authorizationHeader || '').trim();
+  const header = String(authorizationHeader || '').slice(0, 4096).trim();
   const match = /^Bearer\s+(.+)$/i.exec(header);
   if (!match?.[1]) {
     return { ok: false, reason: 'MISSING_BEARER' };

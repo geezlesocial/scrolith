@@ -64,19 +64,7 @@ jobs:
       - name: Focused regression suites
         env:
           CI: true
-        run: >-
-          npx jest --config jest.config.cjs --runInBand --verbose --detectOpenHandles
-          src/auth.login.controller.test.ts
-          src/config/__tests__/runtimeStartup.spec.ts
-          src/middleware/__tests__/distributedRateLimitStore.startup.spec.ts
-          src/middleware/__tests__/authRateLimit.redis.spec.ts
-          src/services/redis/__tests__/entraRedis.unit.test.ts
-          src/services/redis/__tests__/redisLifecycle.unit.test.ts
-          src/utils/observability/__tests__/healthComponents.redis.spec.ts
-          src/services/__tests__/email.service.spec.ts
-          src/services/__tests__/foundingPartners.math.unit.test.ts
-          src/gcoin.redis-auth.unit.test.ts
-          src/gcoin.protection-failure.unit.test.ts
+        run: npm run test:full
 
       - name: TypeScript build
         run: npm run build

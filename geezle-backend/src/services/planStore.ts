@@ -32,7 +32,7 @@ const toNumber = (value: unknown, fallback = 0) => {
 };
 const safeArray = <T>(value: unknown): T[] => (Array.isArray(value) ? value : []);
 const normalizeCode = (value: unknown) =>
-  String(value || '')
+  String(value || '').slice(0, 256)
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
@@ -55,7 +55,7 @@ const inferFeatureCode = (feat: any) => {
   if (directCode) return directCode;
   const name = String(feat?.name || '').trim();
   if (!name) return undefined;
-  const inferred = PLAN_FEATURE_CODE_INFERENCE.find((entry) => entry.pattern.test(name));
+  const inferred = PLAN_FEATURE_CODE_INFERENCE.find((entry) => entry.pattern.test(name.slice(0, 256)));
   if (inferred?.code) return inferred.code;
   return undefined;
 };

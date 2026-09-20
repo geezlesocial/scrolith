@@ -10,7 +10,7 @@ import { buildMarketplaceListingBoostPrefill } from '../services/marketplace.ser
 import { resolveDirectMediaUrl, resolveFileBaseUrl } from '../utils/mediaUrl';
 import { resolveEffectiveCurrencies } from '../services/fx.service';
 import { buildAdsConfigCurrencyView } from '../services/currencySurface.service';
-import { setSafeObjectValue } from '../utils/security/safeObjectKey';
+import { getAllowedObjectValue, setSafeObjectValue } from '../utils/security/safeObjectKey';
 
 const ADS_CONFIG_SCOPE = 'community_ads_config';
 
@@ -395,8 +395,10 @@ const mergeAdsConfig = (raw: any) => {
   const incomingCpm = input.cpmByPlacement && typeof input.cpmByPlacement === 'object' ? input.cpmByPlacement : {};
   const incomingCpc = input.cpcByPlacement && typeof input.cpcByPlacement === 'object' ? input.cpcByPlacement : {};
   for (const placement of normalizedAllowedPlacements) {
-    if (Object.prototype.hasOwnProperty.call(incomingCpm, placement)) cpmByPlacement[placement] = incomingCpm[placement];
-    if (Object.prototype.hasOwnProperty.call(incomingCpc, placement)) cpcByPlacement[placement] = incomingCpc[placement];
+    const cpmValue = getAllowedObjectValue(incomingCpm, placement, new Set(normalizedAllowedPlacements));
+    const cpcValue = getAllowedObjectValue(incomingCpc, placement, new Set(normalizedAllowedPlacements));
+    if (cpmValue !== undefined) setSafeObjectValue(cpmByPlacement, placement, cpmValue);
+    if (cpcValue !== undefined) setSafeObjectValue(cpcByPlacement, placement, cpcValue);
   }
   const normalizedTargetCountries = normalizeCountryList(input.targetCountries, []);
   const normalized = {

@@ -1,6 +1,7 @@
 const nodeTestSpecs = [
   'src/__tests__/pushFirebaseDefaultApp.unit.test.ts',
   'src/__tests__/intelligence.contract.unit.test.ts',
+  'src/__tests__/phase221.messagingCore.test.ts',
   'src/services/messaging/__tests__/lastMessagePreview.spec.ts',
   'src/services/messaging/__tests__/messagingPrivacyPolicy.spec.ts',
   'src/services/scrolitha/__tests__/scrolitha.messagingBridge.spec.ts',
@@ -27,7 +28,11 @@ module.exports = {
     '^vitest$': '<rootDir>/src/__tests__/vitestShim.ts'
   },
   moduleFileExtensions: ['ts','tsx','js','jsx','json','node'],
-  testPathIgnorePatterns: ['/dist/', '/node_modules/', ...nodeTestSpecs],
+  testPathIgnorePatterns: [
+    '/dist/',
+    '/node_modules/',
+    ...nodeTestSpecs.map((path) => path.replace('<rootDir>', '').replace(/\\/g, '/'))
+  ],
   globals: {
     'ts-jest': {
       tsconfig: 'tsconfig.json'

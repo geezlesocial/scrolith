@@ -305,7 +305,7 @@ export const clampBatchSize = (value: unknown, fallback = DEFAULT_BATCH, max = M
 };
 
 export const sanitizeOrphanPrefix = (value: unknown): string => {
-  const raw = normalizeStorageKey(value || ALLOWED_ORPHAN_PREFIX);
+  const raw = normalizeStorageKey(String(value || ALLOWED_ORPHAN_PREFIX).slice(0, 2048));
   // Force media/ namespace only — reject escape attempts
   if (!raw || raw.includes('..') || raw.startsWith('/') || /^https?:/i.test(raw)) {
     return ALLOWED_ORPHAN_PREFIX;

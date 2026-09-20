@@ -3,7 +3,7 @@ import path from 'path';
 import { ResumeGcsService } from './resume.gcs-storage.service';
 
 const safeSegment = (value: string) =>
-  String(value || 'file')
+  String(value || 'file').slice(0, 256)
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '')

@@ -225,13 +225,13 @@ const resolveAgentTemplates = (value: unknown, context: Record<string, any>): an
   }
   if (typeof value !== 'string') return value;
 
-  const exactMatch = value.match(/^\{\{\s*([^}]+?)\s*\}\}$/);
+  const exactMatch = value.slice(0, 4096).match(/^\{\{\s*([^}]+?)\s*\}\}$/);
   if (exactMatch) {
     const resolved = getPathValue(context, exactMatch[1]);
     return resolved === undefined ? null : resolved;
   }
 
-  return value.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_full, token) => {
+  return value.slice(0, 4096).replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_full, token) => {
     const resolved = getPathValue(context, token);
     return resolved === undefined || resolved === null ? '' : String(resolved);
   });
@@ -280,7 +280,7 @@ const formatPageContext = (value: unknown) => {
   if (page.includes('/company')) return 'Company page';
   if (page.includes('/scroll')) return 'Scroll feed';
   if (page.includes('/post')) return 'Post view';
-  return page.replace(/^\//, '').replace(/[/?#].*$/, '').replace(/-/g, ' ') || 'current page';
+  return page.slice(0, 1024).replace(/^\//, '').replace(/[/?#].*$/, '').replace(/-/g, ' ') || 'current page';
 };
 
 const buildAccountContextSummary = (actor: ScrolithaActor, context?: ScrolithaChatInput['context']) => {

@@ -11,10 +11,12 @@ export const isSafeObjectKey = (value: unknown, maxLength = 128): value is strin
   return key.length > 0 && key.length <= maxLength && !FORBIDDEN_KEYS.has(key);
 };
 
-export const setSafeObjectValue = <T>(target: Record<string, T>, key: unknown, value: T): boolean => {
+export const setSafeObjectValue = <T>(target: Record<string, T>, key: unknown, value: T, allowedKeys?: ReadonlySet<string>): boolean => {
   if (!isSafeObjectKey(key)) return false;
   const normalizedKey = key.trim();
-  Object.defineProperty(target, normalizedKey, { value, enumerable: true, configurable: true, writable: true });
+  if (allowedKeys && !allowedKeys.has(normalizedKey)) return false;
+  const safeEntry = Object.fromEntries([[normalizedKey, value]]) as Record<string, T>;
+  Object.assign(target, safeEntry);
   return true;
 };
 

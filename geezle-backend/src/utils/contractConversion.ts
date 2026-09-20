@@ -123,7 +123,7 @@ const asMoney = (value: any, fallback = 0) => {
 }
 
 const slugify = (value: string) =>
-  String(value || '')
+  String(value || '').slice(0, 256)
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
