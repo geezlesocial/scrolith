@@ -84,6 +84,8 @@ jobs:
 
       - name: Seed deterministic CI fixtures
         env:
+          NODE_ENV: test
+          APP_RUNTIME: test
           TEST_DB_KIND: cloudbuild-postgres
           TEST_DB_PROJECT: cloudbuild-ephemeral
           TEST_DB_INSTANCE: cloudbuild-ephemeral-postgres-test
