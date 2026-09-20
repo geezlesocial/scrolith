@@ -57,6 +57,8 @@ jobs:
           python3 scripts/validate_codeql_sarif.py codeql-results-complete.sarif codeql-results-complete.raw.sarif codeql-results.sarif codeql-summary.json
 
       - name: Publish official CodeQL results
+        id: codeql_upload
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@a65a038433a26f4363cf9f029e3b9ceac831ad5d # v3.28.10
         with:
           sarif_file: codeql-results.sarif
@@ -192,9 +194,10 @@ jobs:
         if: always()
         env:
           GITLEAKS_OUTCOME: ${{ steps.gitleaks.outcome }}
+          CODEQL_UPLOAD_OUTCOME: ${{ steps.codeql_upload.outcome }}
         run: |
           python3 - <<'PY'
-          import glob, json, os, sys
+          import json, os, sys
 
           def trivy_counts(path):
               counts = {k: 0 for k in ('UNKNOWN', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL')}
@@ -211,9 +214,9 @@ jobs:
 
           def codeql_counts():
               counts = {'ERROR': 0, 'WARNING': 0, 'NOTE': 0}
-              for path in ('codeql-results.sarif', 'codeql-results-complete.sarif'):
+              for path in ('codeql-results.sarif',):
                   if not os.path.exists(path):
-                      continue
+                      raise FileNotFoundError(path)
                   data = json.load(open(path, encoding='utf-8'))
                   for run in data.get('runs') or []:
                       for result in run.get('results') or []:
@@ -228,12 +231,16 @@ jobs:
           print('TRIVY_IAC=' + json.dumps(iac, sort_keys=True))
           print('CODEQL=' + json.dumps(codeql, sort_keys=True))
           print('GITLEAKS_OUTCOME=' + os.environ.get('GITLEAKS_OUTCOME', 'unknown'))
+          print('CODEQL_UPLOAD_OUTCOME=' + os.environ.get('CODEQL_UPLOAD_OUTCOME', 'unknown'))
 
           if image.get('CRITICAL', 0) or iac.get('CRITICAL', 0) or codeql.get('ERROR', 0):
               print('G2.3 critical gate: FAILED')
               sys.exit(1)
           if os.environ.get('GITLEAKS_OUTCOME') == 'failure':
               print('G2.3 secret gate: FAILED')
+              sys.exit(1)
+          if os.environ.get('CODEQL_UPLOAD_OUTCOME') != 'success':
+              print('G2.3 CodeQL publication gate: FAILED')
               sys.exit(1)
           print('G2.3 critical/secret gates: PASSED')
           PY
