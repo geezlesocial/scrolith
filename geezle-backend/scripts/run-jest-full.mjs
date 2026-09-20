@@ -65,6 +65,32 @@ const addTotals = (summary) => {
   }
 };
 
+const cleanupLocalRedis = async () => {
+  if (process.env.REDIS_TEST_MODE !== 'local' || !process.env.REDIS_URL) return;
+  let client;
+  try {
+    const { default: Redis } = await import('ioredis');
+    client = new Redis(process.env.REDIS_URL, {
+      lazyConnect: true,
+      enableOfflineQueue: false,
+      maxRetriesPerRequest: 1,
+      connectTimeout: 2000
+    });
+    await client.connect();
+    const keys = [];
+    let cursor = '0';
+    do {
+      const [nextCursor, found] = await client.scan(cursor, 'MATCH', 'gcoin:*', 'COUNT', '500');
+      cursor = nextCursor;
+      keys.push(...found);
+    } while (cursor !== '0');
+    if (keys.length > 0) await client.del(...keys);
+    await client.quit();
+  } catch {
+    client?.disconnect();
+  }
+};
+
 let exitCode = 0;
 for (const [index, files] of groups.entries()) {
   const outputFile = join(resultDir, `group-${String(index + 1).padStart(3, '0')}.json`);
@@ -106,6 +132,8 @@ for (const [index, files] of groups.entries()) {
     console.error(`[jest] group ${index + 1} produced no readable result summary`);
     exitCode = 1;
   }
+
+  await cleanupLocalRedis();
 
   if ((result.status ?? 1) !== 0) {
     exitCode = result.status ?? 1;
