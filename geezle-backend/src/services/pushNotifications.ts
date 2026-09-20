@@ -322,7 +322,7 @@ const getFirebaseApp = (): admin.app.App | null => {
     firebaseInitError = (error as any)?.message || 'Firebase initialization failed';
     if (!initErrorLogged) {
       initErrorLogged = true;
-      console.warn('[push] Failed to initialize Firebase Admin:', error);
+      console.warn('[push] Firebase initialization failed', { outcome: 'disabled' });
     }
     return null;
   }
