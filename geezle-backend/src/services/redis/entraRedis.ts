@@ -44,6 +44,31 @@ const lifecycleStates = new WeakMap<Redis, RedisLifecycleState>();
 
 export const getRedisClientState = (redis: Redis): RedisLifecycleState => lifecycleStates.get(redis) || 'idle';
 
+const connectTransport = async (redis: Redis): Promise<void> => {
+  const status = String((redis as Redis & { status?: string }).status || '');
+  if (status === 'ready') return;
+  if (status === 'connecting') {
+    await new Promise<void>((resolve, reject) => {
+      const onReady = () => { cleanup(); resolve(); };
+      const onError = (error: unknown) => { cleanup(); reject(error); };
+      const onEnd = () => { cleanup(); reject(new Error('Redis connection ended before ready')); };
+      const timer = setTimeout(() => { cleanup(); reject(new Error('Redis connection readiness timeout')); }, REDIS_CONNECT_TIMEOUT_MS);
+      timer.unref?.();
+      const cleanup = () => {
+        clearTimeout(timer);
+        redis.off('ready', onReady);
+        redis.off('error', onError);
+        redis.off('end', onEnd);
+      };
+      redis.once('ready', onReady);
+      redis.once('error', onError);
+      redis.once('end', onEnd);
+    });
+    return;
+  }
+  await redis.connect();
+};
+
 const retryDelay = (attempt: number) => {
   if (attempt > MAX_RECONNECT_ATTEMPTS) return null;
   return Math.min(1_000, 100 * 2 ** Math.max(0, attempt - 1)) + Math.floor(Math.random() * 100);
@@ -79,7 +104,7 @@ export async function connectRedisClient(redis: Redis, config: EntraRedisConfig 
   if (requireManagedIdentity) throw new RedisUnavailableError('Redis managed identity configuration is missing');
   lifecycleStates.set(redis, 'connecting');
   try {
-    await redis.connect();
+    await connectTransport(redis);
     lifecycleStates.set(redis, 'ready');
   } catch {
     lifecycleStates.set(redis, 'unavailable');
@@ -109,7 +134,7 @@ export async function connectWithManagedIdentity(redis: Redis, config: EntraRedi
   redis.options.username = username;
   redis.options.password = token.access_token;
   try {
-    await redis.connect();
+    await connectTransport(redis);
     lifecycleStates.set(redis, 'ready');
   } catch {
     lifecycleStates.set(redis, 'unavailable');
