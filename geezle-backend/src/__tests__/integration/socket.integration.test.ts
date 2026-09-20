@@ -110,14 +110,18 @@ describe('Socket integration - targeted emits', () => {
   test('transfer emits targeted transaction and balance updates', async () => {
     const SENDER = 'dev-user-id-123';
     const RECIP = 'recipient-1';
-      const senderClient = await connectClient(process.env.TEST_JWT_DEV as string);
-      const recipClient = await connectClient(process.env.TEST_JWT_RECIP as string);
+    const senderClient = await connectClient(process.env.TEST_JWT_DEV as string);
+    const recipClient = await connectClient(process.env.TEST_JWT_RECIP as string);
     try {
+      // Register listeners before emitting so a fast local/CI server cannot
+      // deliver either acknowledgement before the test begins waiting.
+      const senderJoined = waitForEvent(senderClient, 'joined', 2000);
+      const recipJoined = waitForEvent(recipClient, 'joined', 2000);
       senderClient.emit('join:wallet', { userId: SENDER });
       recipClient.emit('join:wallet', { userId: RECIP });
       // wait for join acknowledgements
-      await waitForEvent(senderClient, 'joined', 2000);
-      await waitForEvent(recipClient, 'joined', 2000);
+      await senderJoined;
+      await recipJoined;
       const waiter = waitForEvent(recipClient, 'community:gcoin_transaction_created', 5000);
       const senderW = await prisma.gcoinWallet.findUnique({ where: { userId: SENDER } });
       const recipW = await prisma.gcoinWallet.findUnique({ where: { userId: RECIP } });
