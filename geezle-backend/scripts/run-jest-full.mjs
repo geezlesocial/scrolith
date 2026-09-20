@@ -42,8 +42,13 @@ if (listResult.error?.code === 'ETIMEDOUT' || listResult.status !== 0) {
 
 const jestFiles = JSON.parse(listResult.stdout || '[]').sort();
 const groups = [];
-for (let index = 0; index < jestFiles.length; index += groupSize) {
-  groups.push(jestFiles.slice(index, index + groupSize));
+const isolatedFiles = jestFiles.filter((file) => /integration[\\/]socket\.integration\.test\.[jt]sx?$/.test(file));
+const regularFiles = jestFiles.filter((file) => !isolatedFiles.includes(file));
+for (let index = 0; index < regularFiles.length; index += groupSize) {
+  groups.push(regularFiles.slice(index, index + groupSize));
+}
+for (const file of isolatedFiles) {
+  groups.push([file]);
 }
 
 const resultDir = mkdtempSync(join(tmpdir(), 'scrolith-jest-results-'));
