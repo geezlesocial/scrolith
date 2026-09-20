@@ -282,11 +282,10 @@ const initializePushFirebaseApp = (
   if (!initSuccessLogged) {
     initSuccessLogged = true;
     console.log('[push] Firebase Admin initialized for FCM', {
-      source,
-      projectId: firebaseProjectId || projectId || EXPECTED_FIREBASE_PROJECT_ID,
-      credentialPath: firebaseCredentialPath,
-      appName: firebaseApp?.name,
-      expectedProjectId: EXPECTED_FIREBASE_PROJECT_ID
+      outcome: 'initialized',
+      sourceCategory: source ? 'configured' : 'default',
+      credentialConfigured: Boolean(firebaseCredentialPath || serviceAccount),
+      appConfigured: Boolean(firebaseApp?.name)
     });
   }
   return firebaseApp as admin.app.App;
@@ -648,16 +647,11 @@ const sendToTokens = async (
       const response = await messaging.sendEachForMulticast(fcmMessage);
 
       response.responses.forEach((res, idx) => {
-        if (res.success) {
-          summary.sent += 1;
-          if (res.messageId) {
-            console.log('[push] sent', {
-              messageId: res.messageId,
-              projectId: runtime.projectId || EXPECTED_FIREBASE_PROJECT_ID
-            });
+          if (res.success) {
+            summary.sent += 1;
+            console.log('[push] sent', { outcome: 'delivered' });
+            return;
           }
-          return;
-        }
         summary.failed += 1;
         const code = res.error?.code;
         const errMessage = res.error?.message || 'Push send failed';

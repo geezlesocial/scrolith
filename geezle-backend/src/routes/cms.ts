@@ -1,5 +1,6 @@
 // C:\Projects\Scrolith-backend\src\routes\cms.ts
 import express, { Request, Response } from 'express';
+import { safeLogValue } from '../utils/security/safeLog';
 import { 
   getHeaderConfig, 
   saveHeaderConfig,
@@ -80,7 +81,7 @@ const publicReadRoute = (
 
 // Public homepage endpoint (no auth required) - MUST be before admin routes
 router.get('/homepage', publicReadRoute(60, (req: Request, res: Response, next: any) => {
-  console.log('📥 Homepage request received:', req.method, req.path, req.query);
+  console.log('Homepage request received:', safeLogValue(req.method), safeLogValue(req.path), safeLogValue(req.query));
   getHomepage(req, res).catch(next);
 }));
 
@@ -299,4 +300,3 @@ adminRouter.post('/affiliate/content', requirePermission('cms.manage'), async (r
 });
 
 export default router;
-

@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import prisma from '../utils/prismaClient';
 
 type ProcurementSettings = {
@@ -133,7 +134,7 @@ const nowStamp = () => {
   const now = new Date();
   const date = now.toISOString().slice(0, 10).replace(/-/g, '');
   const time = now.toISOString().slice(11, 19).replace(/:/g, '');
-  const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+  const suffix = randomBytes(3).toString('hex').toUpperCase();
   return `${date}-${time}-${suffix}`;
 };
 

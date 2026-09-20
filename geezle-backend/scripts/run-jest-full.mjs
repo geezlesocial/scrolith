@@ -63,6 +63,12 @@ const totals = {
   numPendingTests: 0,
   numTodoTests: 0
 };
+const execution = {
+  groupsStarted: 0,
+  groupsCompleted: 0,
+  timedOutGroups: 0,
+  unreadableGroups: 0
+};
 
 const addTotals = (summary) => {
   for (const key of Object.keys(totals)) {
@@ -98,6 +104,7 @@ const cleanupLocalRedis = async () => {
 
 let exitCode = 0;
 for (const [index, files] of groups.entries()) {
+  execution.groupsStarted += 1;
   const outputFile = join(resultDir, `group-${String(index + 1).padStart(3, '0')}.json`);
   console.log(`[jest] group ${index + 1}/${groups.length}: ${files.length} files`);
   const result = spawnSync(
@@ -127,14 +134,17 @@ for (const [index, files] of groups.entries()) {
 
   if (result.error?.code === 'ETIMEDOUT') {
     console.error(`[jest] group ${index + 1} timed out after ${groupTimeoutMs}ms`);
+    execution.timedOutGroups += 1;
     exitCode = 1;
     break;
   }
 
   try {
     addTotals(JSON.parse(readFileSync(outputFile, 'utf8')));
+    execution.groupsCompleted += 1;
   } catch {
     console.error(`[jest] group ${index + 1} produced no readable result summary`);
+    execution.unreadableGroups += 1;
     exitCode = 1;
   }
 
@@ -146,6 +156,7 @@ for (const [index, files] of groups.entries()) {
   }
 }
 
-console.log(`[jest] aggregate ${JSON.stringify(totals)}`);
+const complete = execution.groupsCompleted === groups.length && execution.timedOutGroups === 0 && execution.unreadableGroups === 0;
+console.log(`[jest] aggregate ${JSON.stringify({ ...totals, execution, complete })}`);
 rmSync(resultDir, { recursive: true, force: true });
-process.exit(exitCode);
+process.exit(complete ? exitCode : 1);

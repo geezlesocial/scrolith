@@ -8,6 +8,7 @@ import { Jimp } from 'jimp';
 import { jwtSecret } from '../utils/security/requiredSecret';
 import { isPathWithin, requirePathWithin } from '../utils/security/safePath';
 import { setSafeObjectValue } from '../utils/security/safeObjectKey';
+import { safeLogValue } from '../utils/security/safeLog';
 // Prefer Node's crypto.randomUUID to avoid importing `uuid` (ESM issues in some test runners)
 const crypto = require('crypto');
 const uuidv4 = () => {
@@ -3323,21 +3324,21 @@ export const uploadFile = async (req: Request, res: Response) => {
               contentType: req.file.mimetype || getMimeTypeFromFilename(faviconName),
               objectKey: `media/system/favicon/${faviconName}`
             });
-            console.log('Created favicon copy in GCS media bucket:', faviconName);
+            console.log('Created favicon copy in GCS media bucket:', safeLogValue(faviconName));
           } else if (provider === FIREBASE_STORAGE_PROVIDER && req.file.buffer) {
             await uploadBufferToFirebaseStorage({
               buffer: req.file.buffer,
               contentType: req.file.mimetype || getMimeTypeFromFilename(faviconName),
               fileName: faviconName
             });
-            console.log('Created favicon copy in Firebase Storage:', faviconName);
+            console.log('Created favicon copy in Firebase Storage:', safeLogValue(faviconName));
           } else if (provider === AZURE_BLOB_STORAGE_PROVIDER && req.file.buffer) {
             await uploadBufferToBlob({
               buffer: req.file.buffer,
               contentType: req.file.mimetype || getMimeTypeFromFilename(faviconName),
               fileName: faviconName
             });
-            console.log('Created favicon copy in Azure Blob:', faviconName);
+            console.log('Created favicon copy in Azure Blob:', safeLogValue(faviconName));
           } else {
             const faviconPath = path.join(UPLOAD_DIR, faviconName);
             if (req.file.path && fs.existsSync(req.file.path)) {
@@ -3346,7 +3347,7 @@ export const uploadFile = async (req: Request, res: Response) => {
               fs.writeFileSync(faviconPath, req.file.buffer);
             }
             fs.chmodSync(faviconPath, 0o644);
-            console.log('Created favicon copy at uploads/', faviconName);
+            console.log('Created favicon copy at uploads/', safeLogValue(faviconName));
           }
         } catch (e) {
           console.warn('Failed to create favicon copy:', e);

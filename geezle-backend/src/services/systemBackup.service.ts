@@ -232,6 +232,30 @@ const ensureBackupDir = () => {
 };
 
 /**
+ * Persist a local snapshot through a unique, exclusively-created sibling file.
+ * The fixed `.tmp` names previously allowed concurrent writers to overwrite one
+ * another before the atomic rename completed.
+ */
+const writeAtomicJson = (targetFile: string, value: unknown) => {
+  const serialized = JSON.stringify(value, null, 2);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const tempFile = `${targetFile}.${process.pid}.${crypto.randomBytes(12).toString('hex')}.tmp`;
+    try {
+      fs.writeFileSync(tempFile, serialized, { encoding: 'utf-8', flag: 'wx', mode: 0o600 });
+      fs.renameSync(tempFile, targetFile);
+      return;
+    } catch (error) {
+      try {
+        if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+      } catch {
+        // Best-effort cleanup; preserve the original persistence error.
+      }
+      if (attempt === 2) throw error;
+    }
+  }
+};
+
+/**
  * Resolve durable backup storage.
  *
  * Production (Cloud Run / GCS media) MUST NOT use instance-local disk:
@@ -681,9 +705,7 @@ const writeCatalogLocal = (records: BackupCatalogRecord[]) => {
   const sorted = [...records].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
-  const tempFile = `${BACKUP_CATALOG_FILE}.tmp`;
-  fs.writeFileSync(tempFile, JSON.stringify(sorted, null, 2), 'utf-8');
-  fs.renameSync(tempFile, BACKUP_CATALOG_FILE);
+  writeAtomicJson(BACKUP_CATALOG_FILE, sorted);
 };
 
 const sanitizeJobsForWrite = (records: BackupJobRecord[]) => {
@@ -704,9 +726,7 @@ const sanitizeJobsForWrite = (records: BackupJobRecord[]) => {
 
 const persistJobsLocal = (records: BackupJobRecord[]) => {
   ensureBackupDir();
-  const tempFile = `${BACKUP_JOBS_FILE}.tmp`;
-  fs.writeFileSync(tempFile, JSON.stringify(records, null, 2), 'utf-8');
-  fs.renameSync(tempFile, BACKUP_JOBS_FILE);
+  writeAtomicJson(BACKUP_JOBS_FILE, records);
 };
 
 const writeCatalog = async (records: BackupCatalogRecord[]) => {

@@ -8,6 +8,7 @@ import { sendSystemMessage } from '../services/systemMessaging';
 import { DEFAULT_MEMBER_HOME_REGIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../constants/defaultAudienceOptions';
 import prisma from '../utils/prismaClient';
 import { setSafeObjectValue } from '../utils/security/safeObjectKey';
+import { safeLogValue } from '../utils/security/safeLog';
 import { sanitizePublicVerificationSettings } from '../utils/verificationSettings';
 import { sanitizePublicTrustScoreSettings } from '../utils/trustScoreSettings';
 import { sanitizePublicStorefrontSettings } from '../utils/storefrontSettings';
@@ -1244,7 +1245,7 @@ export const saveHeaderConfig = async (req: Request, res: Response) => {
     const headerDefaults = (cmsData.header as any) || {};
     // Debug: log incoming navigation payload for troubleshooting visibility issues
     try {
-      console.log('ðŸ”” Incoming header.save navigation payload sample:', Array.isArray(config?.navigation) ? config.navigation.map((n: any) => ({ id: n.id, label: n.label, visibility: n.visibility })) : config?.navigation);
+      console.log('header.save navigation payload received:', safeLogValue(Array.isArray(config?.navigation) ? config.navigation.slice(0, 5) : config?.navigation));
     } catch (e) {
       /* ignore logging errors */
     }
@@ -1254,7 +1255,7 @@ export const saveHeaderConfig = async (req: Request, res: Response) => {
     // Detailed logging to trace navigation visibility persistence issues
     try {
       console.log('ðŸ” saveHeaderConfig - incoming navigation count:', Array.isArray(config?.navigation) ? config.navigation.length : 0);
-      console.log('ðŸ” saveHeaderConfig - incoming navigation sample:', Array.isArray(config?.navigation) ? config.navigation.slice(0,5) : config?.navigation);
+      console.log('saveHeaderConfig navigation sample:', safeLogValue(Array.isArray(config?.navigation) ? config.navigation.slice(0, 5) : config?.navigation));
     } catch (e) {
       /* ignore logging errors */
     }
@@ -2814,7 +2815,6 @@ export default {
   saveHirePage,
   saveFreelancerPage
 };
-
 
 
 

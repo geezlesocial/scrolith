@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import prisma from '../utils/prismaClient';
 import { ANALYST_PERMISSION_KEYS, isAnalystRole } from './analystRole';
 
@@ -428,7 +429,7 @@ const normalizeUsernameBase = (email?: string | null, userId?: string | null) =>
 
 const buildUniqueStaffUsername = async (baseInput: string) => {
   let candidate = String(baseInput || '').trim().toLowerCase();
-  if (!candidate) candidate = `staff-${Math.random().toString(36).slice(2, 10)}`;
+  if (!candidate) candidate = `staff-${randomBytes(6).toString('hex')}`;
   const hasAt = candidate.includes('@');
   const normalizedBase = hasAt ? candidate : `${candidate}@staff.local`;
   let finalCandidate = normalizedBase;

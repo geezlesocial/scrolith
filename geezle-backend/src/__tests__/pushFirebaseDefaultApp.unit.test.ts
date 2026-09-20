@@ -38,6 +38,15 @@ test('Cloud Run FCM refuses ambient application-default credentials', () => {
   assert.match(pushSrc, /mismatched-credential/);
 });
 
+test('push telemetry does not log credential paths, project identifiers, or message identifiers', () => {
+  const initLogStart = pushSrc.indexOf("console.log('[push] Firebase Admin initialized for FCM'");
+  const initLog = pushSrc.slice(initLogStart, pushSrc.indexOf('return firebaseApp', initLogStart));
+  const sentLogStart = pushSrc.indexOf("console.log('[push] sent'");
+  const sentLog = pushSrc.slice(sentLogStart, sentLogStart + 120);
+  assert.doesNotMatch(initLog, /projectId|credentialPath/);
+  assert.doesNotMatch(sentLog, /messageId|projectId/);
+});
+
 test('incoming calls use the native Android cold-start delivery path', () => {
   assert.match(pushSrc, /isIncomingCallPayload/);
   assert.match(pushSrc, /if\s*\(!isIncomingCallPayload\(payload\)\)\s*\{[\s\S]*fcmMessage\.notification/);
