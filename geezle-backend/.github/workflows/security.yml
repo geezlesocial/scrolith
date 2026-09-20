@@ -1,0 +1,216 @@
+name: Security Evidence
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+env:
+  NODE_VERSION: 22.18.0
+  NPM_AUDIT_REGISTRY: https://registry.npmjs.org
+
+jobs:
+  codeql:
+    name: CodeQL security-extended
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Analyze and retain raw SARIF
+        uses: github/codeql-action/analyze@v3
+        with:
+          upload: false
+          output: ${{ runner.temp }}/codeql-results
+          category: /security-extended
+
+      - name: Validate and summarize SARIF
+        shell: bash
+        env:
+          SARIF_DIR: ${{ runner.temp }}/codeql-results
+        run: |
+          set -euo pipefail
+          sarif_file="$(find "$SARIF_DIR" -maxdepth 1 -type f -name '*.sarif' -print -quit)"
+          test -n "$sarif_file"
+          node - "$sarif_file" > codeql-summary.json <<'NODE'
+          const fs = require('fs');
+          const file = process.argv[2];
+          const sarif = JSON.parse(fs.readFileSync(file, 'utf8'));
+          if (sarif.version !== '2.1.0') throw new Error('CodeQL output is not SARIF 2.1.0');
+          const runs = Array.isArray(sarif.runs) ? sarif.runs : [];
+          const rules = runs.flatMap(run => run.tool?.driver?.rules || []);
+          const results = runs.flatMap(run => run.results || []);
+          if (rules.length === 0) throw new Error('CodeQL SARIF rules section is empty');
+          if (results.some(result => !result.ruleId)) throw new Error('CodeQL result is missing ruleId');
+          if (results.length > 0 && results.every(result => !result.level)) {
+            throw new Error('All CodeQL result levels are blank');
+          }
+          const ruleById = new Map(rules.map(rule => [rule.id, rule]));
+          const grouped = new Map();
+          for (const result of results) {
+            const rule = ruleById.get(result.ruleId) || {};
+            const key = `${result.ruleId}|${result.level || 'none'}|${rule.properties?.['security-severity'] || 'none'}`;
+            const entry = grouped.get(key) || { ruleId: result.ruleId, level: result.level || null, securitySeverity: rule.properties?.['security-severity'] || null, count: 0, references: [] };
+            entry.count += 1;
+            for (const location of result.locations || []) {
+              const physical = location.physicalLocation;
+              const uri = physical?.artifactLocation?.uri;
+              const line = physical?.region?.startLine;
+              if (uri && line) entry.references.push(`${uri}:${line}`);
+            }
+            grouped.set(key, entry);
+          }
+          const summary = { schema: sarif.version, ruleCount: rules.length, resultCount: results.length, groups: [...grouped.values()].map(entry => ({ ...entry, references: [...new Set(entry.references)].sort() })) };
+          fs.writeFileSync('codeql-summary.json', JSON.stringify(summary, null, 2) + '\n');
+          NODE
+          cp "$sarif_file" codeql-results.sarif
+
+      - name: Publish official CodeQL results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: codeql-results.sarif
+          category: /security-extended
+
+      - name: Upload complete CodeQL evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-sarif-${{ github.sha }}
+          path: |
+            codeql-results.sarif
+            codeql-summary.json
+          if-no-files-found: error
+
+  dependency-audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Production dependency audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          npm audit --registry="$NPM_AUDIT_REGISTRY" --omit=dev --json > audit-production.json
+          audit_status=$?
+          set -e
+          node scripts/summarize-audit.mjs audit-production.json
+          printf '%s\n' "$audit_status" > audit-production.exit
+
+      - name: Full dependency audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          npm audit --registry="$NPM_AUDIT_REGISTRY" --json > audit-full.json
+          audit_status=$?
+          set -e
+          node scripts/summarize-audit.mjs audit-full.json
+          printf '%s\n' "$audit_status" > audit-full.exit
+
+      - name: Upload dependency evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-${{ github.sha }}
+          path: |
+            audit-production.json
+            audit-production.exit
+            audit-full.json
+            audit-full.exit
+          if-no-files-found: error
+
+  container-security:
+    name: Container, IaC, and SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build immutable local image
+        run: docker build --file Dockerfile.acr.temp --tag scrolith-backend:${{ github.sha }} .
+
+      - name: Scan image and IaC
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: scrolith-backend:${{ github.sha }}
+          format: json
+          output: trivy-image.json
+          severity: CRITICAL,HIGH,MEDIUM,LOW
+          ignore-unfixed: false
+
+      - name: Scan deployment configuration
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: json
+          output: trivy-iac.json
+          severity: CRITICAL,HIGH,MEDIUM,LOW
+
+      - name: Generate image SBOM
+        uses: anchore/sbom-action@v0.18.0
+        with:
+          image: scrolith-backend:${{ github.sha }}
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+          artifact-name: sbom-${{ github.sha }}.cdx.json
+          upload-artifact: false
+
+      - name: Record SBOM checksum and image digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker image inspect --format='{{index .RepoDigests 0}}' scrolith-backend:${{ github.sha }} > image-digest.txt || docker image inspect --format='{{.Id}}' scrolith-backend:${{ github.sha }} > image-digest.txt
+          sha256sum sbom.cdx.json > sbom.cdx.sha256
+
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload container evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-security-${{ github.sha }}
+          path: |
+            trivy-image.json
+            trivy-iac.json
+            sbom.cdx.json
+            sbom.cdx.sha256
+            image-digest.txt
+          if-no-files-found: error
