@@ -36,9 +36,23 @@ jobs:
           upload: never
           wait-for-processing: true
 
+      - name: Export complete CodeQL SARIF
+        shell: bash
+        run: |
+          set -euo pipefail
+          database="$(find "$RUNNER_TEMP/codeql_databases" -mindepth 1 -maxdepth 2 -type d -name javascript -print -quit)"
+          test -n "$database"
+          codeql database analyze "$database" \
+            --format=sarif-latest \
+            --output=codeql-results-complete.sarif \
+            --sarif-add-query-help \
+            --no-sarif-add-file-contents \
+            --no-sarif-add-snippets \
+            --threads=0
+
       - name: Validate and summarize complete CodeQL SARIF
         run: |
-          python3 scripts/validate_codeql_sarif.py codeql-results codeql-results.sarif codeql-summary.json
+          python3 scripts/validate_codeql_sarif.py codeql-results-complete.sarif codeql-results.sarif codeql-summary.json
 
       - name: Publish official CodeQL results
         uses: github/codeql-action/upload-sarif@a65a038433a26f4363cf9f029e3b9ceac831ad5d # v3.28.10
@@ -195,7 +209,9 @@ jobs:
 
           def codeql_counts():
               counts = {'ERROR': 0, 'WARNING': 0, 'NOTE': 0}
-              for path in glob.glob('codeql-results/*.sarif'):
+              for path in ('codeql-results.sarif', 'codeql-results-complete.sarif'):
+                  if not os.path.exists(path):
+                      continue
                   data = json.load(open(path, encoding='utf-8'))
                   for run in data.get('runs') or []:
                       for result in run.get('results') or []:
@@ -229,6 +245,7 @@ jobs:
           if-no-files-found: warn
           path: |
             codeql-results/**/*.sarif
+            codeql-results-complete.sarif
             codeql-results.sarif
             codeql-summary.json
             audit-production.json

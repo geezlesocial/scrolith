@@ -7,12 +7,10 @@ import sys
 
 def main() -> None:
     if len(sys.argv) != 4:
-        raise SystemExit("usage: validate_codeql_sarif.py <directory> <raw-output> <summary-output>")
-    source_dir, raw_output, summary_output = map(pathlib.Path, sys.argv[1:])
-    files = sorted(source_dir.rglob("*.sarif"))
-    if len(files) != 1:
-        raise SystemExit(f"expected exactly one SARIF file, found {len(files)}")
-    source = files[0]
+        raise SystemExit("usage: validate_codeql_sarif.py <source-sarif> <raw-output> <summary-output>")
+    source, raw_output, summary_output = map(pathlib.Path, sys.argv[1:])
+    if not source.is_file():
+        raise SystemExit(f"SARIF file not found: {source}")
     data = json.loads(source.read_text(encoding="utf-8"))
     if data.get("version") != "2.1.0":
         raise SystemExit("SARIF version is not 2.1.0")
