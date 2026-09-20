@@ -94,7 +94,20 @@ jobs:
           TEST_DB_NAME: scrolith_test
         run: npm run test:db:seed
 
-      - name: Focused regression suites
+      - name: Node contract suites
+        env:
+          CI: true
+          NODE_OPTIONS: --max-old-space-size=4096
+          NODE_TEST_TIMEOUT_MS: '120000'
+          TEST_DB_KIND: cloudbuild-postgres
+          TEST_DB_PROJECT: cloudbuild-ephemeral
+          TEST_DB_INSTANCE: cloudbuild-ephemeral-postgres-test
+          REDIS_URL: redis://127.0.0.1:6379
+          REDIS_TEST_MODE: local
+          REDIS_RATE_LIMIT_FAIL_CLOSED: 'true'
+        run: node scripts/run-node-test-files.mjs
+
+      - name: Jest regression suites
         env:
           CI: true
           NODE_OPTIONS: --max-old-space-size=4096

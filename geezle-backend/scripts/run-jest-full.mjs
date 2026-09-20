@@ -24,21 +24,6 @@ process.env.ALLOW_DEV_ADMIN_BYPASS = process.env.ALLOW_DEV_ADMIN_BYPASS || 'true
 
 await import('./test-db-guard.mjs');
 
-const nodeTestResult = spawnSync(
-  process.execPath,
-  ['scripts/run-node-test-files.mjs'],
-  {
-    cwd: process.cwd(),
-    env: process.env,
-    stdio: 'inherit',
-    shell: false
-  }
-);
-
-if ((nodeTestResult.status ?? 1) !== 0) {
-  process.exit(nodeTestResult.status ?? 1);
-}
-
 const jestBin = './node_modules/jest/bin/jest.js';
 const jestTimeoutMs = Number.parseInt(process.env.JEST_TEST_TIMEOUT_MS || '60000', 10);
 const groupTimeoutMs = Number.parseInt(process.env.JEST_GROUP_TIMEOUT_MS || '900000', 10);
