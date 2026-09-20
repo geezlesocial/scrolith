@@ -104,7 +104,14 @@ export class DistributedRateLimitStore implements Store {
     try {
       await this.ensureReady();
       const result = await this.redis.eval(
-        'local hits = redis.call("INCR", KEYS[1]); if hits == 1 then redis.call("PEXPIRE", KEYS[1], ARGV[1]); end; return { hits, redis.call("PTTL", KEYS[1]) };',
+        [
+          'local hits = redis.call("INCR", KEYS[1])',
+          'if hits == 1 then',
+          '  redis.call("PEXPIRE", KEYS[1], ARGV[1])',
+          'end',
+          'local ttl = redis.call("PTTL", KEYS[1])',
+          'return { hits, ttl }'
+        ].join('\n'),
         1,
         redisKey,
         String(this.windowMs)
