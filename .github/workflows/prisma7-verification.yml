@@ -72,6 +72,40 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Wait for CI Redis service
+        env:
+          REDIS_URL: redis://127.0.0.1:6379
+        run: |
+          node --input-type=module <<'NODE'
+          import Redis from 'ioredis';
+          const deadline = Date.now() + 30000;
+          let lastError = 'unavailable';
+          while (Date.now() < deadline) {
+            const client = new Redis(process.env.REDIS_URL, {
+              lazyConnect: true,
+              enableOfflineQueue: false,
+              maxRetriesPerRequest: 1,
+              connectTimeout: 2000,
+              retryStrategy: () => null
+            });
+            try {
+              await client.connect();
+              if ((await client.ping()) === 'PONG') {
+                await client.quit();
+                console.log('CI_REDIS_READY');
+                process.exit(0);
+              }
+            } catch (error) {
+              lastError = String(error?.code || error?.name || 'unavailable');
+            } finally {
+              client.disconnect();
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
+          console.error(`CI Redis readiness failed: ${lastError}`);
+          process.exit(1);
+          NODE
+
       - name: Prisma validate and generate
         run: |
           npx prisma validate
