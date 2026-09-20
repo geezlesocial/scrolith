@@ -94,12 +94,19 @@ export function createRedisClient(url: string, config: RedisClientConfig = {}): 
   }
   const localCiRedis = process.env.NODE_ENV === 'test' && process.env.REDIS_TEST_MODE === 'local';
   const redis = new Redis(url, {
-    lazyConnect: !localCiRedis,
+    // Local CI owns connection establishment explicitly in connectTransport.
+    // Keeping construction lazy avoids a constructor-time race with the
+    // disposable Redis service; managed-identity and production paths retain
+    // the same lazy lifecycle as before.
+    lazyConnect: true,
     enableOfflineQueue: false,
     maxRetriesPerRequest: 1,
     connectTimeout: REDIS_CONNECT_TIMEOUT_MS,
     commandTimeout: REDIS_COMMAND_TIMEOUT_MS,
-    retryStrategy: retryDelay,
+    // The bounded retry loop below is the single retry authority for local
+    // CI. ioredis automatic retries can otherwise race that loop and leave a
+    // connecting socket behind after a failed attempt.
+    retryStrategy: localCiRedis ? (() => null) : retryDelay,
     autoResubscribe: false,
     autoResendUnfulfilledCommands: false
   });
