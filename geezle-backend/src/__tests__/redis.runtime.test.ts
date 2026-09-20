@@ -36,6 +36,22 @@ describe('staging Redis runtime contract', () => {
     await redis.set(key, 'synthetic', 'PX', 30_000);
     await expect(redis.get(key)).resolves.toBe('synthetic');
     await expect(redis.pttl(key)).resolves.toBeGreaterThan(0);
+    const limiterResult = await redis.eval(
+      [
+        'local hits = redis.call("INCR", KEYS[1])',
+        'if hits == 1 then',
+        '  redis.call("PEXPIRE", KEYS[1], ARGV[1])',
+        'end',
+        'local ttl = redis.call("PTTL", KEYS[1])',
+        'return { hits, ttl }'
+      ].join('\n'),
+      1,
+      `${prefix}script`,
+      '30_000'
+    ) as [number | string, number | string];
+    expect(Number(limiterResult[0])).toBe(1);
+    expect(Number(limiterResult[1])).toBeGreaterThan(0);
+    await redis.del(`${prefix}script`);
     await redis.del(key);
   });
 
