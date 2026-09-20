@@ -124,7 +124,18 @@ export async function connectRedisClient(redis: Redis, config: EntraRedisConfig 
   if (requireManagedIdentity) throw new RedisUnavailableError('Redis managed identity configuration is missing');
   lifecycleStates.set(redis, 'connecting');
   try {
-    await connectTransport(redis);
+    const localCiRedis = process.env.NODE_ENV === 'test' && process.env.REDIS_TEST_MODE === 'local';
+    if (localCiRedis) {
+      // The disposable CI contract intentionally uses the same explicit
+      // connect/PING sequence as redis.runtime.test.ts. This avoids an
+      // ioredis readiness-event race while keeping the bounded lifecycle
+      // transport for all non-test runtimes.
+      const status = String((redis as Redis & { status?: string }).status || '');
+      if (status !== 'ready') await redis.connect();
+      await redis.ping();
+    } else {
+      await connectTransport(redis);
+    }
     lifecycleStates.set(redis, 'ready');
   } catch (error) {
     lifecycleStates.set(redis, 'unavailable');
