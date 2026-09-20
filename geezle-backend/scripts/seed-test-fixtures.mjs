@@ -1,8 +1,15 @@
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import pg from 'pg';
 
 await import('./test-db-guard.mjs');
 
-const prisma = new PrismaClient();
+const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: Number(process.env.PRISMA_CONNECTION_LIMIT || 4),
+  connectionTimeoutMillis: 10_000
+});
+const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 
 const ensureUser = async (data) =>
   prisma.user.upsert({
@@ -115,4 +122,5 @@ try {
   console.log('Test fixtures seeded.');
 } finally {
   await prisma.$disconnect();
+  await pool.end();
 }
