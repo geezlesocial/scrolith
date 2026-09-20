@@ -47,7 +47,7 @@ describe('staging Redis runtime contract', () => {
       ].join('\n'),
       1,
       `${prefix}script`,
-      '30_000'
+      '30000'
     ) as [number | string, number | string];
     expect(Number(limiterResult[0])).toBe(1);
     expect(Number(limiterResult[1])).toBeGreaterThan(0);
