@@ -147,6 +147,17 @@ export async function shutdown() {
   redisReady = null;
   const client = redis;
   redis = null;
+  if (localTestRedis && client) {
+    try {
+      const keys = [
+        ...(await client.keys('gcoin:transfers:*')),
+        ...(await client.keys('gcoin:conversions:*'))
+      ];
+      if (keys.length > 0) await client.del(...keys);
+    } catch {
+      // Test cleanup must not change the protected-operation failure contract.
+    }
+  }
   client?.disconnect();
 }
 
