@@ -28,6 +28,8 @@ const nodeTestFiles = ['src', 'tests']
   .filter((dir) => statSync(dir, { throwIfNoEntry: false })?.isDirectory())
   .flatMap(collectNodeTestFiles);
 
+const testTimeoutMs = Number.parseInt(process.env.NODE_TEST_TIMEOUT_MS || '120000', 10);
+
 for (const file of nodeTestFiles) {
   console.log(`[node:test] ${file}`);
   // These files are runtime node:test contracts. Type-checking every isolated
@@ -37,8 +39,15 @@ for (const file of nodeTestFiles) {
     cwd: process.cwd(),
     env: process.env,
     stdio: 'inherit',
-    shell: false
+    shell: false,
+    timeout: testTimeoutMs,
+    killSignal: 'SIGTERM'
   });
+
+  if (result.error?.code === 'ETIMEDOUT') {
+    console.error(`[node:test] timed out after ${testTimeoutMs}ms: ${file}`);
+    process.exit(1);
+  }
 
   if ((result.status ?? 1) !== 0) {
     process.exit(result.status ?? 1);

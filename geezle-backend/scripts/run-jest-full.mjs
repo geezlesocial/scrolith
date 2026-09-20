@@ -1,4 +1,7 @@
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 process.env.NODE_ENV = 'test';
 process.env.APP_RUNTIME = 'test';
@@ -36,15 +39,94 @@ if ((nodeTestResult.status ?? 1) !== 0) {
   process.exit(nodeTestResult.status ?? 1);
 }
 
-const result = spawnSync(
+const jestBin = './node_modules/jest/bin/jest.js';
+const jestTimeoutMs = Number.parseInt(process.env.JEST_TEST_TIMEOUT_MS || '60000', 10);
+const groupTimeoutMs = Number.parseInt(process.env.JEST_GROUP_TIMEOUT_MS || '900000', 10);
+const groupSize = Number.parseInt(process.env.JEST_GROUP_SIZE || '12', 10);
+
+const listResult = spawnSync(
   process.execPath,
-  ['--max-old-space-size=4096', './node_modules/jest/bin/jest.js', '--config', 'jest.config.cjs', '--runInBand', '--detectOpenHandles'],
-  {
-    cwd: process.cwd(),
-    env: process.env,
-    stdio: 'inherit',
-    shell: false
-  }
+  [jestBin, '--config', 'jest.config.cjs', '--listTests', '--json'],
+  { cwd: process.cwd(), env: process.env, encoding: 'utf8', timeout: 120000, shell: false }
 );
 
-process.exit(result.status ?? 1);
+if (listResult.error?.code === 'ETIMEDOUT' || listResult.status !== 0) {
+  console.error('[jest] unable to enumerate test files within the bounded discovery window');
+  process.exit(1);
+}
+
+const jestFiles = JSON.parse(listResult.stdout || '[]').sort();
+const groups = [];
+for (let index = 0; index < jestFiles.length; index += groupSize) {
+  groups.push(jestFiles.slice(index, index + groupSize));
+}
+
+const resultDir = mkdtempSync(join(tmpdir(), 'scrolith-jest-results-'));
+const totals = {
+  numTotalTestSuites: 0,
+  numPassedTestSuites: 0,
+  numFailedTestSuites: 0,
+  numPendingTestSuites: 0,
+  numTotalTests: 0,
+  numPassedTests: 0,
+  numFailedTests: 0,
+  numPendingTests: 0,
+  numTodoTests: 0
+};
+
+const addTotals = (summary) => {
+  for (const key of Object.keys(totals)) {
+    totals[key] += Number(summary[key] || 0);
+  }
+};
+
+let exitCode = 0;
+for (const [index, files] of groups.entries()) {
+  const outputFile = join(resultDir, `group-${String(index + 1).padStart(3, '0')}.json`);
+  console.log(`[jest] group ${index + 1}/${groups.length}: ${files.length} files`);
+  const result = spawnSync(
+    process.execPath,
+    [
+      '--max-old-space-size=4096',
+      jestBin,
+      '--config', 'jest.config.cjs',
+      '--runInBand',
+      '--detectOpenHandles',
+      '--testTimeout', String(jestTimeoutMs),
+      '--json',
+      '--outputFile', outputFile,
+      '--runTestsByPath',
+      ...files
+    ],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: 'inherit',
+      shell: false,
+      timeout: groupTimeoutMs,
+      killSignal: 'SIGTERM'
+    }
+  );
+
+  if (result.error?.code === 'ETIMEDOUT') {
+    console.error(`[jest] group ${index + 1} timed out after ${groupTimeoutMs}ms`);
+    exitCode = 1;
+    break;
+  }
+
+  try {
+    addTotals(JSON.parse(readFileSync(outputFile, 'utf8')));
+  } catch {
+    console.error(`[jest] group ${index + 1} produced no readable result summary`);
+    exitCode = 1;
+  }
+
+  if ((result.status ?? 1) !== 0) {
+    exitCode = result.status ?? 1;
+    break;
+  }
+}
+
+console.log(`[jest] aggregate ${JSON.stringify(totals)}`);
+rmSync(resultDir, { recursive: true, force: true });
+process.exit(exitCode);

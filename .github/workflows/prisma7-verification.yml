@@ -9,6 +9,7 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: geezle-backend
@@ -96,6 +97,11 @@ jobs:
       - name: Focused regression suites
         env:
           CI: true
+          NODE_OPTIONS: --max-old-space-size=4096
+          NODE_TEST_TIMEOUT_MS: '120000'
+          JEST_TEST_TIMEOUT_MS: '60000'
+          JEST_GROUP_TIMEOUT_MS: '900000'
+          JEST_GROUP_SIZE: '12'
           TEST_DB_KIND: cloudbuild-postgres
           TEST_DB_PROJECT: cloudbuild-ephemeral
           TEST_DB_INSTANCE: cloudbuild-ephemeral-postgres-test
