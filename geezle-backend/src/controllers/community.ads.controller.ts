@@ -423,8 +423,13 @@ const mergeAdsConfig = (raw: any) => {
   };
 
   for (const placement of normalizedAllowedPlacements) {
-    cpmByPlacement[placement] = toPositiveNumber(cpmByPlacement[placement], toPositiveNumber(defaultAdsConfig.cpmByPlacement[placement], 0));
-    cpcByPlacement[placement] = toPositiveNumber(cpcByPlacement[placement], toPositiveNumber(defaultAdsConfig.cpcByPlacement[placement], 0));
+    const allowedPlacementKeys = new Set(DEFAULT_ALLOWED_PLACEMENTS);
+    const currentCpm = getAllowedObjectValue(cpmByPlacement, placement, allowedPlacementKeys);
+    const defaultCpm = getAllowedObjectValue(defaultAdsConfig.cpmByPlacement, placement, allowedPlacementKeys);
+    const currentCpc = getAllowedObjectValue(cpcByPlacement, placement, allowedPlacementKeys);
+    const defaultCpc = getAllowedObjectValue(defaultAdsConfig.cpcByPlacement, placement, allowedPlacementKeys);
+    setSafeObjectValue(cpmByPlacement, placement, toPositiveNumber(currentCpm, toPositiveNumber(defaultCpm, 0)), allowedPlacementKeys);
+    setSafeObjectValue(cpcByPlacement, placement, toPositiveNumber(currentCpc, toPositiveNumber(defaultCpc, 0)), allowedPlacementKeys);
   }
 
   return normalized;

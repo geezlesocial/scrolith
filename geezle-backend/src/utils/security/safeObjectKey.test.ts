@@ -18,6 +18,15 @@ describe('safe request-derived object keys', () => {
     expect(setSafeObjectValue(record, '__proto__', { polluted: true })).toBe(false);
     expect(({} as { polluted?: boolean }).polluted).toBeUndefined();
   });
+
+  it('enforces finite domain allowlists in addition to prototype-key checks', () => {
+    const record: Record<string, number> = {};
+    const allowed = new Set(['homepage', 'community_feed']);
+    expect(setSafeObjectValue(record, 'homepage', 1, allowed)).toBe(true);
+    expect(setSafeObjectValue(record, 'unapproved', 2, allowed)).toBe(false);
+    expect(setSafeObjectValue(record, 'constructor', 3, allowed)).toBe(false);
+    expect(record).toEqual({ homepage: 1 });
+  });
 });
 
 describe('bounded email validation', () => {

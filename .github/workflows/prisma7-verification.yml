@@ -15,6 +15,9 @@ jobs:
     env:
       DATABASE_URL: postgresql://scrolith_test:local_test_password@127.0.0.1:5432/scrolith_test
       SHADOW_DATABASE_URL: postgresql://scrolith_test:local_test_password@127.0.0.1:5432/scrolith_shadow
+      REDIS_URL: redis://127.0.0.1:6379
+      REDIS_TEST_MODE: local
+      REDIS_RATE_LIMIT_FAIL_CLOSED: 'true'
     services:
       postgres:
         image: postgres:16
@@ -29,10 +32,25 @@ jobs:
           --health-interval 2s
           --health-timeout 3s
           --health-retries 30
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Initialize repository submodules for cross-tree certification tests
+        run: |
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule sync --recursive
+          git submodule update --init --recursive
 
       - name: Use Node.js 22.18.0
         uses: actions/setup-node@v4
@@ -61,12 +79,22 @@ jobs:
           npx prisma migrate status
           npx prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script
 
+      - name: Seed deterministic CI fixtures
+        env:
+          TEST_DB_KIND: cloudbuild-postgres
+          TEST_DB_PROJECT: cloudbuild-ephemeral
+          TEST_DB_INSTANCE: cloudbuild-ephemeral-postgres-test
+        run: npm run test:db:seed
+
       - name: Focused regression suites
         env:
           CI: true
           TEST_DB_KIND: cloudbuild-postgres
           TEST_DB_PROJECT: cloudbuild-ephemeral
           TEST_DB_INSTANCE: cloudbuild-ephemeral-postgres-test
+          REDIS_URL: redis://127.0.0.1:6379
+          REDIS_TEST_MODE: local
+          REDIS_RATE_LIMIT_FAIL_CLOSED: 'true'
         run: npm run test:full
 
       - name: TypeScript build

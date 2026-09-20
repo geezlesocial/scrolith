@@ -274,12 +274,30 @@ export const saveIntegrationEndpoint = async (input: any, id?: string) => {
   return { ...sanitizeEndpoint(endpoint), secretPlain };
 };
 
-const sanitizeEventType = (value: unknown) =>
-  cleanString(value)
-    .toLowerCase()
-    .replace(/[^a-z0-9.*:_-]+/g, '.')
-    .replace(/\.{2,}/g, '.')
-    .replace(/^\.+|\.+$/g, '');
+export const sanitizeEventType = (value: unknown) => {
+  const input = cleanString(value).toLowerCase().slice(0, 512);
+  let output = '';
+  let separatorPending = false;
+  for (const character of input) {
+    const isAllowed =
+      (character >= 'a' && character <= 'z') ||
+      (character >= '0' && character <= '9') ||
+      character === '*' ||
+      character === '.' ||
+      character === ':' ||
+      character === '_' ||
+      character === '-';
+    if (isAllowed) {
+      if (character === '.' && output.endsWith('.')) continue;
+      if (separatorPending && output.length > 0 && !output.endsWith('.')) output += '.';
+      separatorPending = false;
+      output += character;
+    } else {
+      separatorPending = output.length > 0;
+    }
+  }
+  return output.replace(/^\.+|\.+$/g, '').slice(0, 128);
+};
 
 const sanitizeConnectorMetadata = (input: any, previous?: any) => {
   const existingMetadata =

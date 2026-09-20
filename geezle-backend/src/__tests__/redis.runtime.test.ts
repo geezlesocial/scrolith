@@ -3,7 +3,8 @@ import { connectWithManagedIdentity } from '../services/redis/entraRedis';
 import { DistributedRateLimitStore } from '../middleware/distributedRateLimitStore';
 import { createRedisSessionStore } from '../services/scrolitha/scrolitha.sessionStore';
 
-const required = ['REDIS_URL', 'REDIS_ENTRA_CLIENT_ID', 'REDIS_ENTRA_OBJECT_ID'];
+const localCiRedis = process.env.REDIS_TEST_MODE === 'local';
+const required = localCiRedis ? ['REDIS_URL'] : ['REDIS_URL', 'REDIS_ENTRA_CLIENT_ID', 'REDIS_ENTRA_OBJECT_ID'];
 for (const name of required) if (!process.env[name]) throw new Error(`${name} is required for Redis runtime tests`);
 
 describe('staging Redis runtime contract', () => {
@@ -13,10 +14,15 @@ describe('staging Redis runtime contract', () => {
 
   beforeAll(async () => {
     redis = new Redis(process.env.REDIS_URL!, { lazyConnect: true, enableOfflineQueue: false, retryStrategy: () => null });
-    stopAuth = await connectWithManagedIdentity(redis, {
-      clientId: process.env.REDIS_ENTRA_CLIENT_ID!,
-      username: process.env.REDIS_ENTRA_OBJECT_ID!
-    });
+    stopAuth = localCiRedis
+      ? await (async () => {
+          await redis.connect();
+          return () => undefined;
+        })()
+      : await connectWithManagedIdentity(redis, {
+          clientId: process.env.REDIS_ENTRA_CLIENT_ID!,
+          username: process.env.REDIS_ENTRA_OBJECT_ID!
+        });
   });
 
   afterAll(async () => {
@@ -36,11 +42,11 @@ describe('staging Redis runtime contract', () => {
   test('distributed limiter shares bounded TTL state and fails closed', async () => {
     const storeA = new DistributedRateLimitStore(process.env.REDIS_URL!, `${prefix}limit:`, {
       failClosed: true,
-      entraClientId: process.env.REDIS_ENTRA_CLIENT_ID
+      entraClientId: localCiRedis ? undefined : process.env.REDIS_ENTRA_CLIENT_ID
     });
     const storeB = new DistributedRateLimitStore(process.env.REDIS_URL!, `${prefix}limit:`, {
       failClosed: true,
-      entraClientId: process.env.REDIS_ENTRA_CLIENT_ID
+      entraClientId: localCiRedis ? undefined : process.env.REDIS_ENTRA_CLIENT_ID
     });
     storeA.init({ windowMs: 30_000 } as any);
     storeB.init({ windowMs: 30_000 } as any);

@@ -100,6 +100,14 @@ describe('talentCloud.service', () => {
     expect(result).toEqual(expect.objectContaining({ status: 'QUEUED' }));
   });
 
+  test('sanitizes event types with bounded linear parsing', async () => {
+    const service = await import('../talentCloud.service');
+    expect(service.sanitizeEventType('invoice...approved')).toBe('invoice.approved');
+    expect(service.sanitizeEventType('invoice <script> approved')).toBe('invoice.script.approved');
+    expect(service.sanitizeEventType('.'.repeat(20_000))).toBe('');
+    expect(service.sanitizeEventType('a'.repeat(2_000))).toHaveLength(128);
+  });
+
   test('moves webhook deliveries toward dead-letter after repeated retries', async () => {
     mockPrisma.webhookDeliveryLog.findUnique.mockResolvedValue({
       id: 'delivery-1',
