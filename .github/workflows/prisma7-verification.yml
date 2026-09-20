@@ -90,6 +90,7 @@ jobs:
           TEST_DB_KIND: cloudbuild-postgres
           TEST_DB_PROJECT: cloudbuild-ephemeral
           TEST_DB_INSTANCE: cloudbuild-ephemeral-postgres-test
+          TEST_DB_NAME: scrolith_test
         run: npm run test:db:seed
 
       - name: Focused regression suites
