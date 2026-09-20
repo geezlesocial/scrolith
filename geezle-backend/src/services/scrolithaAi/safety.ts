@@ -29,15 +29,16 @@ const FORBIDDEN_ACTIONS = [
 ];
 
 export function evaluateSafetyPre(text: string): SafetyDecision {
+  const boundedText = String(text || '').slice(0, 8192);
   const reasons: string[] = [];
   for (const re of INJECTION_PATTERNS) {
-    if (re.test(text)) reasons.push('prompt_injection_pattern');
+    if (re.test(boundedText)) reasons.push('prompt_injection_pattern');
   }
   for (const re of UNSAFE_CONTENT) {
-    if (re.test(text)) reasons.push('unsafe_content_pattern');
+    if (re.test(boundedText)) reasons.push('unsafe_content_pattern');
   }
   for (const re of FORBIDDEN_ACTIONS) {
-    if (re.test(text)) reasons.push('forbidden_action_request');
+    if (re.test(boundedText)) reasons.push('forbidden_action_request');
   }
   if (reasons.includes('unsafe_content_pattern')) {
     return {
@@ -59,11 +60,12 @@ export function evaluateSafetyPre(text: string): SafetyDecision {
 }
 
 export function evaluateSafetyPost(text: string): SafetyDecision {
+  const boundedText = String(text || '').slice(0, 8192);
   const reasons: string[] = [];
-  if (/scrolith knowledge baseline|internal platform context only/i.test(text)) {
+  if (/scrolith knowledge baseline|internal platform context only/i.test(boundedText)) {
     reasons.push('possible_prompt_leak');
   }
-  if (UNSAFE_CONTENT.some((re) => re.test(text))) {
+  if (UNSAFE_CONTENT.some((re) => re.test(boundedText))) {
     return {
       allowed: false,
       action: 'REFUSE',

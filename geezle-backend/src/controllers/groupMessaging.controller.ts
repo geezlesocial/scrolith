@@ -3,6 +3,7 @@
  */
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
+import { isLikelyEmail } from '../utils/security/boundedInput';
 import {
   canChangeRoles,
   canEditGroupMeta,
@@ -34,7 +35,6 @@ type GroupMemberStatus =
   | 'BLOCKED_OR_UNAVAILABLE'
   | 'GROUP_LIMIT_REACHED';
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const USERNAME_RE = /^[a-zA-Z0-9._-]{2,40}$/;
 const USER_ID_RE = /^[a-z][a-z0-9_-]{8,}$/i;
 const MEMBER_CANDIDATE_LIMIT = 10;
@@ -196,7 +196,7 @@ const resolveGroupMemberIdentifier = async (
 
   let user: any = null;
   let matchedBy: GroupMemberMatchedBy = 'USERNAME';
-  if (EMAIL_RE.test(identifier)) {
+  if (isLikelyEmail(identifier)) {
     matchedBy = 'EMAIL';
     user = await prisma.user.findUnique({
       where: { email: identifier.toLowerCase() },
@@ -272,11 +272,11 @@ export const listGroupMemberCandidates = async (req: Request, res: Response) => 
     const q = normalizeIdentifier(req.query?.q);
     const usernameQuery = q.replace(/^@+/, '');
     if (q.length < 2 || usernameQuery.length < 2) return res.json({ success: true, data: { results: [] } });
-    if (q.includes('@') && !q.startsWith('@') && !EMAIL_RE.test(q)) {
+    if (q.includes('@') && !q.startsWith('@') && !isLikelyEmail(q)) {
       return res.json({ success: true, data: { results: [] } });
     }
 
-    const users = EMAIL_RE.test(q)
+    const users = isLikelyEmail(q)
       ? await prisma.user.findMany({
           where: { email: q.toLowerCase(), isActive: true },
           select: publicMemberUserSelect,

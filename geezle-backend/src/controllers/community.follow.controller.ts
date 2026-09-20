@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
 import { createEngagementNotification } from '../services/engagementNotifications.service';
+import { setSafeObjectValue } from '../utils/security/safeObjectKey';
 
 const normalizeId = (value: unknown) => String(value || '').trim();
 const parseLimit = (value: unknown, fallback = 20, max = 100) => {
@@ -920,7 +921,7 @@ export const followStatusBulk = async (req: Request, res: Response) => {
 
     const data: Record<string, boolean> = {};
     targetUserIds.forEach((id) => {
-      data[id] = false;
+      setSafeObjectValue(data, id, false);
     });
 
     if (!targetUserIds.length) {
@@ -936,7 +937,7 @@ export const followStatusBulk = async (req: Request, res: Response) => {
     });
 
     follows.forEach((follow) => {
-      data[follow.followeeId] = true;
+      setSafeObjectValue(data, follow.followeeId, true);
     });
 
     return res.json({ success: true, data });

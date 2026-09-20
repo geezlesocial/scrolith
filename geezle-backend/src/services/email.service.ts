@@ -1,6 +1,7 @@
 import prisma from '../utils/prismaClient';
 import * as net from 'node:net';
 import * as tls from 'node:tls';
+import { isLikelyEmail } from '../utils/security/boundedInput';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const nodemailer = require('nodemailer');
 
@@ -113,7 +114,7 @@ export const normalizeEnvironmentEmailSettings = (env: NodeJS.ProcessEnv = proce
     port <= 0 ||
     !fromName ||
     !fromEmail ||
-    !EMAIL_REGEX.test(fromEmail) ||
+    !isLikelyEmail(fromEmail) ||
     !['tls', 'ssl', 'none'].includes(encryption)
   ) {
     return null;
@@ -298,8 +299,6 @@ export const normalizeEmailSettings = (raw: any): EmailSettings | null => {
   };
 };
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 export const validateEmailSettings = (settings: EmailSettings | null): string[] => {
   if (!settings) return ['Email host and port are required'];
 
@@ -307,7 +306,7 @@ export const validateEmailSettings = (settings: EmailSettings | null): string[] 
   if (!settings.host) errors.push('Email host is required');
   if (!settings.port || Number(settings.port) <= 0) errors.push('A valid email port is required');
   if (!settings.fromName) errors.push('From name is required');
-  if (!settings.fromEmail || !EMAIL_REGEX.test(settings.fromEmail)) {
+  if (!settings.fromEmail || !isLikelyEmail(settings.fromEmail)) {
     errors.push('A valid from email address is required');
   }
 

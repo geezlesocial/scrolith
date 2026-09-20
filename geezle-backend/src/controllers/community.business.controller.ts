@@ -11,6 +11,8 @@ import {
 } from '../services/contentOfferTagging.service';
 import { normalizeUploadsPath, resolveDirectMediaUrl, resolveFileBaseUrl } from '../utils/mediaUrl';
 import { jwtSecret } from '../utils/security/requiredSecret';
+import { setSafeObjectValue } from '../utils/security/safeObjectKey';
+import { isLikelyEmail } from '../utils/security/boundedInput';
 
 const PAGE_STATUS_ALIASES: Record<string, string> = {
   active: 'active',
@@ -54,9 +56,9 @@ const parseCookieHeader = (cookieHeader?: string): Record<string, string> => {
     const value = rest.join('=').trim();
     if (!key) return;
     try {
-      jar[key] = decodeURIComponent(value);
+      setSafeObjectValue(jar, key, decodeURIComponent(value));
     } catch {
-      jar[key] = value;
+      setSafeObjectValue(jar, key, value);
     }
   });
   return jar;
@@ -132,7 +134,7 @@ const cleanOptionalEmail = (value: unknown) => {
   const text = String(value ?? '').trim();
   if (!text) return null;
   const normalized = text.toLowerCase();
-  const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized);
+  const valid = isLikelyEmail(normalized);
   if (!valid) throw new Error('Invalid business email');
   return normalized.slice(0, 160);
 };
@@ -1710,4 +1712,3 @@ export const adminDeleteBusinessPage = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, error: error.message || 'Failed to delete page' });
   }
 };
-

@@ -14,6 +14,8 @@ import {
   FOUNDATION_CAPABILITIES,
   type AIFeatureFlags
 } from '../services/scrolithaAi';
+import { DEFAULT_AI_FEATURE_FLAGS } from '../services/scrolithaAi/types';
+import { isSafeObjectKey } from '../utils/security/safeObjectKey';
 import { isScrolithaLocalOnly, SCROLITHA_LOCAL_MODEL } from '../services/scrolithaAi/config';
 import { listAIAudit, writeAIAudit } from '../services/scrolithaAi/audit';
 import prisma from '../utils/prismaClient';
@@ -346,6 +348,9 @@ export async function adminAIFeatureFlags(req: Request, res: Response) {
     let body: Record<string, unknown> = { ...(req.body || {}) };
     const flagName = req.params.flag ? String(req.params.flag) : '';
     if (flagName) {
+      if (!isSafeObjectKey(flagName) || !Object.prototype.hasOwnProperty.call(DEFAULT_AI_FEATURE_FLAGS, flagName)) {
+        return res.status(400).json({ success: false, error: 'Unsupported feature flag' });
+      }
       const value = body.value !== undefined ? body.value : body.enabled;
       body = { [flagName]: value };
     }

@@ -424,11 +424,11 @@ export const submitMonetizationApplication = async (req: Request, res: Response)
       });
     }
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailPattern.test(email)) {
+    if (email.length > 254 || !emailPattern.test(email)) {
       return res.status(400).json({ success: false, error: 'Invalid email address', code: 'VALIDATION_ERROR' });
     }
     const phonePattern = /^\+?[0-9()\-. ]{7,20}$/;
-    if (!phonePattern.test(phone)) {
+    if (phone.length > 32 || !phonePattern.test(phone)) {
       return res.status(400).json({ success: false, error: 'Invalid phone number', code: 'VALIDATION_ERROR' });
     }
     const tinPattern = /^[A-Za-z0-9_.\-\/]{6,40}$/;

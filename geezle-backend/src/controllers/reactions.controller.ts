@@ -4,6 +4,7 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
 import { createEngagementNotification } from '../services/engagementNotifications.service';
+import { isSafeObjectKey, setSafeObjectValue } from '../utils/security/safeObjectKey';
 
 type ReactionTargetType = 'POST' | 'COMMENT' | 'MESSAGE' | 'STORY' | 'SCROLL';
 
@@ -934,15 +935,15 @@ export const getReactionSummaryBulk = async (req: Request, res: Response) => {
 
     const data: Record<string, { counts: Record<string, number>; userReaction: string | null }> = {};
     scopedTargetIds.forEach((targetId) => {
-      data[targetId] = { counts: {}, userReaction: null };
+      setSafeObjectValue(data, targetId, { counts: {}, userReaction: null });
     });
     (grouped as Array<{ targetId: string; reactionKey: string; _count: { _all: number } }>).forEach((row) => {
-      if (!data[row.targetId]) data[row.targetId] = { counts: {}, userReaction: null };
-      data[row.targetId].counts[row.reactionKey] = row._count._all;
+      if (!data[row.targetId] && isSafeObjectKey(row.targetId)) setSafeObjectValue(data, row.targetId, { counts: {}, userReaction: null });
+      if (data[row.targetId] && isSafeObjectKey(row.reactionKey)) data[row.targetId].counts[row.reactionKey] = row._count._all;
     });
     (mine as Array<{ targetId: string; reactionKey: string }>).forEach((row) => {
-      if (!data[row.targetId]) data[row.targetId] = { counts: {}, userReaction: null };
-      data[row.targetId].userReaction = row.reactionKey;
+      if (!data[row.targetId] && isSafeObjectKey(row.targetId)) setSafeObjectValue(data, row.targetId, { counts: {}, userReaction: null });
+      if (data[row.targetId] && isSafeObjectKey(row.reactionKey)) data[row.targetId].userReaction = row.reactionKey;
     });
 
     return res.json({ success: true, data });

@@ -7,6 +7,7 @@ import jwt from 'jsonwebtoken';
 import { Jimp } from 'jimp';
 import { jwtSecret } from '../utils/security/requiredSecret';
 import { isPathWithin, requirePathWithin } from '../utils/security/safePath';
+import { setSafeObjectValue } from '../utils/security/safeObjectKey';
 // Prefer Node's crypto.randomUUID to avoid importing `uuid` (ESM issues in some test runners)
 const crypto = require('crypto');
 const uuidv4 = () => {
@@ -553,9 +554,9 @@ const parseCookies = (cookieHeader?: string): Record<string, string> => {
     const value = rest.join('=').trim();
     if (!key) return;
     try {
-      jar[key] = decodeURIComponent(value);
+      setSafeObjectValue(jar, key, decodeURIComponent(value));
     } catch {
-      jar[key] = value;
+      setSafeObjectValue(jar, key, value);
     }
   });
   return jar;

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import Stripe from 'stripe';
 import prisma from '../utils/prismaClient';
+import { getAllowedObjectValue, isSafeObjectKey, setSafeObjectValue } from '../utils/security/safeObjectKey';
 import { configuredHttpsHosts, validateHttpsOutboundUrl } from '../utils/security/safeOutboundUrl';
 import { initiateHostedCheckout, parseNotification } from '../services/payments/providers/payoneer';
 import {
@@ -368,6 +369,7 @@ const paymentGatewayCatalog = [
     ]
   }
 ];
+const PAYMENT_GATEWAY_IDS = new Set(paymentGatewayCatalog.map((gateway) => gateway.id));
 
 const secretFieldMap: Record<string, string[]> = {
   stripe: ['secretKey', 'webhookSecret'],
@@ -521,7 +523,11 @@ export const saveFundingGatewaysAdmin = async (req: Request, res: Response) => {
     for (const item of incoming) {
       if (!item?.id) continue;
       const providerId = item.id;
+      if (!isSafeObjectKey(providerId) || !PAYMENT_GATEWAY_IDS.has(providerId)) {
+        return fail(res, 400, 'Unsupported payment provider', 'ERR_GATEWAY_PROVIDER');
+      }
       const allow = allowedFields[providerId] || ['enabled', 'logo'];
+      const allowedKeys = new Set(allow);
       const current = existing[providerId] || {};
       const next = { ...current };
 
@@ -533,11 +539,11 @@ export const saveFundingGatewaysAdmin = async (req: Request, res: Response) => {
 
       for (const key of allow) {
         if (key === 'enabled') continue;
-        if (payloadConfig[key] === undefined) continue;
-        if (typeof payloadConfig[key] === 'string' && payloadConfig[key].trim() === '') continue;
-        const rawValue = payloadConfig[key];
+        const rawValue = getAllowedObjectValue(payloadConfig, key, allowedKeys);
+        if (rawValue === undefined) continue;
+        if (typeof rawValue === 'string' && rawValue.trim() === '') continue;
         const shouldEncrypt = (secretFieldMap[providerId] || []).includes(key) && typeof rawValue === 'string';
-        next[key] = shouldEncrypt ? encryptSecret(rawValue) : rawValue;
+        setSafeObjectValue(next, key, shouldEncrypt ? encryptSecret(rawValue) : rawValue);
       }
 
       if (next.enabled) {

@@ -7,6 +7,7 @@ import { defaultAuthPagesConfig, normalizeAuthPagesConfig, sanitizeAuthPagesConf
 import { sendSystemMessage } from '../services/systemMessaging';
 import { DEFAULT_MEMBER_HOME_REGIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../constants/defaultAudienceOptions';
 import prisma from '../utils/prismaClient';
+import { setSafeObjectValue } from '../utils/security/safeObjectKey';
 import { sanitizePublicVerificationSettings } from '../utils/verificationSettings';
 import { sanitizePublicTrustScoreSettings } from '../utils/trustScoreSettings';
 import { sanitizePublicStorefrontSettings } from '../utils/storefrontSettings';
@@ -485,7 +486,7 @@ const computeCategoryCounts = (posts: any[], categories: any[]) => {
   posts.forEach((post: any) => {
     const catId = post.category_id || post.categoryId;
     if (!catId) return;
-    counts[catId] = (counts[catId] || 0) + 1;
+    setSafeObjectValue(counts, catId, (counts[catId] || 0) + 1);
   });
 
   return categories.map((cat: any) => ({
@@ -2813,7 +2814,6 @@ export default {
   saveHirePage,
   saveFreelancerPage
 };
-
 
 
 

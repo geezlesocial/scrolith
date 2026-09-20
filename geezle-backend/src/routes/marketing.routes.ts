@@ -81,7 +81,7 @@ const saveSubscribers = async (list: SubscriberRecord[]) => saveSetting(SUBSCRIB
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
 const isValidEmail = (value: string) => {
-  if (!value) return false;
+  if (!value || value.length > 254) return false;
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 };
 

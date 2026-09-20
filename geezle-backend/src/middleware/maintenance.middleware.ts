@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import prisma from '../utils/prismaClient';
 import { jwtSecret } from '../utils/security/requiredSecret';
+import { setSafeObjectValue } from '../utils/security/safeObjectKey';
 
 type MaintenanceCache = {
   enabled: boolean;
@@ -54,9 +55,9 @@ const parseCookies = (cookieHeader?: string): Record<string, string> => {
     const value = rest.join('=').trim();
     if (!key) return;
     try {
-      jar[key] = decodeURIComponent(value);
+      setSafeObjectValue(jar, key, decodeURIComponent(value));
     } catch {
-      jar[key] = value;
+      setSafeObjectValue(jar, key, value);
     }
   });
   return jar;

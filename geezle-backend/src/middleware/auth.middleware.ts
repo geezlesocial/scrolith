@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import prisma from '../utils/prismaClient';
 import { Role } from '@prisma/client';
 import { jwtSecret } from '../utils/security/requiredSecret';
+import { setSafeObjectValue } from '../utils/security/safeObjectKey';
 
 // Extend Express Request type to include user
 declare global {
@@ -28,9 +29,9 @@ const parseCookies = (cookieHeader?: string): Record<string, string> => {
     const value = rest.join('=').trim();
     if (!key) return;
     try {
-      jar[key] = decodeURIComponent(value);
+      setSafeObjectValue(jar, key, decodeURIComponent(value));
     } catch {
-      jar[key] = value;
+      setSafeObjectValue(jar, key, value);
     }
   });
   return jar;

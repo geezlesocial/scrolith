@@ -10,6 +10,7 @@ import { buildMarketplaceListingBoostPrefill } from '../services/marketplace.ser
 import { resolveDirectMediaUrl, resolveFileBaseUrl } from '../utils/mediaUrl';
 import { resolveEffectiveCurrencies } from '../services/fx.service';
 import { buildAdsConfigCurrencyView } from '../services/currencySurface.service';
+import { setSafeObjectValue } from '../utils/security/safeObjectKey';
 
 const ADS_CONFIG_SCOPE = 'community_ads_config';
 
@@ -388,9 +389,15 @@ const buildAdDeliveryDiagnostics = (ad: any, configInput?: any) => {
 
 const mergeAdsConfig = (raw: any) => {
   const input = raw && typeof raw === 'object' ? raw : {};
-  const cpmByPlacement = { ...defaultAdsConfig.cpmByPlacement, ...(input.cpmByPlacement || {}) } as Record<string, any>;
-  const cpcByPlacement = { ...defaultAdsConfig.cpcByPlacement, ...(input.cpcByPlacement || {}) } as Record<string, any>;
   const normalizedAllowedPlacements = resolveAllowedPlacements(input.allowedPlacements);
+  const cpmByPlacement = { ...defaultAdsConfig.cpmByPlacement } as Record<string, any>;
+  const cpcByPlacement = { ...defaultAdsConfig.cpcByPlacement } as Record<string, any>;
+  const incomingCpm = input.cpmByPlacement && typeof input.cpmByPlacement === 'object' ? input.cpmByPlacement : {};
+  const incomingCpc = input.cpcByPlacement && typeof input.cpcByPlacement === 'object' ? input.cpcByPlacement : {};
+  for (const placement of normalizedAllowedPlacements) {
+    if (Object.prototype.hasOwnProperty.call(incomingCpm, placement)) cpmByPlacement[placement] = incomingCpm[placement];
+    if (Object.prototype.hasOwnProperty.call(incomingCpc, placement)) cpcByPlacement[placement] = incomingCpc[placement];
+  }
   const normalizedTargetCountries = normalizeCountryList(input.targetCountries, []);
   const normalized = {
     ...defaultAdsConfig,
@@ -478,7 +485,9 @@ const getPlacementRate = (
 
 const parseTargeting = (value: any): Record<string, any> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  return { ...value };
+  const output: Record<string, any> = {};
+  Object.entries(value).forEach(([key, entry]) => setSafeObjectValue(output, key, entry));
+  return output;
 };
 
 const sanitizeJsonValue = (value: any): any => {
@@ -496,7 +505,7 @@ const sanitizeJsonValue = (value: any): any => {
     const output: Record<string, any> = {};
     Object.entries(value).forEach(([key, entry]) => {
       const normalized = sanitizeJsonValue(entry);
-      if (normalized !== undefined) output[key] = normalized;
+      if (normalized !== undefined) setSafeObjectValue(output, key, normalized);
     });
     return output;
   }

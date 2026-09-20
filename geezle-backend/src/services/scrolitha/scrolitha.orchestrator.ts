@@ -1,4 +1,5 @@
 import prisma from '../../utils/prismaClient';
+import { isSafeObjectKey } from '../../utils/security/safeObjectKey';
 import { listScrolithaAuditLogs, writeScrolithaAuditLog } from './scrolitha.audit';
 import { buildScrolithaKnowledgeContext, getScrolithaKnowledgeBundle } from './scrolitha.knowledge';
 import {
@@ -205,6 +206,7 @@ const getPathValue = (source: unknown, path: string) => {
     .filter(Boolean);
   let cursor: any = source;
   for (const segment of segments) {
+    if (!isSafeObjectKey(segment)) return undefined;
     if (!isRecord(cursor) && !Array.isArray(cursor)) return undefined;
     cursor = cursor?.[segment];
     if (cursor === undefined) return undefined;

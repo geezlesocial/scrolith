@@ -10,6 +10,7 @@ import {
 import { buildNotificationActionUrl } from '../services/notificationActionUrl.service';
 import { jwtSecret } from '../utils/security/requiredSecret';
 import { getTrustedClientIp } from '../utils/security/clientIdentity';
+import { isSafeObjectKey, setSafeObjectValue } from '../utils/security/safeObjectKey';
 
 const APP_DISTRIBUTION_SCOPE = 'app_distribution';
 const APP_CAMPAIGNS_SCOPE = 'app_distribution_campaigns';
@@ -161,7 +162,9 @@ const deepMerge = (base: any, patch: any): any => {
   if (!isObject(patch)) return patch === undefined ? base : patch;
   const out: Record<string, any> = { ...(isObject(base) ? base : {}) };
   Object.keys(patch).forEach((key) => {
-    out[key] = deepMerge((base || {})[key], patch[key]);
+    if (!isSafeObjectKey(key)) return;
+    const baseValue = isObject(base) ? base[key] : undefined;
+    setSafeObjectValue(out, key, deepMerge(baseValue, patch[key]));
   });
   return out;
 };
@@ -219,9 +222,9 @@ const parseCookies = (cookieHeader?: string): Record<string, string> => {
     const value = rest.join('=').trim();
     if (!key) return;
     try {
-      jar[key] = decodeURIComponent(value);
+      setSafeObjectValue(jar, key, decodeURIComponent(value));
     } catch {
-      jar[key] = value;
+      setSafeObjectValue(jar, key, value);
     }
   });
   return jar;

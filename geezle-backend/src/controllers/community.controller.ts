@@ -6,6 +6,7 @@ import prisma from '../utils/prismaClient';
 import { recordDbDuplicateMetric } from '../utils/observability/metricsRegistry';
 import { jwtSecret } from '../utils/security/requiredSecret';
 import { getTrustedClientIp } from '../utils/security/clientIdentity';
+import { setSafeObjectValue } from '../utils/security/safeObjectKey';
 
 import realtime from '../utils/realtime';
 import { syncFileUsages, removeUsage } from '../utils/fileUsage';
@@ -351,7 +352,7 @@ const buildReactionSummary = (reactions: Array<{ postId: string; type: string; _
   const map = new Map<string, Record<string, number>>();
   reactions.forEach((r) => {
     const entry = map.get(r.postId) || {};
-    entry[r.type] = r._count?._all || 0;
+    setSafeObjectValue(entry, r.type, r._count?._all || 0);
     map.set(r.postId, entry);
   });
   return map;
@@ -363,7 +364,7 @@ const normalizeReactionCounts = (raw: Record<string, number> | null | undefined)
     const reactionKey = String(key || '').trim().toLowerCase();
     const count = Number(value || 0);
     if (!reactionKey || !Number.isFinite(count) || count <= 0) return;
-    normalized[reactionKey] = Math.trunc(count);
+    setSafeObjectValue(normalized, reactionKey, Math.trunc(count));
   });
   return normalized;
 };
@@ -575,9 +576,9 @@ const parseCookieHeader = (cookieHeader?: string) => {
     if (!key) return;
     const value = rest.join('=').trim();
     try {
-      jar[key] = decodeURIComponent(value);
+      setSafeObjectValue(jar, key, decodeURIComponent(value));
     } catch {
-      jar[key] = value;
+      setSafeObjectValue(jar, key, value);
     }
   });
   return jar;
