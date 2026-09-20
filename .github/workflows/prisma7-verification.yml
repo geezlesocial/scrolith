@@ -48,9 +48,9 @@ jobs:
 
       - name: Initialize repository submodules for cross-tree certification tests
         run: |
-          git config -f .gitmodules submodule.geezle.url https://github.com/geezlesocial/scrolith.git
-          git submodule sync --recursive
-          git submodule update --init --recursive
+          git -C "$GITHUB_WORKSPACE" config -f "$GITHUB_WORKSPACE/.gitmodules" submodule.geezle.url https://github.com/geezlesocial/scrolith.git
+          git -C "$GITHUB_WORKSPACE" submodule sync --recursive
+          git -C "$GITHUB_WORKSPACE" submodule update --init --recursive
 
       - name: Use Node.js 22.18.0
         uses: actions/setup-node@v4
