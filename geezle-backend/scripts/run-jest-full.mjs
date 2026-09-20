@@ -77,6 +77,7 @@ for (const [index, files] of groups.entries()) {
       '--config', 'jest.config.cjs',
       '--runInBand',
       '--detectOpenHandles',
+      '--forceExit',
       '--testTimeout', String(jestTimeoutMs),
       '--json',
       '--outputFile', outputFile,

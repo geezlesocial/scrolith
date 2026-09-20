@@ -140,4 +140,14 @@ export function resetAll() {
   // Retained for test and call-site compatibility; protection state is Redis-owned.
 }
 
+/** Test-runner and graceful-shutdown cleanup for the shared protection client. */
+export async function shutdown() {
+  stopRedisAuth?.();
+  stopRedisAuth = undefined;
+  redisReady = null;
+  const client = redis;
+  redis = null;
+  client?.disconnect();
+}
+
 export default {};

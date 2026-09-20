@@ -24,6 +24,7 @@ module.exports = {
     '^.+\\.(ts|tsx)$': 'ts-jest'
   },
   setupFiles: ['<rootDir>/jest.setup.cjs'],
+  globalTeardown: '<rootDir>/jest.global-teardown.cjs',
   moduleNameMapper: {
     '^vitest$': '<rootDir>/src/__tests__/vitestShim.ts'
   },
