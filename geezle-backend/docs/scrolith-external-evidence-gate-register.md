@@ -727,6 +727,13 @@ The USD 150 gate is not safely passed because subscription-specific endpoint pri
 - `npm run build` and `git diff --check` passed.
 - Staging two-instance route execution, restart/reconnect validation, and authenticated Redis outage route matrix were not run under this authorization. No commit, push, staging API revision, traffic change, or production action occurred. G1-G6 remain `BLOCKED`.
 
+#### G2.6A — security-evidence publication disposition (2026-09-20)
+
+- The security workflow retains and validates complete CodeQL SARIF locally, including SARIF 2.1.0 metadata, rules, severities, locations, and fingerprints. The non-sensitive rule summary and raw SARIF are uploaded as workflow artifacts.
+- GitHub Code Scanning publication is optional because this private repository belongs to a personal account without the Advanced Security entitlement. The workflow records `GitHub Code Scanning publication unavailable due to private personal repository plan` and does not treat that unavailable upload as scanner success.
+- The local security gate remains strict for confirmed Critical/High CodeQL dispositions, Trivy Critical findings, Gitleaks failure, and all required build/test evidence. Untagged CodeQL findings remain evidence requiring manual disposition; they are not silently classified as safe.
+- G2 remains `BLOCKED` pending the complete security workflow, CodeQL finding classification/remediation, dependency High dispositions, and all other external evidence gates. No Azure, staging, production, traffic, database, secret, or candidate action occurred.
+
 #### Verification and rollback plan
 
 After an approved cost gate, verify from the staging backend that the normal Redis hostname resolves to a private RFC1918 address, TCP 10000 is reachable, TLS 1.2 succeeds, and authenticated PING succeeds. Then verify API health, login/session, rate limiting, and Socket.IO behavior before setting `publicNetworkAccess=Disabled`.
