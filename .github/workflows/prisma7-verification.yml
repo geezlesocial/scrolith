@@ -48,8 +48,7 @@ jobs:
 
       - name: Initialize repository submodules for cross-tree certification tests
         run: |
-          git config --global url."https://x-access-token:${{ github.token }}@github.com/".insteadOf git@github.com:
-          git config --global url."https://x-access-token:${{ github.token }}@github.com/".insteadOf https://github.com/
+          git config -f .gitmodules submodule.geezle.url https://github.com/geezlesocial/scrolith.git
           git submodule sync --recursive
           git submodule update --init --recursive
 
