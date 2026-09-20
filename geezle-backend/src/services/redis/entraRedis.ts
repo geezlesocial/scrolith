@@ -9,9 +9,10 @@ const REDIS_COMMAND_TIMEOUT_MS = 2_500;
 
 export class RedisUnavailableError extends Error {
   readonly code = 'REDIS_UNAVAILABLE';
-  constructor(reason = 'Redis is unavailable') {
+  constructor(reason = 'Redis is unavailable', cause?: unknown) {
     super(reason);
     this.name = 'RedisUnavailableError';
+    if (cause !== undefined) Object.defineProperty(this, 'cause', { value: cause, enumerable: false });
   }
 }
 
@@ -117,9 +118,9 @@ export async function connectRedisClient(redis: Redis, config: EntraRedisConfig 
   try {
     await connectTransport(redis);
     lifecycleStates.set(redis, 'ready');
-  } catch {
+  } catch (error) {
     lifecycleStates.set(redis, 'unavailable');
-    throw new RedisUnavailableError('Redis connection failed');
+    throw new RedisUnavailableError('Redis connection failed', error);
   }
   return () => undefined;
 }

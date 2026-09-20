@@ -47,8 +47,9 @@ export class DistributedRateLimitStore implements Store {
   }
 
   private failureCategory(error: unknown): string {
-    const code = typeof (error as { code?: unknown })?.code === 'string' ? String((error as { code: string }).code) : '';
-    const message = String((error as { message?: unknown })?.message || '').toLowerCase();
+    const source = (error as { cause?: unknown })?.cause || error;
+    const code = typeof (source as { code?: unknown })?.code === 'string' ? String((source as { code: string }).code) : '';
+    const message = String((source as { message?: unknown })?.message || '').toLowerCase();
     if (code === 'ENOTFOUND' || message.includes('enotfound')) return 'dns_unavailable';
     if (code === 'ECONNREFUSED' || message.includes('refused')) return 'connection_refused';
     if (code === 'ETIMEDOUT' || message.includes('timeout')) return 'timeout';
