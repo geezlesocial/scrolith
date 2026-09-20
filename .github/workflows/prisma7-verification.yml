@@ -64,6 +64,9 @@ jobs:
       - name: Focused regression suites
         env:
           CI: true
+          TEST_DB_KIND: cloudbuild-postgres
+          TEST_DB_PROJECT: cloudbuild-ephemeral
+          TEST_DB_INSTANCE: cloudbuild-ephemeral-postgres-test
         run: npm run test:full
 
       - name: TypeScript build

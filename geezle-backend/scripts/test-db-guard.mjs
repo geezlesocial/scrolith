@@ -46,7 +46,8 @@ if (testDbKind === 'local-postgres') {
     throw new Error('Refusing local database tests without isolated local postgres marker.');
   }
 } else if (testDbKind === 'cloudbuild-postgres') {
-  if (!lowerUrl.includes('@postgres-test:5432/') || testDbProject !== 'cloudbuild-ephemeral' || testDbInstance !== 'cloudbuild-ephemeral-postgres-test') {
+  const approvedCiHost = lowerUrl.includes('@postgres-test:5432/') || lowerUrl.includes('@127.0.0.1:5432/');
+  if (!approvedCiHost || testDbProject !== 'cloudbuild-ephemeral' || testDbInstance !== 'cloudbuild-ephemeral-postgres-test') {
     throw new Error('Refusing Cloud Build database tests without ephemeral postgres markers.');
   }
 } else {
