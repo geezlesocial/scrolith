@@ -92,8 +92,9 @@ export function createRedisClient(url: string, config: RedisClientConfig = {}): 
   if (config.requireManagedIdentity && !clientId) {
     throw new RedisUnavailableError('Redis managed identity configuration is missing');
   }
+  const localCiRedis = process.env.NODE_ENV === 'test' && process.env.REDIS_TEST_MODE === 'local';
   const redis = new Redis(url, {
-    lazyConnect: true,
+    lazyConnect: !localCiRedis,
     enableOfflineQueue: false,
     maxRetriesPerRequest: 1,
     connectTimeout: REDIS_CONNECT_TIMEOUT_MS,
