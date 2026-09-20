@@ -12,6 +12,7 @@ export const CONVERSION_LIMIT_PER_DAY = 3;
 
 const redisUrl = process.env.REDIS_URL || process.env.REDIS || '';
 const protectedRuntime = ['production', 'staging'].includes(String(process.env.NODE_ENV || '').toLowerCase());
+const localTestRedis = process.env.NODE_ENV === 'test' && process.env.REDIS_TEST_MODE === 'local';
 let redis: Redis | null = null;
 let redisReady: Promise<Redis> | null = null;
 let stopRedisAuth: (() => void) | undefined;
@@ -36,9 +37,13 @@ const getRedis = async (): Promise<Redis> => {
   if (redisReady) return redisReady;
 
   redisReady = (async () => {
-    const client = createRedisClient(redisUrl, { clientId: String(process.env.REDIS_ENTRA_CLIENT_ID || '').trim(), requireManagedIdentity: protectedRuntime });
-    redis = client;
     const clientId = String(process.env.REDIS_ENTRA_CLIENT_ID || '').trim();
+    const client = createRedisClient(redisUrl, { clientId, requireManagedIdentity: protectedRuntime && !localTestRedis });
+    redis = client;
+    if (localTestRedis) {
+      stopRedisAuth = await connectRedisClient(client, undefined, false);
+      return client;
+    }
     const username = String(process.env.REDIS_ENTRA_OBJECT_ID || '').trim();
     if (!clientId || !username) throw new Error('Redis Entra configuration unavailable');
     stopRedisAuth = await connectRedisClient(client, { clientId, username }, protectedRuntime);
