@@ -104,7 +104,15 @@ export async function connectRedisClient(redis: Redis, config: EntraRedisConfig 
   if (requireManagedIdentity) throw new RedisUnavailableError('Redis managed identity configuration is missing');
   lifecycleStates.set(redis, 'connecting');
   try {
-    await connectTransport(redis);
+    // CI's disposable Redis uses the normal ioredis lazy-connect path. A
+    // first command is the most reliable readiness probe for that test-only
+    // transport and avoids racing an explicit connect() against ioredis's
+    // own connection state. Protected runtimes always use Entra above.
+    if (process.env.NODE_ENV === 'test' && process.env.REDIS_TEST_MODE === 'local') {
+      await redis.ping();
+    } else {
+      await connectTransport(redis);
+    }
     lifecycleStates.set(redis, 'ready');
   } catch {
     lifecycleStates.set(redis, 'unavailable');
