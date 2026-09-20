@@ -6,9 +6,9 @@ import sys
 
 
 def main() -> None:
-    if len(sys.argv) != 4:
-        raise SystemExit("usage: validate_codeql_sarif.py <source-sarif> <raw-output> <summary-output>")
-    source, raw_output, summary_output = map(pathlib.Path, sys.argv[1:])
+    if len(sys.argv) != 5:
+        raise SystemExit("usage: validate_codeql_sarif.py <source-sarif> <raw-output> <publication-output> <summary-output>")
+    source, raw_output, publication_output, summary_output = map(pathlib.Path, sys.argv[1:])
     if not source.is_file():
         raise SystemExit(f"SARIF file not found: {source}")
     data = json.loads(source.read_text(encoding="utf-8"))
@@ -21,11 +21,16 @@ def main() -> None:
         raise SystemExit("SARIF rules section is empty")
     if any(not result.get("ruleId") for result in results):
         raise SystemExit("SARIF result is missing ruleId")
-    if results and all(not result.get("level") for result in results):
-        raise SystemExit("all SARIF result levels are blank")
     if any(not (result.get("partialFingerprints") or result.get("fingerprints")) for result in results):
         raise SystemExit("SARIF result is missing a fingerprint")
     rule_by_id = {rule.get("id"): rule for rule in rules}
+    for result in results:
+        if not result.get("level"):
+            rule = rule_by_id.get(result["ruleId"], {})
+            default_level = (rule.get("defaultConfiguration") or {}).get("level")
+            if not default_level:
+                raise SystemExit(f"result has no level or rule default level: {result['ruleId']}")
+            result["level"] = default_level
     groups = {}
     for result in results:
         rule = rule_by_id.get(result["ruleId"], {})
@@ -45,6 +50,7 @@ def main() -> None:
         group["fingerprints"] = sorted(set(group["fingerprints"]))
     summary = {"schema": data["version"], "ruleCount": len(rules), "resultCount": len(results), "groups": sorted(groups.values(), key=lambda item: (item["ruleId"], item["level"] or ""))}
     shutil.copyfile(source, raw_output)
+    pathlib.Path(publication_output).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     pathlib.Path(summary_output).write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"schema": data["version"], "ruleCount": len(rules), "resultCount": len(results), "sha256": hashlib.sha256(source.read_bytes()).hexdigest()}))
 

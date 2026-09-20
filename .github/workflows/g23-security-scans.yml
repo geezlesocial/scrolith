@@ -54,7 +54,7 @@ jobs:
 
       - name: Validate and summarize complete CodeQL SARIF
         run: |
-          python3 scripts/validate_codeql_sarif.py codeql-results-complete.sarif codeql-results.sarif codeql-summary.json
+          python3 scripts/validate_codeql_sarif.py codeql-results-complete.sarif codeql-results-complete.raw.sarif codeql-results.sarif codeql-summary.json
 
       - name: Publish official CodeQL results
         uses: github/codeql-action/upload-sarif@a65a038433a26f4363cf9f029e3b9ceac831ad5d # v3.28.10
@@ -248,6 +248,7 @@ jobs:
           path: |
             codeql-results/**/*.sarif
             codeql-results-complete.sarif
+            codeql-results-complete.raw.sarif
             codeql-results.sarif
             codeql-summary.json
             audit-production.json
