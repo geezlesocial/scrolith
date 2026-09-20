@@ -1,5 +1,5 @@
 import { handleBasicHealth, isBasicHealthPath } from '../middleware/basicHealth';
-import { createSensitiveRateLimitStore } from '../middleware/distributedRateLimitStore';
+import { DistributedRateLimitStore } from '../middleware/distributedRateLimitStore';
 
 const createResponse = () => {
   const res: any = {};
@@ -28,7 +28,7 @@ describe('basic health and Redis-backed limiter degradation', () => {
   });
 
   test('a normal protected limiter remains fail-closed while Redis is unavailable', async () => {
-    const store = createSensitiveRateLimitStore('test:protected:');
+    const store = new DistributedRateLimitStore('redis://127.0.0.1:6399', 'test:protected:', { failClosed: true });
     store.init({ windowMs: 60_000 } as any);
     const response = await store.increment('synthetic-key');
 
