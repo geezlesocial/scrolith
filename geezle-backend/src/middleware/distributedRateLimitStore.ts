@@ -69,11 +69,12 @@ export class DistributedRateLimitStore implements Store {
 
     this.state = 'connecting';
     const username = String(process.env.REDIS_ENTRA_OBJECT_ID || '').trim() || undefined;
+    const localCiRedis = process.env.NODE_ENV === 'test' && process.env.REDIS_TEST_MODE === 'local';
     const attempt = (async () => {
       try {
         const stop = this.entraClientId
-          ? await connectRedisClient(this.redis, { clientId: this.entraClientId, username }, this.failClosed)
-          : await connectRedisClient(this.redis, undefined, this.failClosed);
+          ? await connectRedisClient(this.redis, { clientId: this.entraClientId, username }, true)
+          : await connectRedisClient(this.redis, undefined, this.failClosed && !localCiRedis);
         if (this.state === 'closed') {
           stop?.();
           throw new Error('Redis rate-limit store is closed');
