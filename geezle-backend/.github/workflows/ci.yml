@@ -80,36 +80,15 @@ jobs:
       - name: Production dependency audit
         shell: bash
         run: |
-          set -euo pipefail
-          set +e
-          npm audit --registry=https://registry.npmjs.org --omit=dev --json > audit-production.json
-          audit_status=$?
-          set -e
-          node scripts/summarize-audit.mjs audit-production.json
-          printf '%s\n' "$audit_status" > audit-production.exit
+          npm audit --omit=dev --json > audit-production.json || true
+          node -e "const r=require('./audit-production.json'); console.log(JSON.stringify(r.metadata?.vulnerabilities||{}))"
 
       - name: Full dependency audit
         shell: bash
         run: |
-          set -euo pipefail
-          set +e
-          npm audit --registry=https://registry.npmjs.org --json > audit-full.json
-          audit_status=$?
-          set -e
-          node scripts/summarize-audit.mjs audit-full.json
-          printf '%s\n' "$audit_status" > audit-full.exit
-
-      - name: Upload dependency audit evidence
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-audit-${{ github.sha }}
-          path: |
-            audit-production.json
-            audit-production.exit
-            audit-full.json
-            audit-full.exit
-          if-no-files-found: error
+          npm audit --json > audit-full.json || true
+          node -e "const r=require('./audit-full.json'); console.log(JSON.stringify(r.metadata?.vulnerabilities||{}))"
 
       - name: Remove audit artifacts
         if: always()
-        run: true
+        run: rm -f audit-production.json audit-full.json

@@ -36,9 +36,18 @@ jobs:
           upload: never
           wait-for-processing: true
 
+      - name: Validate and summarize complete CodeQL SARIF
+        run: |
+          python3 scripts/validate_codeql_sarif.py codeql-results codeql-results.sarif codeql-summary.json
+
+      - name: Publish official CodeQL results
+        uses: github/codeql-action/upload-sarif@a65a038433a26f4363cf9f029e3b9ceac831ad5d # v3.28.10
+        with:
+          sarif_file: codeql-results.sarif
+          category: /g2.3-javascript-typescript
+
       - name: Secret scan committed source and history
         id: gitleaks
-        continue-on-error: true
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -52,6 +61,34 @@ jobs:
           node-version: 22.23.2
           cache: npm
           cache-dependency-path: geezle-backend/package-lock.json
+
+      - name: Install dependencies for audit evidence
+        working-directory: geezle-backend
+        run: npm ci
+
+      - name: Production dependency audit
+        working-directory: geezle-backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          npm audit --registry=https://registry.npmjs.org --omit=dev --json > ../audit-production.json
+          audit_status=$?
+          set -e
+          python3 ../scripts/summarize_npm_audit.py ../audit-production.json
+          printf '%s\n' "$audit_status" > ../audit-production.exit
+
+      - name: Full dependency audit
+        working-directory: geezle-backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          npm audit --registry=https://registry.npmjs.org --json > ../audit-full.json
+          audit_status=$?
+          set -e
+          python3 ../scripts/summarize_npm_audit.py ../audit-full.json
+          printf '%s\n' "$audit_status" > ../audit-full.exit
 
       - name: Build clean local image
         working-directory: geezle-backend
@@ -192,6 +229,12 @@ jobs:
           if-no-files-found: warn
           path: |
             codeql-results/**/*.sarif
+            codeql-results.sarif
+            codeql-summary.json
+            audit-production.json
+            audit-production.exit
+            audit-full.json
+            audit-full.exit
             g2.3-trivy-image.json
             g2.3-trivy-iac.json
             g2.3-image-inspect.json
