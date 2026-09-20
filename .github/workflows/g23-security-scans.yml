@@ -42,7 +42,9 @@ jobs:
           set -euo pipefail
           database="$(find "$RUNNER_TEMP/codeql_databases" -mindepth 1 -maxdepth 2 -type d -name javascript -print -quit)"
           test -n "$database"
-          codeql database analyze "$database" \
+          codeql_bin="$(find /opt/hostedtoolcache/CodeQL -type f -path '*/codeql/codeql' -print -quit)"
+          test -n "$codeql_bin"
+          "$codeql_bin" database analyze "$database" \
             --format=sarif-latest \
             --output=codeql-results-complete.sarif \
             --sarif-add-query-help \
