@@ -47,10 +47,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Initialize repository submodules for cross-tree certification tests
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           git -C "$GITHUB_WORKSPACE" config -f "$GITHUB_WORKSPACE/.gitmodules" submodule.geezle.url https://github.com/geezlesocial/scrolith.git
           git -C "$GITHUB_WORKSPACE" submodule sync --recursive
-          git -C "$GITHUB_WORKSPACE" submodule update --init --recursive
+          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
+          git -C "$GITHUB_WORKSPACE" -c "http.https://github.com/.extraheader=$auth_header" submodule update --init --recursive
 
       - name: Use Node.js 22.18.0
         uses: actions/setup-node@v4
