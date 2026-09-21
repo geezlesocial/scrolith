@@ -25,6 +25,7 @@ describe('Gcoin transfer, donate, conversion endpoints', () => {
         try {
           await testRedis.connect();
           const keys = [
+            ...(await testRedis.keys('scrolith:ratelimit:*')),
             ...(await testRedis.keys('gcoin:transfers:*')),
             ...(await testRedis.keys('gcoin:conversions:*'))
           ];
