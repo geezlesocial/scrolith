@@ -387,7 +387,12 @@ const writeBufferToTempFile = (buffer: Buffer, originalName?: string) => {
   const ext = path.extname(String(originalName || '')).toLowerCase() || '.bin';
   const tempName = `upload-${Date.now()}-${uuidv4().slice(0, 8)}${ext}`;
   const tempPath = path.join(TEMP_UPLOAD_DIR, tempName);
-  fs.writeFileSync(tempPath, buffer);
+  const fd = fs.openSync(tempPath, 'wx', 0o600);
+  try {
+    fs.writeFileSync(fd, buffer);
+  } finally {
+    fs.closeSync(fd);
+  }
   return tempPath;
 };
 

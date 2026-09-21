@@ -352,13 +352,26 @@ export const createProbeTempPath = (suffix?: string) => {
   fs.mkdirSync(baseDir, { recursive: true });
   const cleanSuffix = String(suffix || '.bin').replace(/[^a-z0-9._-]/gi, '') || '.bin';
   const ext = cleanSuffix.startsWith('.') ? cleanSuffix : `.${cleanSuffix}`;
-  return path.join(baseDir, `probe-${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`);
+  // mkdtemp creates the directory atomically with cryptographically random
+  // suffix material; callers write inside that private directory, avoiding a
+  // predictable shared filename and check-then-create collision window.
+  const privateDir = fs.mkdtempSync(path.join(baseDir, 'probe-'));
+  return path.join(privateDir, `output${ext}`);
 };
 
 export const safeUnlinkTemp = (filePath?: string | null) => {
   if (!filePath) return;
   try {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    const probeRoot = path.resolve(path.join(os.tmpdir(), 'scrolith-video-probe'));
+    const parent = path.resolve(path.dirname(filePath));
+    if (parent !== probeRoot && parent.startsWith(`${probeRoot}${path.sep}`)) {
+      try {
+        fs.rmdirSync(parent);
+      } catch {
+        // Directory is non-empty or already gone; leave unrelated files alone.
+      }
+    }
   } catch {
     // best-effort
   }
