@@ -1,6 +1,6 @@
 # Scrolith G2 Dependency Risk Approval
 
-Status: PENDING APPROVAL
+Status: APPROVED
 
 Approval date: 2026-09-21
 
@@ -21,11 +21,12 @@ Authorization statement:
 I confirm that I am formally authorized to review and accept this temporary
 dependency risk for the Scrolith application and repository.
 
-Signature: PENDING AUTHORIZED OWNER SIGNATURE
+Signature: Ibrahim Muhammed Jibrin
 
-Signature date: PENDING
+Signature date: 2026-09-21
 
-Approval reference: PENDING AUTHORIZED APPROVAL REFERENCE
+Approval reference: GitHub authorization commit on the
+`codex/staging-redis-remediation-20260917` branch
 
 ## 1. Advisory IDs and affected dependency paths
 
