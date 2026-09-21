@@ -9,26 +9,29 @@ Repository: `geezlesocial/scrolith`
 Branch: `codex/staging-redis-remediation-20260917`
 
 G2 approved commit:
+
 `9ece6591eaaf97f5de96c3b1b2f9532d69b57906`
 
 G2 approval document:
+
 `security/approvals/g2-dependency-risk-approval.md`
 
 ## Execution rules
 
-No gate may begin until its required fields are completed and approved.
+No release gate may begin until its required fields are completed, reviewed, and
+formally approved.
 
-The following actions are prohibited until separately authorized:
+This document authorizes non-production testing only. It does not authorize:
 
 - Production deployment.
 - Production traffic changes.
 - Production database changes.
-- Production secret or Key Vault changes.
-- Production Redis changes.
+- Production secret, Key Vault, or Redis changes.
 - Use of real customer data.
 - Destructive testing outside the approved scope.
 - Unapproved denial-of-service testing.
 - Testing third-party systems without authorization.
+- Mailpit or email changes outside the approved test environment.
 
 All testing must use approved non-production or isolated infrastructure.
 
@@ -95,8 +98,8 @@ Account 2 role:
 
 `[enter role]`
 
-Passwords, tokens, cookies, and secret values must never be written in this
-document.
+Passwords, tokens, cookies, API keys, and secret values must never be written
+in this document.
 
 ### Test window
 
@@ -123,22 +126,22 @@ Maximum request duration:
 `[enter approved limit]`
 
 Testing must stop immediately if the staging environment becomes unstable,
-unexpected external systems are affected, real data is exposed, or the approved
+unexpected external systems are affected, real data is exposed, or approved
 limits are exceeded.
 
 ### Emergency stop
 
-Emergency-stop contact:
+Emergency-stop contact name:
 
 `[enter real contact name]`
 
-Email:
+Emergency-stop email or phone:
 
-`[enter real email]`
+`[enter real contact information]`
 
-Phone or emergency channel:
+Emergency-stop procedure:
 
-`[enter real phone or channel]`
+`[enter exact stop procedure]`
 
 ### G1 approval
 
@@ -269,6 +272,7 @@ Stop the test immediately if:
 - Security controls are bypassed.
 - The environment becomes unstable or cannot recover.
 - The approved budget limit is reached.
+- The emergency-stop owner requests termination.
 
 ### Budget
 
@@ -290,7 +294,7 @@ Approved failure scenarios:
 
 - PostgreSQL connection failure and recovery.
 - Redis outage and recovery.
-- External service timeout and recovery.
+- External-service timeout and recovery.
 - Queue or worker interruption and recovery.
 - Container restart and health-check recovery.
 - Network dependency failure and recovery.
@@ -319,7 +323,7 @@ Expected rollback duration:
 
 Rollback success criteria:
 
-`[describe health, data, logs, and service validation criteria]`
+`[describe health, data, logs, metrics, and service validation criteria]`
 
 ### G3 approval
 
@@ -551,7 +555,7 @@ G5 authorization status:
 
 ## 0%-traffic staging candidate authorization
 
-This section must remain inactive until G1, G3, G4, and G5 are passed.
+This section remains inactive until G1, G3, G4, and G5 are completed and passed.
 
 ### Candidate identity
 
@@ -605,9 +609,9 @@ The following must pass before deployment:
 - Prisma validation and migrations.
 - TypeScript build.
 - Docker build.
-- npm audits.
-- CodeQL evidence validation.
-- Trivy image and IaC scans.
+- Production-only and full npm audit.
+- CodeQL SARIF evidence validation.
+- Trivy runtime-image and IaC scans.
 - Gitleaks.
 - SBOM generation and checksum verification.
 
@@ -688,11 +692,10 @@ Overall authorization status:
 
 Authorization statement:
 
-I confirm that the information in this document is complete, accurate, and
-approved for the stated non-production scope. I confirm that no production
-deployment, production traffic change, production database change, secret
-change, Redis change, Key Vault change, or Mailpit change is authorized by this
-document.
+I confirm that the information in this document is complete and accurate for
+the stated non-production scope. I confirm that no production deployment,
+production traffic change, production database change, secret change, Redis
+change, Key Vault change, or Mailpit change is authorized by this document.
 
 Authorized by:
 
@@ -719,7 +722,7 @@ Approval reference:
 The coding agent must not execute any gate while this document contains
 placeholders or while any gate status is `PENDING` or `BLOCKED`.
 
-The status may be changed to:
+The overall status may be changed to:
 
 `APPROVED FOR GATE EXECUTION`
 
