@@ -1862,7 +1862,8 @@ export const handlePayoneerNotify = async (req: Request, res: Response) => {
 
 /**
  * Antom payment result notification (async).
- * Respond with fixed Antom result envelope; optional RSA verify when antomPublicKey is set.
+ * Respond with fixed Antom result envelope. Provider notifications fail closed
+ * unless the configured public key and complete signature envelope are present.
  */
 export const handleAntomNotify = async (req: Request, res: Response) => {
   try {
@@ -1875,25 +1876,29 @@ export const handleAntomNotify = async (req: Request, res: Response) => {
           ? req.body.toString('utf8')
           : JSON.stringify(req.body || {});
 
-    if (config?.antomPublicKey) {
-      const clientId = String(req.headers['client-id'] || req.headers['Client-Id'] || config.clientId || '');
-      const requestTime = String(req.headers['request-time'] || req.headers['Request-Time'] || '');
-      const signatureHeader = String(req.headers['signature'] || req.headers['Signature'] || '');
-      const targetSignature = extractAntomSignatureValue(signatureHeader);
-      const requestUri = String(req.originalUrl || req.url || '/api/payments/antom/notify').split('?')[0];
-      if (targetSignature && requestTime && clientId) {
-        const valid = verifyAntomSignature({
-          requestUri,
-          clientId,
-          responseTime: requestTime,
-          responseBody: rawBody,
-          targetSignature,
-          antomPublicKey: config.antomPublicKey
-        });
-        if (!valid) {
-          return res.status(401).json(antomNotifyAckFailure('Invalid Antom notify signature'));
-        }
-      }
+    if (!config?.antomPublicKey) {
+      return res.status(503).json(antomNotifyAckFailure('Antom notification verification is not configured'));
+    }
+
+    const clientId = String(req.headers['client-id'] || req.headers['Client-Id'] || '');
+    const requestTime = String(req.headers['request-time'] || req.headers['Request-Time'] || '');
+    const signatureHeader = String(req.headers['signature'] || req.headers['Signature'] || '');
+    const targetSignature = extractAntomSignatureValue(signatureHeader);
+    const requestUri = String(req.originalUrl || req.url || '/api/payments/antom/notify').split('?')[0];
+    if (!targetSignature || !requestTime || !clientId) {
+      return res.status(401).json(antomNotifyAckFailure('Missing Antom notify signature'));
+    }
+
+    const valid = verifyAntomSignature({
+      requestUri,
+      clientId,
+      responseTime: requestTime,
+      responseBody: rawBody,
+      targetSignature,
+      antomPublicKey: config.antomPublicKey
+    });
+    if (!valid) {
+      return res.status(401).json(antomNotifyAckFailure('Invalid Antom notify signature'));
     }
 
     const event = typeof req.body === 'object' && req.body ? req.body : (() => {

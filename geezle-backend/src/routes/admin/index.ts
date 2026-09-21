@@ -1122,7 +1122,7 @@ router.get('/system/settings', requirePermission('settings.read'), getSystemSett
 
 router.post('/system/settings', requirePermission('settings.enterprise_change'), updateSystemSettings);
 
-router.post('/system/email/test', testEmailSettings);
+router.post('/system/email/test', requirePermission('settings.enterprise_change'), testEmailSettings);
 router.post('/system/cache/clear', clearPlatformRuntimeCache);
 
 // Admin Google 2FA directory + emergency waiver controls
