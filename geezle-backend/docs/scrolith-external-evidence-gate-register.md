@@ -749,6 +749,13 @@ The USD 150 gate is not safely passed because subscription-specific endpoint pri
 - Final runtime image: `sha256:e8eb10bc38bb1833fa13704fa9e28e04d896982d6bbfda9cd607d2f467c99112`; Trivy image `0 Critical / 0 High`; Trivy IaC clean. SBOM checksum: `d4c070e5e1975817b210dacecad822b996f38bb0372dbaa29c3cde836f502912`. Gitleaks passed and CodeQL publication remains unavailable under the private personal-repository plan.
 - G2 remains `BLOCKED` because 93 source findings remain unresolved and Prisma build-tooling Highs have no approved owner exception. No Azure, staging, production, traffic, database, secret, or candidate action occurred.
 
+#### G2.6F - final checkpoint evidence (2026-09-21)
+
+- Source commit `1f262da17b0d8dbd21dc4b076a880ccc747fb901`; Prisma run `35548010029` and security run `35548010004` passed.
+- Final SARIF is 2.1.0 with 132 results and 105 rules; SHA-256 `214f931b3cbaf809b30bc05b21ca80ea2747f9d730f9b813bf0f8b13d7997fb3`.
+- Final image is `sha256:b0fc898e3959e998596ac80ee6bbf66b5c2c5e865f2e2be19fc619d99ea679d6`; Trivy image is `0 Critical / 0 High`; SBOM checksum is `a3a5cb60fe7e668e53a8d3d32c85ebf9a7da5dcd54d42c9b173213ff98dc4d04`.
+- The SARIF disposition remains 18 accepted safe patterns, 21 build/test-only findings, and 93 likely vulnerabilities: 49 High and 44 Medium. G2 remains `BLOCKED` because High source findings and Prisma dependency approvals remain unresolved.
+
 #### Verification and rollback plan
 
 After an approved cost gate, verify from the staging backend that the normal Redis hostname resolves to a private RFC1918 address, TCP 10000 is reachable, TLS 1.2 succeeds, and authenticated PING succeeds. Then verify API health, login/session, rate limiting, and Socket.IO behavior before setting `publicNetworkAccess=Disabled`.
