@@ -18,16 +18,20 @@ G2 approval document:
 
 ## Execution rules
 
-No release gate may begin until its required fields are completed, reviewed, and
-formally approved.
+This document authorizes non-production testing only.
 
-This document authorizes non-production testing only. It does not authorize:
+No gate may begin until its required fields are completed, reviewed, and formally approved.
+
+All bracketed fields are required inputs. Do not execute any test while a bracketed placeholder remains.
+
+This document does not authorize:
 
 - Production deployment.
 - Production traffic changes.
 - Production database changes.
 - Production secret, Key Vault, or Redis changes.
 - Use of real customer data.
+- Real payment transactions.
 - Destructive testing outside the approved scope.
 - Unapproved denial-of-service testing.
 - Testing third-party systems without authorization.
@@ -39,23 +43,54 @@ All testing must use approved non-production or isolated infrastructure.
 
 ### Target
 
-Approved staging URL:
+Verified staging URL:
 
-`[enter the real approved staging URL]`
+`https://ca-scrolith-staging-api.yellowmushroom-b8714740.southeastasia.azurecontainerapps.io`
 
-Approved environment:
+Approved staging environment:
 
-`[enter the staging environment or service identifier]`
+`cae-scrolith-staging`
 
-### Scope
+Azure Container App:
+
+`ca-scrolith-staging-api`
+
+Resource group:
+
+`rg-scrolith-staging`
+
+Isolation evidence:
+
+The staging environment is confirmed non-production and separate from
+`cae-scrolith-production`. Mailpit is internal-only. No App Service or Static
+Web App staging resource was found.
+
+Verification evidence:
+
+Read-only Azure CLI queries confirmed the Container App FQDN, resource group,
+environment ID, external ingress, and separate staging environment domain.
+Repository configuration references the same staging hostname.
+
+The verified URL is not itself authorization to test. The exact DAST scope,
+accounts, limits, window, and emergency contacts must be approved below.
+
+### Approved DAST scope
 
 Approved domains:
 
-- `[enter approved domain]`
+- `ca-scrolith-staging-api.yellowmushroom-b8714740.southeastasia.azurecontainerapps.io`
+
+Additional approved domains:
+
+- `[enter additional approved domains, or write "None"]`
 
 Approved API paths:
 
-- `[enter approved API paths]`
+- `[enter exact approved API paths]`
+
+Excluded API paths:
+
+- `[enter excluded paths, or write "None"]`
 
 Approved application areas:
 
@@ -66,68 +101,77 @@ Approved application areas:
 - File uploads.
 - SSRF and unsafe URL protections.
 - Rate limiting.
-- Payment-related test flows using test data only.
+- Payment test flows using test data only.
 - Messaging and marketplace test flows using test data only.
 - Sensitive-data exposure checks.
 
 Out of scope:
 
 - Production systems.
-- Unapproved domains or third-party services.
+- Unapproved domains.
+- Third-party systems.
 - Destructive actions.
 - Denial-of-service testing.
 - Real customer data.
 - Real payment transactions.
 - Credential attacks against real users.
+- Any endpoint not listed in the approved scope.
 
 ### Authorized test accounts
 
-Account 1 identifier:
+Test account 1 identifier:
 
-`[enter test account identifier]`
+`[enter approved non-secret test account identifier]`
 
-Account 1 role:
+Test account 1 role:
 
-`[enter role]`
+`[enter approved role]`
 
-Account 2 identifier:
+Test account 2 identifier:
 
-`[enter test account identifier]`
+`[enter approved non-secret test account identifier]`
 
-Account 2 role:
+Test account 2 role:
 
-`[enter role]`
+`[enter approved role]`
 
-Passwords, tokens, cookies, API keys, and secret values must never be written
-in this document.
+Additional test accounts:
+
+`[enter approved account identifiers and roles, or write "None"]`
+
+Passwords, tokens, cookies, API keys, and secrets must not be stored in this document.
 
 ### Test window
 
-Start time in UTC:
+Start time:
 
 `[YYYY-MM-DD HH:MM UTC]`
 
-End time in UTC:
+End time:
 
 `[YYYY-MM-DD HH:MM UTC]`
 
-### Testing limits
+Approved timezone:
+
+`UTC`
+
+### DAST limits
 
 Maximum requests per second:
 
-`[enter approved limit]`
+`[enter approved requests-per-second limit]`
 
 Maximum concurrent sessions:
 
-`[enter approved limit]`
+`[enter approved concurrency limit]`
 
-Maximum request duration:
+Maximum test duration:
 
-`[enter approved limit]`
+`[enter approved duration]`
 
-Testing must stop immediately if the staging environment becomes unstable,
-unexpected external systems are affected, real data is exposed, or approved
-limits are exceeded.
+Maximum request count:
+
+`[enter approved maximum request count]`
 
 ### Emergency stop
 
@@ -137,63 +181,75 @@ Emergency-stop contact name:
 
 Emergency-stop email or phone:
 
-`[enter real contact information]`
+`[enter verified emergency contact information]`
 
 Emergency-stop procedure:
 
-`[enter exact stop procedure]`
+`[enter the exact procedure for stopping the DAST run, disabling the scanner, and notifying the owner]`
 
 ### G1 approval
 
 Approved by:
 
-`[enter authorized approver]`
+`[enter authorized G1 approver]`
 
 Approver role:
 
-`[enter approver role]`
+`[enter G1 approver role]`
 
-Signature or approval reference:
+Approval reference:
 
-`[enter signed ticket, approved pull request, or authorized email reference]`
+`[enter approved ticket, pull request, or authorized email reference]`
 
-G1 authorization status:
+Signature or electronic authorization:
+
+`[enter approved signature or auditable electronic authorization]`
+
+Approval date:
+
+`[YYYY-MM-DD]`
+
+G1 status:
 
 `PENDING`
 
 ## G3 — Load, spike, soak, recovery, and rollback authorization
 
-### Environment
+### Isolated environment
 
-Approved isolated load-test environment:
+Approved load-test environment:
 
-`[enter environment identifier]`
+`[enter isolated environment identifier]`
 
 Environment owner:
 
-`[enter owner]`
+`[enter environment owner]`
 
 Isolation confirmation:
 
-`[confirm that the environment cannot affect production or unrelated systems]`
+`[confirm that this environment cannot affect production or unrelated systems]`
 
-### Baseline load test
+Approved test traffic source:
+
+`[enter approved load-generator identity or environment]`
+
+### Load test
 
 Virtual users:
 
-`[enter number]`
+`[enter approved number]`
 
 Request rate:
 
-`[enter requests per second]`
+`[enter approved requests per second]`
 
 Duration:
 
-`[enter duration]`
+`[enter approved duration]`
 
 Traffic profile:
 
-`[describe approved representative test traffic]`
+`[describe the approved representative non-production traffic]`
 
 ### Spike test
 
@@ -221,76 +277,82 @@ Ramp-down duration:
 
 Sustained load:
 
-`[enter users or requests per second]`
+`[enter approved users or requests per second]`
 
 Duration:
 
-`[enter duration]`
+`[enter approved duration]`
 
-### Success thresholds
+### Performance thresholds
 
 Maximum p95 latency:
 
-`[enter threshold]`
+`[enter approved threshold]`
 
 Maximum p99 latency:
 
-`[enter threshold]`
+`[enter approved threshold]`
 
 Maximum error rate:
 
-`[enter percentage]`
+`[enter approved percentage]`
 
 Maximum CPU utilization:
 
-`[enter percentage]`
+`[enter approved percentage]`
 
 Maximum memory utilization:
 
-`[enter percentage]`
+`[enter approved percentage]`
 
 Maximum database connection utilization:
 
-`[enter percentage]`
+`[enter approved percentage]`
 
 Maximum Redis utilization:
 
-`[enter percentage]`
+`[enter approved percentage]`
 
 Required recovery time:
 
-`[enter threshold]`
+`[enter approved recovery threshold]`
 
-### Stop conditions
+### Cloud budget
 
-Stop the test immediately if:
-
-- Error rate exceeds the approved limit.
-- Database or Redis data becomes inconsistent.
-- The environment affects production or unrelated systems.
-- Unexpected billing or uncontrolled cloud resource usage occurs.
-- Security controls are bypassed.
-- The environment becomes unstable or cannot recover.
-- The approved budget limit is reached.
-- The emergency-stop owner requests termination.
-
-### Budget
-
-Approved maximum test budget:
+Maximum approved test budget:
 
 `[enter currency and maximum amount]`
 
 Budget owner:
 
-`[enter owner]`
+`[enter budget owner]`
 
 Cost-alert threshold:
 
-`[enter threshold]`
+`[enter cost-alert threshold]`
 
-### Dependency recovery tests
+Automatic budget-stop mechanism:
 
-Approved failure scenarios:
+`[enter approved mechanism, or write "None"]`
+
+### Stop conditions
+
+Stop the test immediately if:
+
+- Error rate exceeds the approved threshold.
+- Database or Redis data becomes inconsistent.
+- The test affects production or unrelated systems.
+- Unexpected billing or uncontrolled resource usage occurs.
+- Security controls are bypassed.
+- The environment becomes unstable.
+- The environment cannot recover.
+- The approved budget is reached.
+- The emergency-stop owner requests termination.
+- Any unapproved endpoint or external service is contacted.
+
+### Dependency-recovery scenarios
+
+Approved scenarios:
 
 - PostgreSQL connection failure and recovery.
 - Redis outage and recovery.
@@ -301,9 +363,13 @@ Approved failure scenarios:
 
 Data-integrity validation:
 
-`[describe the approved validation]`
+`[describe the approved validation method]`
 
-### Rollback plan
+Recovery evidence location:
+
+`[enter approved test-report or artifact location]`
+
+### Rollback procedure
 
 Rollback procedure:
 
@@ -315,45 +381,61 @@ Rollback target:
 
 Rollback owner:
 
-`[enter owner]`
+`[enter rollback owner]`
 
 Expected rollback duration:
 
-`[enter duration]`
+`[enter expected duration]`
 
 Rollback success criteria:
 
-`[describe health, data, logs, metrics, and service validation criteria]`
+`[enter health, data, logs, metrics, and service criteria]`
+
+Rollback evidence location:
+
+`[enter approved rollback-test evidence location]`
 
 ### G3 approval
 
 Approved by:
 
-`[enter authorized approver]`
+`[enter authorized G3 approver]`
 
 Approver role:
 
-`[enter approver role]`
+`[enter G3 approver role]`
 
-Signature or approval reference:
+Approval reference:
 
-`[enter signed ticket, approved pull request, or authorized email reference]`
+`[enter approved ticket, pull request, or authorized email reference]`
 
-G3 authorization status:
+Signature or electronic authorization:
+
+`[enter approved signature or auditable electronic authorization]`
+
+Approval date:
+
+`[YYYY-MM-DD]`
+
+G3 status:
 
 `PENDING`
 
 ## G4 — Isolated backup and restore authorization
 
-### Backup environment
+### Isolated database
 
-Isolated database target:
+Non-production database identifier:
 
-`[enter non-production database identifier]`
+`[enter isolated non-production database identifier]`
 
 Database owner:
 
-`[enter owner]`
+`[enter database owner]`
+
+Database environment:
+
+`[enter isolated database environment]`
 
 Backup target:
 
@@ -361,9 +443,13 @@ Backup target:
 
 Backup encryption confirmation:
 
-`[confirm encryption is enabled]`
+`[confirm that encryption is enabled]`
 
-### Data authorization
+Backup access-control confirmation:
+
+`[confirm that only authorized personnel and test identities can access the backup]`
+
+### Data restrictions
 
 Data source:
 
@@ -381,6 +467,10 @@ Real payment data permitted:
 
 `NO`
 
+Production database connection permitted:
+
+`NO`
+
 ### Recovery objectives
 
 Target RPO:
@@ -391,6 +481,14 @@ Target RTO:
 
 `[enter approved recovery time objective]`
 
+Backup creation time:
+
+`[YYYY-MM-DD HH:MM UTC]`
+
+Restore test time:
+
+`[YYYY-MM-DD HH:MM UTC]`
+
 ### Restore validation
 
 The restored database must pass:
@@ -398,52 +496,76 @@ The restored database must pass:
 - Database connectivity.
 - Schema validation.
 - Migration status validation.
-- Table and index validation.
-- Relationship and constraint validation.
+- Table validation.
+- Index validation.
+- Relationship validation.
+- Constraint validation.
 - Representative read checks.
 - Representative write checks.
 - Application health checks.
 - Authentication and authorization checks.
 - Data-integrity checks.
 - No unexpected data loss.
+- No connection to production services.
+- No exposure of backup contents outside the isolated environment.
 
 Restore validation owner:
 
-`[enter owner]`
+`[enter restore validation owner]`
 
-### Cleanup
+Restore evidence location:
 
-Temporary restored database deletion method:
+`[enter approved restore-test report or artifact location]`
 
-`[enter exact cleanup method]`
+### Cleanup procedure
 
-Temporary storage cleanup method:
+Temporary restored database cleanup:
 
-`[enter exact cleanup method]`
+`[enter exact deletion or cleanup procedure]`
 
-Temporary credential revocation method:
+Temporary storage cleanup:
 
-`[enter exact revocation method]`
+`[enter exact cleanup procedure]`
+
+Temporary credential revocation:
+
+`[enter exact revocation procedure]`
+
+Network and firewall cleanup:
+
+`[enter exact cleanup procedure]`
 
 Evidence-retention location:
 
 `[enter approved artifact or ticket location]`
 
+Cleanup verification owner:
+
+`[enter person responsible for confirming cleanup]`
+
 ### G4 approval
 
 Approved by:
 
-`[enter authorized approver]`
+`[enter authorized G4 approver]`
 
 Approver role:
 
-`[enter approver role]`
+`[enter G4 approver role]`
 
-Signature or approval reference:
+Approval reference:
 
-`[enter signed ticket, approved pull request, or authorized email reference]`
+`[enter approved ticket, pull request, or authorized email reference]`
 
-G4 authorization status:
+Signature or electronic authorization:
+
+`[enter approved signature or auditable electronic authorization]`
+
+Approval date:
+
+`[YYYY-MM-DD]`
+
+G4 status:
 
 `PENDING`
 
@@ -461,17 +583,29 @@ Tester contact:
 
 Independence confirmation:
 
-`[explain how independence from the implementation team is confirmed]`
+`[explain how the tester is independent from the implementation and deployment team]`
 
-### Scope
+Conflict-of-interest confirmation:
+
+`[confirm that no prohibited conflict of interest exists]`
+
+### Approved penetration-test scope
 
 Approved target:
 
-`[enter approved staging URL or environment]`
+`https://ca-scrolith-staging-api.yellowmushroom-b8714740.southeastasia.azurecontainerapps.io`
+
+Approved environment:
+
+`cae-scrolith-staging`
 
 Approved domains:
 
-- `[enter approved domain]`
+- `ca-scrolith-staging-api.yellowmushroom-b8714740.southeastasia.azurecontainerapps.io`
+
+Additional approved domains:
+
+- `[enter approved domains, or write "None"]`
 
 Approved APIs:
 
@@ -490,6 +624,7 @@ Out of scope:
 - Real payment transactions.
 - Unapproved third-party services.
 - Credential attacks against real users.
+- Any domain, API, or feature not listed in the approved scope.
 
 ### Rules of engagement
 
@@ -497,93 +632,138 @@ Rules-of-engagement document:
 
 `[enter approved document link or ticket]`
 
-Testing methods allowed:
+Allowed testing methods:
 
 `[describe approved methods]`
 
-Testing methods prohibited:
+Prohibited testing methods:
 
 `[describe prohibited methods]`
 
+Test data restrictions:
+
+`SANITIZED TEST DATA ONLY`
+
 Emergency-stop procedure:
 
-`[describe exact procedure]`
+`[describe exact emergency-stop procedure]`
 
-### Test window
+Finding-severity method:
 
-Start time in UTC:
+`[enter approved severity classification method]`
+
+Evidence-handling method:
+
+`[describe how evidence, credentials, logs, and personal data will be handled]`
+
+### Test dates
+
+Test start:
 
 `[YYYY-MM-DD HH:MM UTC]`
 
-End time in UTC:
+Test end:
 
 `[YYYY-MM-DD HH:MM UTC]`
 
 Emergency contact:
 
-`[enter real name and contact]`
+`[enter real name and verified contact information]`
 
-### Required deliverables
+### Retest requirement
 
-The independent tester must provide:
+A retest is required after remediation.
+
+Retest deadline:
+
+`[enter approved retest deadline]`
+
+Retest scope:
+
+`[enter findings and components that must be retested]`
+
+Required deliverables:
 
 - Final penetration-test report.
-- Finding severity classifications.
+- Severity classification for each finding.
 - Affected endpoint or component.
 - Redacted evidence.
 - Remediation recommendations.
 - Retest report.
 - Confirmation of unresolved findings.
+- Confirmation that testing stayed within the approved scope.
 
 ### G5 approval
 
 Approved by:
 
-`[enter authorized approver]`
+`[enter authorized G5 approver]`
 
 Approver role:
 
-`[enter approver role]`
+`[enter G5 approver role]`
 
-Signature or approval reference:
+Approval reference:
 
-`[enter signed ticket, approved pull request, or authorized email reference]`
+`[enter approved ticket, pull request, or authorized email reference]`
 
-G5 authorization status:
+Signature or electronic authorization:
+
+`[enter approved signature or auditable electronic authorization]`
+
+Approval date:
+
+`[YYYY-MM-DD]`
+
+G5 status:
 
 `PENDING`
 
-## 0%-traffic staging candidate authorization
+## 0%-traffic staging candidate
 
-This section remains inactive until G1, G3, G4, and G5 are completed and passed.
+This section must remain pending until G1, G3, G4, and G5 are approved and completed successfully.
+
+No candidate may be deployed or exposed to traffic while any gate is pending or blocked.
 
 ### Candidate identity
 
 Candidate commit:
 
-`[enter exact fully validated commit SHA]`
+`PENDING — add exact validated commit after G1–G5 pass`
 
 Runtime image digest:
 
-`[enter exact sha256 image digest]`
+`PENDING — add exact sha256 digest after candidate build`
 
 SBOM checksum:
 
-`[enter exact SBOM checksum]`
+`PENDING — add exact checksum after candidate build`
 
 SBOM artifact:
 
-`[enter retained SBOM artifact link]`
+`PENDING — add retained SBOM artifact link`
 
-Candidate configuration reference:
+Candidate CI evidence:
 
-`[enter approved configuration reference without secret values]`
+`PENDING — add authoritative workflow links for the exact candidate commit`
 
 ### Staging target
 
-Staging service or environment:
+Staging service:
 
-`[enter staging target]`
+`ca-scrolith-staging-api`
+
+Staging environment:
+
+`cae-scrolith-staging`
+
+Staging URL:
+
+`https://ca-scrolith-staging-api.yellowmushroom-b8714740.southeastasia.azurecontainerapps.io`
+
+Resource group:
+
+`rg-scrolith-staging`
 
 Traffic allocation:
 
@@ -595,29 +775,26 @@ Production traffic change permitted:
 
 Staging owner:
 
-`[enter owner]`
+`PENDING — add staging owner`
 
 ### Pre-candidate checks
 
-The following must pass before deployment:
+The following must pass before candidate creation:
 
-- G1 authenticated DAST and retest.
-- G3 load, spike, soak, recovery, and rollback tests.
-- G4 backup and restore rehearsal.
-- G5 independent penetration test and retest.
-- Full application test suite.
-- Prisma validation and migrations.
-- TypeScript build.
-- Docker build.
-- Production-only and full npm audit.
-- CodeQL SARIF evidence validation.
-- Trivy runtime-image and IaC scans.
-- Gitleaks.
-- SBOM generation and checksum verification.
+- G1 authenticated DAST completed with no blocking unresolved findings.
+- G3 load, spike, soak, dependency-recovery, and rollback tests completed.
+- G4 backup and restore rehearsal completed within approved RPO and RTO.
+- G5 independent penetration test completed.
+- Required retests completed or formally accepted.
+- Candidate commit is identified exactly.
+- Runtime image digest is recorded exactly.
+- SBOM checksum is recorded exactly.
+- Rollback revision is known and available.
+- Go/no-go owner has approved the candidate.
 
-### Health validation
+### Monitoring plan
 
-Validate:
+Health checks:
 
 - Application health endpoints.
 - Authentication.
@@ -631,30 +808,52 @@ Validate:
 - Metrics.
 - Alerts.
 - Critical user journeys.
-- Payment test flows using test data only.
-- Messaging and marketplace test flows using test data only.
+
+Monitoring dashboard:
+
+`PENDING — add approved monitoring dashboard`
+
+Monitoring owner:
+
+`PENDING — add monitoring owner`
+
+Monitoring window:
+
+`PENDING — add approved monitoring period`
+
+Alert thresholds:
+
+`PENDING — add approved alert thresholds`
+
+Incident escalation procedure:
+
+`PENDING — add approved escalation procedure`
 
 ### Rollback validation
 
 Rollback procedure:
 
-`[enter exact rollback procedure]`
+`PENDING — add exact rollback procedure`
 
 Rollback target revision:
 
-`[enter exact previous stable revision]`
+`PENDING — add exact previous stable revision`
+
+Rollback image digest:
+
+`PENDING — add exact rollback image digest`
 
 Rollback owner:
 
-`[enter owner]`
+`PENDING — add rollback owner`
 
 Expected rollback duration:
 
-`[enter duration]`
+`PENDING — add expected duration`
 
 Rollback success criteria:
 
-`[enter exact criteria]`
+`PENDING — add exact success criteria`
 
 Rollback test evidence:
 
@@ -664,7 +863,11 @@ Rollback test evidence:
 
 Go/no-go owner:
 
-`[enter authorized owner]`
+`PENDING — add authorized owner`
+
+Go/no-go owner role:
+
+`PENDING — add owner role`
 
 Go/no-go decision:
 
@@ -674,17 +877,31 @@ Go/no-go approval reference:
 
 `PENDING`
 
+Go/no-go signature or electronic authorization:
+
+`PENDING`
+
 ## Final authorization decision
 
-G1 status: `BLOCKED`
+G1 status:
 
-G3 status: `BLOCKED`
+`BLOCKED`
 
-G4 status: `BLOCKED`
+G3 status:
 
-G5 status: `BLOCKED`
+`BLOCKED`
 
-0%-traffic staging status: `NOT STARTED`
+G4 status:
+
+`BLOCKED`
+
+G5 status:
+
+`BLOCKED`
+
+0%-traffic staging status:
+
+`NOT STARTED`
 
 Overall authorization status:
 
@@ -726,8 +943,17 @@ The overall status may be changed to:
 
 `APPROVED FOR GATE EXECUTION`
 
-only after all required fields are completed, independently reviewed where
-required, and formally authorized.
+only after:
+
+- G1 fields are complete and approved.
+- G3 fields are complete and approved.
+- G4 fields are complete and approved.
+- G5 fields are complete and approved.
+- All placeholders have been removed.
+- All required signatures or auditable approvals are recorded.
+- The exact candidate commit, image digest, SBOM checksum, staging target,
+  rollback revision, monitoring plan, and go/no-go owner are recorded.
+- The candidate remains at 0% traffic until explicit go/no-go approval.
 
 Production remains out of scope until a separate production release
 authorization is created and approved.
