@@ -1,6 +1,7 @@
 import request from 'supertest';
 import app from '../testApp';
 import prisma from '../utils/prismaClient';
+import { shutdown as shutdownGcoinProtection } from '../middleware/gcoinLimits';
 
 describe('Gcoin transfer, donate, conversion endpoints', () => {
   const devUserId = 'dev-user-id-123';
@@ -9,6 +10,10 @@ describe('Gcoin transfer, donate, conversion endpoints', () => {
   let postId: string;
 
   beforeAll(async () => {
+    // Grouped CI runs share the local Redis service. Clear only the Gcoin
+    // protection namespace so prior suites cannot make this fixture 429.
+    await shutdownGcoinProtection();
+
     // clean
     await prisma.gcoinTransaction.deleteMany({ where: { OR: [{ userId: devUserId }, { userId: recipientUserId }] } });
     await prisma.gcoinWallet.deleteMany({ where: { OR: [{ userId: devUserId }, { userId: recipientUserId }] } });
