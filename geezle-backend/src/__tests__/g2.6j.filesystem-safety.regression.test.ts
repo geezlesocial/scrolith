@@ -38,4 +38,12 @@ describe('G2.6J filesystem safety', () => {
     expect(fs.readFileSync(target, 'utf8')).toBe(payload);
     expect(fs.readdirSync(directory)).toEqual(['settings.json']);
   });
+
+  test('public file-serving routes are covered by the existing distributed limiter', () => {
+    const source = fs.readFileSync(path.join(__dirname, '../server.ts'), 'utf8');
+    expect(source).toContain("app.use('/uploads', limiter);");
+    expect(source).toContain("app.get('/favicon.ico', limiter, faviconHandler);");
+    expect(source).toContain("app.get('/favicon.png', limiter, faviconHandler);");
+    expect(source).toContain("app.get('/apple-touch-icon.png', limiter, faviconHandler);");
+  });
 });

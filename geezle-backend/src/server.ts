@@ -3967,6 +3967,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 runtimeOptimizationBundle.middlewares.forEach((middleware) => app.use(middleware));
 
 // Static uploads - allow cross-origin usage from frontend
+app.use('/uploads', limiter);
 app.use(
   '/uploads',
   express.static(path.join(__dirname, '..', 'uploads'), {
@@ -4086,9 +4087,9 @@ const faviconHandler = async (req: Request, res: Response) => {
 };
 
 // Serve platform favicon aliases consistently across browser/icon rel variants.
-app.get('/favicon.ico', faviconHandler);
-app.get('/favicon.png', faviconHandler);
-app.get('/apple-touch-icon.png', faviconHandler);
+app.get('/favicon.ico', limiter, faviconHandler);
+app.get('/favicon.png', limiter, faviconHandler);
+app.get('/apple-touch-icon.png', limiter, faviconHandler);
 
 const trimTrailingSlashes = (value: string) => String(value || '').replace(/\/+$/, '');
 const stripHtml = (value: unknown) =>
