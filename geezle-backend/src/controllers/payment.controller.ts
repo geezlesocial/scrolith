@@ -109,7 +109,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
     );
   } catch (err: any) {
     console.error('Webhook signature verification failed:', err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+    return res.status(400).send('Webhook signature verification failed');
   }
 
   // Founding Partners enrollment is a dedicated payment lifecycle. Handle it

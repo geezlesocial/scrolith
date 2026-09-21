@@ -9,9 +9,10 @@ jest.mock('stripe', () => {
       create: jest.fn().mockResolvedValue({ id: 'pi_integration_123', client_secret: 'cs_integration_123' }),
       retrieve: jest.fn().mockResolvedValue({ id: 'pi_integration_123', amount_received: 5000, amount: 5000, currency: 'usd', status: 'succeeded' })
     },
-    webhooks: {
-      constructEvent: jest.fn((rawBody: any, sig: any, secret: any) => {
-        let parsed;
+      webhooks: {
+        constructEvent: jest.fn((rawBody: any, sig: any, secret: any) => {
+          if (sig === 'invalid-signature') throw new Error('signature detail must not reach the client');
+          let parsed;
         try {
           if (Buffer.isBuffer(rawBody)) parsed = JSON.parse(rawBody.toString());
           else if (typeof rawBody === 'string') parsed = JSON.parse(rawBody);
@@ -87,6 +88,18 @@ describe('Payment gateway integration tests', () => {
     const updatedAd = await prisma.communityAd.findUnique({ where: { id: ad.id } });
     expect(updatedAd?.paymentTransactionId).toBe('pi_integration_123');
     expect(updatedAd?.status).toBe('SUBMITTED_FOR_REVIEW');
+  });
+
+  test('invalid Stripe webhook signatures return a generic error without exception details', async () => {
+    const { handleWebhook } = require('../../controllers/payment.controller');
+    const mockReq: any = { body: '{}', headers: { 'stripe-signature': 'invalid-signature' } };
+    const mockRes: any = { status: jest.fn().mockReturnThis(), send: jest.fn().mockReturnThis() };
+
+    await handleWebhook(mockReq, mockRes);
+
+    expect(mockRes.status).toHaveBeenCalledWith(400);
+    expect(mockRes.send).toHaveBeenCalledWith('Webhook signature verification failed');
+    expect(mockRes.send.mock.calls[0][0]).not.toContain('signature detail');
   });
 
 });

@@ -117,6 +117,20 @@ test('DOCX extraction reads word/document.xml from simple store ZIP', async () =
   assert.ok(text && text.includes('Resume summary line'));
 });
 
+test('HTML extraction returns inert plain text for nested tags, handlers, comments, and scripts', async () => {
+  const { extractPlainText } = await import('../scrolitha.fileUnderstanding');
+  const html = '<div onclick="alert(1)">safe<!-- hidden --><span>text</span>' +
+    '<script>window.evil=1</script><img src="javascript:alert(2)"></div>';
+  const output = extractPlainText(Buffer.from(html, 'utf8'), 'text/html');
+
+  assert.match(output, /safe/);
+  assert.match(output, /text/);
+  assert.equal(output.includes('<script'), false);
+  assert.equal(output.includes('onclick'), false);
+  assert.equal(output.includes('javascript:'), false);
+  assert.equal(output.includes('hidden'), false);
+});
+
 test('context framing marks attachments untrusted and never omits status', () => {
   const ctx = formatFileUnderstandingContext([
     {

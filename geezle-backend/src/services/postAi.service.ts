@@ -708,10 +708,11 @@ export const enhancePostDraftWithAi = async (input: {
       model: 'scrolitha-core',
       warningCode: SCROLITHA_BACKUP_WARNING_CODE
     };
-    console.warn(`[post-ai] Scrolitha provider failed for mode ${mode}. Using backup processing.`, {
+    console.warn('[post-ai] Scrolitha provider failed; using backup processing', {
+      event: 'scrolitha_provider_fallback',
       mode,
       scope,
-      error: String(error?.message || 'unknown error').slice(0, 220)
+      errorCategory: error instanceof Error ? 'provider_error' : 'unknown_error'
     });
   }
 

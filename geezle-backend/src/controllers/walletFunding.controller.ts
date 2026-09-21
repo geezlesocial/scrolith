@@ -1471,7 +1471,7 @@ export const handleStripeWalletWebhook = async (req: Request, res: Response) => 
     event = stripeClient.webhooks.constructEvent(req.body, sig, stripeConfig.webhookSecret);
   } catch (err: any) {
     console.error('Stripe webhook signature error:', err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+    return res.status(400).send('Webhook signature verification failed');
   }
 
   try {

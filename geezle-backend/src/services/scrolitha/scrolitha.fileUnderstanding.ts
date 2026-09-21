@@ -210,7 +210,7 @@ const truncate = (s: string, max = MAX_EXTRACT_CHARS) => {
   return `${t.slice(0, max)}\n\n[TRUNCATED: ${t.length - max} more characters not loaded]`;
 };
 
-const extractPlainText = (buf: Buffer, mime: string): string => {
+export const extractPlainText = (buf: Buffer, mime: string): string => {
   let raw = buf.toString('utf8');
   if (mime.includes('json')) {
     try {

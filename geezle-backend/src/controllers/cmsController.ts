@@ -2107,7 +2107,7 @@ export const getHomepage = async (req: Request, res: Response) => {
       timestamp: new Date().toISOString()
     };
 
-    console.log(`âœ… Homepage data served for ${pageTypeValue} (DB):`, {
+    console.log('Homepage data served from DB', {
       sections: activeSections.length,
       slides: activeSlides.length,
       trending: trending.length
@@ -2815,7 +2815,6 @@ export default {
   saveHirePage,
   saveFreelancerPage
 };
-
 
 
 

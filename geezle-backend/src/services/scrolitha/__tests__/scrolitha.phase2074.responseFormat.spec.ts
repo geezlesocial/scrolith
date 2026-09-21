@@ -54,3 +54,11 @@ test('links become plain labels', () => {
   assert.equal(out.includes(']('), false);
   assert.match(out, /Jobs/);
 });
+
+test('ordinary responses remove HTML tags and event-handler attributes', () => {
+  const out = markdownToPlainProse('<img src="javascript:alert(1)" onerror="alert(2)">Hello <b>world</b>');
+  assert.equal(out.includes('<img'), false);
+  assert.equal(out.includes('onerror'), false);
+  assert.equal(out.includes('javascript:'), false);
+  assert.match(out, /Hello world/);
+});
