@@ -742,6 +742,13 @@ The USD 150 gate is not safely passed because subscription-specific endpoint pri
 - Runtime image `sha256:41e40da5c28de896b633818d7d36cc80c0848499419522767fd4a1a63d1070eb` remains `0 Critical / 0 High`; SBOM checksum is `947bb545efe75242e09cf26ca1a649c1030c440628681648fe7ea26248b7fce7`. Gitleaks and Trivy IaC passed; Code Scanning publication remains unavailable under the private personal-repository plan.
 - G2 remains `BLOCKED`: unresolved likely Critical/High source findings require individual manual disposition/remediation, and Prisma/build dependency Highs have no approved exception. No Azure, staging, production, traffic, database, secret, or candidate action occurred.
 
+#### G2.6E - final evidence refresh (2026-09-21)
+
+- Source commit `d851906030f05fd3d304873e8c6d1a156bb4ff0d`; Prisma run `35547038708` and security run `35547038723` both passed.
+- Final SARIF remains 2.1.0 with 132 results and 105 rules. SHA-256: `e5fe698d91c767f655c269b0407893043c627337cf14ba15bbe61d492c3541c6`. The reviewed inventory contains 18 accepted safe patterns, 21 build/test-only findings, and 93 likely vulnerabilities. The likely set is exactly 49 High and 44 Medium by CodeQL security-severity; no Critical, Low, or unclassified likely findings.
+- Final runtime image: `sha256:e8eb10bc38bb1833fa13704fa9e28e04d896982d6bbfda9cd607d2f467c99112`; Trivy image `0 Critical / 0 High`; Trivy IaC clean. SBOM checksum: `d4c070e5e1975817b210dacecad822b996f38bb0372dbaa29c3cde836f502912`. Gitleaks passed and CodeQL publication remains unavailable under the private personal-repository plan.
+- G2 remains `BLOCKED` because 93 source findings remain unresolved and Prisma build-tooling Highs have no approved owner exception. No Azure, staging, production, traffic, database, secret, or candidate action occurred.
+
 #### Verification and rollback plan
 
 After an approved cost gate, verify from the staging backend that the normal Redis hostname resolves to a private RFC1918 address, TCP 10000 is reachable, TLS 1.2 succeeds, and authenticated PING succeeds. Then verify API health, login/session, rate limiting, and Socket.IO behavior before setting `publicNetworkAccess=Disabled`.
