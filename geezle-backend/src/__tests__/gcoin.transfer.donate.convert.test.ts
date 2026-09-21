@@ -1,4 +1,5 @@
 import request from 'supertest';
+import Redis from 'ioredis';
 import app from '../testApp';
 import prisma from '../utils/prismaClient';
 import { shutdown as shutdownGcoinProtection } from '../middleware/gcoinLimits';
@@ -13,6 +14,26 @@ describe('Gcoin transfer, donate, conversion endpoints', () => {
     // Grouped CI runs share the local Redis service. Clear only the Gcoin
     // protection namespace so prior suites cannot make this fixture 429.
     await shutdownGcoinProtection();
+
+    // Each Jest file has isolated module state, so the production helper's
+    // shutdown cannot see keys created by an earlier file. In the disposable
+    // local-Redis CI mode, clear only the Gcoin namespaces used by these tests.
+    if (process.env.NODE_ENV === 'test' && process.env.REDIS_TEST_MODE === 'local') {
+      const redisUrl = String(process.env.REDIS_URL || '').trim();
+      if (redisUrl) {
+        const testRedis = new Redis(redisUrl, { lazyConnect: true, maxRetriesPerRequest: 1 });
+        try {
+          await testRedis.connect();
+          const keys = [
+            ...(await testRedis.keys('gcoin:transfers:*')),
+            ...(await testRedis.keys('gcoin:conversions:*'))
+          ];
+          if (keys.length > 0) await testRedis.del(...keys);
+        } finally {
+          await testRedis.quit().catch(() => testRedis.disconnect());
+        }
+      }
+    }
 
     // clean
     await prisma.gcoinTransaction.deleteMany({ where: { OR: [{ userId: devUserId }, { userId: recipientUserId }] } });
