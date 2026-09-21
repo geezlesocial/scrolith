@@ -227,7 +227,8 @@ const runExtractFrame = async (params: {
     // Require real WebP container before accepting output
     const head = fs.readFileSync(params.outputPath);
     if (!isValidWebpBuffer(head)) {
-      safeUnlinkTemp(params.outputPath);
+      // Leave the private output directory in place for the caller's optional
+      // timestamp-0 retry. The caller owns cleanup after all attempts finish.
       return { ok: false, errorCode: 'VIDEO_POSTER_FAILED' };
     }
     return { ok: true };
@@ -269,7 +270,10 @@ export const generateVideoPosterAndThumb = async (params: {
   // tests and controlled callers); do not consult the host ffmpeg binary when
   // one is supplied. Production callers use the default runner and retain the
   // normal availability check.
-  const available = params.runner || injectedRunner ? true : await isFfmpegAvailable();
+  const hasExplicitRunner = typeof params.runner === 'function';
+  const available = hasExplicitRunner || injectedRunner !== null
+    ? true
+    : await isFfmpegAvailable();
   if (!available) {
     return { ok: false, errorCode: 'VIDEO_POSTER_UNAVAILABLE', message: 'ffmpeg_missing' };
   }

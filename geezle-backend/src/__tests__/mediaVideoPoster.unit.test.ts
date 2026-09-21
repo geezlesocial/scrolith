@@ -203,7 +203,8 @@ describe('mediaVideoPoster — runner isolation', () => {
       setFfmpegRunnerForTests(runner);
       const result = await generateVideoPosterAndThumb({
         inputPath: input,
-        metadata: { durationSeconds: 2, width: 640, height: 360, audioPresent: false }
+        metadata: { durationSeconds: 2, width: 640, height: 360, audioPresent: false },
+        runner
       });
       expect(result.ok).toBe(false);
       if (result.ok === false) expect(result.errorCode).toBe('VIDEO_POSTER_FAILED');
