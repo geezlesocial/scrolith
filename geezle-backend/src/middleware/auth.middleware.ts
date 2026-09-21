@@ -135,7 +135,7 @@ export const authMiddleware = async (
       const nodeEnv = String(process.env.NODE_ENV || '')
         .trim()
         .toLowerCase();
-      if (nodeEnv === 'production' || process.env.K_SERVICE) {
+      if (!['development', 'test'].includes(nodeEnv) || process.env.K_SERVICE) {
         console.error('[auth] ALLOW_DEV_AUTH_BYPASS rejected in production runtime');
         sendAuthFailure(res, 401, 'Authentication failed');
         return;
