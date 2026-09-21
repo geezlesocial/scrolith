@@ -221,11 +221,13 @@ const runExtractFrame = async (params: {
 
   try {
     await runner(args, { timeoutMs, maxBuffer: FFMPEG_MAX_BUFFER });
-    if (!fs.existsSync(params.outputPath) || fs.statSync(params.outputPath).size <= 0) {
+    // Read the completed output once.  Avoid an exists/stat/read check-then-use
+    // sequence that can race with a replacement or truncation between checks.
+    const head = fs.readFileSync(params.outputPath);
+    if (head.length <= 0) {
       return { ok: false, errorCode: 'VIDEO_POSTER_FAILED' };
     }
     // Require real WebP container before accepting output
-    const head = fs.readFileSync(params.outputPath);
     if (!isValidWebpBuffer(head)) {
       // Leave the private output directory in place for the caller's optional
       // timestamp-0 retry. The caller owns cleanup after all attempts finish.
@@ -353,10 +355,8 @@ export const generateVideoPosterAndThumb = async (params: {
         ],
         { timeoutMs: Math.min(30000, params.timeoutMs ?? FFMPEG_POSTER_TIMEOUT_MS), maxBuffer: FFMPEG_MAX_BUFFER }
       );
-      thumbOk =
-        fs.existsSync(thumbPath) &&
-        fs.statSync(thumbPath).size > 0 &&
-        isValidWebpBuffer(fs.readFileSync(thumbPath));
+      const thumbBuffer = fs.readFileSync(thumbPath);
+      thumbOk = thumbBuffer.length > 0 && isValidWebpBuffer(thumbBuffer);
     } catch {
       thumbOk = false;
     }
