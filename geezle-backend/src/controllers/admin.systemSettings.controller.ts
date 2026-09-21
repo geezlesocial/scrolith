@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import fs from 'fs';
 import path from 'path';
+import { writeFileAtomicallySync } from '../utils/atomicFile';
 import {
   createEmailTransporter,
   normalizeEmailSettings,
@@ -858,7 +859,7 @@ export const updateSystemSettings = async (req: Request, res: Response) => {
       let existing: Record<string, unknown> = {};
       try { existing = existingRaw ? JSON.parse(existingRaw) : {}; } catch (e) { existing = {}; }
       existing['system'] = merged;
-      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(existing, null, 2), 'utf-8');
+      writeFileAtomicallySync(SETTINGS_FILE, JSON.stringify(existing, null, 2));
       const io = (req.app as unknown as { get?: (k: string) => unknown }).get?.('io') as { emit?: (ev: string, payload: unknown) => void } | undefined;
       io?.emit?.('settings:updated', { scope: 'system', settings: merged });
       (req.app as any)?.set?.('runtime:systemSettings', merged);
@@ -931,4 +932,3 @@ export const testEmailSettings = async (req: Request, res: Response) => {
 };
 
 export default { getSystemSettings, updateSystemSettings, testEmailSettings };
-

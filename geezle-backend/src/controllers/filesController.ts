@@ -9,6 +9,7 @@ import { jwtSecret } from '../utils/security/requiredSecret';
 import { isPathWithin, requirePathWithin } from '../utils/security/safePath';
 import { setSafeObjectValue } from '../utils/security/safeObjectKey';
 import { safeLogValue } from '../utils/security/safeLog';
+import { writeFileAtomicallySync } from '../utils/atomicFile';
 // Prefer Node's crypto.randomUUID to avoid importing `uuid` (ESM issues in some test runners)
 const crypto = require('crypto');
 const uuidv4 = () => {
@@ -367,7 +368,7 @@ const getFallbackVideoThumbnailPath = () => {
       '<text x="320" y="276" font-family="Arial, Helvetica, sans-serif" font-size="22" text-anchor="middle" fill="#e2e8f0">Video Preview</text>',
       '</svg>'
     ].join('');
-    fs.writeFileSync(fallbackPath, fallbackSvg, 'utf8');
+    writeFileAtomicallySync(fallbackPath, fallbackSvg);
   }
   return fallbackPath;
 };
@@ -3349,7 +3350,7 @@ export const uploadFile = async (req: Request, res: Response) => {
             if (req.file.path && fs.existsSync(req.file.path)) {
               fs.copyFileSync(req.file.path, faviconPath);
             } else if (req.file.buffer) {
-              fs.writeFileSync(faviconPath, req.file.buffer);
+              writeFileAtomicallySync(faviconPath, req.file.buffer);
             }
             fs.chmodSync(faviconPath, 0o644);
             console.log('Created favicon copy at uploads/', safeLogValue(faviconName));

@@ -11,23 +11,27 @@ const safeSegment = (value: string) =>
 
 const localRoot = path.resolve(process.cwd(), 'storage', 'resumes');
 
-const writeLocal = async (key: string, buffer: Buffer) => {
+export const resolveResumeStoragePath = (key: string) => {
   const target = path.resolve(localRoot, key);
-  if (!target.startsWith(localRoot)) throw new Error('Invalid storage key');
+  const relative = path.relative(localRoot, target);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Invalid storage key');
+  return target;
+};
+
+const writeLocal = async (key: string, buffer: Buffer) => {
+  const target = resolveResumeStoragePath(key);
   await fs.promises.mkdir(path.dirname(target), { recursive: true });
   await fs.promises.writeFile(target, buffer);
 };
 
 const readLocal = async (key: string) => {
-  const target = path.resolve(localRoot, key);
-  if (!target.startsWith(localRoot)) throw new Error('Invalid storage key');
+  const target = resolveResumeStoragePath(key);
   return fs.promises.readFile(target);
 };
 
 const deleteLocal = async (key?: string | null) => {
   if (!key) return;
-  const target = path.resolve(localRoot, key);
-  if (!target.startsWith(localRoot)) return;
+  const target = resolveResumeStoragePath(key);
   await fs.promises.rm(target, { force: true });
 };
 

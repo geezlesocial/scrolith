@@ -21,6 +21,7 @@ import {
 } from './storage/databaseStorage';
 import { getSystemBackupRootDir } from '../utils/systemBackupPaths';
 import { requiredSecret } from '../utils/security/requiredSecret';
+import { writeFileAtomicallySync } from '../utils/atomicFile';
 
 export type BackupMode = 'full' | 'partial';
 export type RestoreMode = 'replace' | 'append';
@@ -776,7 +777,7 @@ const writeBackupBinary = async (fileName: string, buffer: Buffer) => {
     return;
   }
   if (!shouldUseAzureBackupStorage()) {
-    fs.writeFileSync(resolveBackupPath(fileName), buffer);
+    writeFileAtomicallySync(resolveBackupPath(fileName), buffer);
     return;
   }
   await uploadBufferToBlob({

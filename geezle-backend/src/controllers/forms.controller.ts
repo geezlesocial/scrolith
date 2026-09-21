@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import prisma from '../utils/prismaClient';
+import { writeFileAtomicallySync } from '../utils/atomicFile';
 
 const SETTINGS_DIR = path.resolve(__dirname, '../../data');
 const SETTINGS_FILE = path.join(SETTINGS_DIR, 'platform-system-settings.json');
@@ -118,7 +119,7 @@ const writeFileFallback = (payload: any) => {
       existing = {};
     }
     existing['forms'] = payload;
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(existing, null, 2), 'utf-8');
+    writeFileAtomicallySync(SETTINGS_FILE, JSON.stringify(existing, null, 2));
     return true;
   } catch (e) {
     console.warn('[forms] Failed to write fallback settings', e);

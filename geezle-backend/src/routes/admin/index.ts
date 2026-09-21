@@ -1,6 +1,7 @@
 import express, { Request } from 'express';
 import fs from 'fs';
 import path from 'path';
+import { writeFileAtomicallySync } from '../../utils/atomicFile';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminMiddleware } from '../../middleware/admin.middleware';
 import { requireAnyPermission, requirePermission } from '../../middleware/rbac.middleware';
@@ -99,7 +100,7 @@ const readPersistedSettings = () => {
 const writePersistedSettings = (payload: any) => {
   try {
     ensureSettingsDir();
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(payload, null, 2), 'utf-8');
+    writeFileAtomicallySync(SETTINGS_FILE, JSON.stringify(payload, null, 2));
     console.log('[admin] Persisted settings to', SETTINGS_FILE);
     return true;
   } catch (e) {
@@ -1360,7 +1361,7 @@ router.put('/profile', async (req, res) => {
       let existing: any = {};
       try { existing = existingRaw ? JSON.parse(existingRaw) : {}; } catch (e) { existing = {}; }
       existing['admin_profile'] = Object.assign({}, existing['admin_profile'] || {}, payload);
-      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(existing, null, 2), 'utf-8');
+      writeFileAtomicallySync(SETTINGS_FILE, JSON.stringify(existing, null, 2));
 
       // Emit fallback events
       try { io?.emit('admin:profile_updated', { profile: existing['admin_profile'] }); } catch (e) {}

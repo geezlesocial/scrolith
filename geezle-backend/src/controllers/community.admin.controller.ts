@@ -3,6 +3,7 @@ import prisma from '../utils/prismaClient';
 import fs from 'fs';
 import path from 'path';
 import { buildCommunityAdActivationReadiness } from '../services/communityAdActivation.service';
+import { writeFileAtomicallySync } from '../utils/atomicFile';
 
 const CONFIG_FALLBACK_PATH = path.join(__dirname, '..', '..', 'data', 'community_config.json');
 const EVENT_LOG_DIR = path.join(__dirname, '..', '..', 'data', 'logs');
@@ -46,7 +47,7 @@ const writeFallback = async (obj: any) => {
   try {
     const dir = path.dirname(CONFIG_FALLBACK_PATH);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(CONFIG_FALLBACK_PATH, JSON.stringify(obj, null, 2), 'utf8');
+    writeFileAtomicallySync(CONFIG_FALLBACK_PATH, JSON.stringify(obj, null, 2));
     return obj;
   } catch (e) {
     console.warn('Failed to write fallback community config', e);

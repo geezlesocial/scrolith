@@ -1,5 +1,6 @@
 import { RESUME_REVIEW_COMPLIANCE_NOTICE, scrubProtectedTraitLanguage } from './resume.prompts';
 import { generateResumeSchema, reviewProfileUrlSchema } from './resume.validation';
+import { resolveResumeStoragePath } from './resume.storage.service';
 
 describe('resume AI validation and compliance helpers', () => {
   it('defaults resume generation to the professional template', () => {
@@ -23,5 +24,10 @@ describe('resume AI validation and compliance helpers', () => {
     expect(scrubbed.toLowerCase()).not.toContain('reject this candidate');
     expect(scrubbed.toLowerCase()).not.toContain('seems old');
     expect(RESUME_REVIEW_COMPLIANCE_NOTICE).toContain('Final hiring decisions');
+  });
+
+  it('rejects resume storage keys that escape the fixed local root', () => {
+    expect(() => resolveResumeStoragePath('../outside-resume.pdf')).toThrow('Invalid storage key');
+    expect(() => resolveResumeStoragePath('nested/../../outside-resume.pdf')).toThrow('Invalid storage key');
   });
 });
