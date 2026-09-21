@@ -42,7 +42,10 @@ if (listResult.error?.code === 'ETIMEDOUT' || listResult.status !== 0) {
 
 const jestFiles = JSON.parse(listResult.stdout || '[]').sort();
 const groups = [];
-const isolatedFiles = jestFiles.filter((file) => /integration[\\/]socket\.integration\.test\.[jt]sx?$/.test(file));
+const isolatedFiles = jestFiles.filter((file) =>
+  /integration[\\/]socket\.integration\.test\.[jt]sx?$/.test(file) ||
+  /[\\/]gcoin[^\\/]*\.test\.[jt]sx?$/.test(file)
+);
 const regularFiles = jestFiles.filter((file) => !isolatedFiles.includes(file));
 for (let index = 0; index < regularFiles.length; index += groupSize) {
   groups.push(regularFiles.slice(index, index + groupSize));
@@ -89,12 +92,14 @@ const cleanupLocalRedis = async () => {
     });
     await client.connect();
     const keys = [];
-    let cursor = '0';
-    do {
-      const [nextCursor, found] = await client.scan(cursor, 'MATCH', 'gcoin:*', 'COUNT', '500');
-      cursor = nextCursor;
-      keys.push(...found);
-    } while (cursor !== '0');
+    for (const pattern of ['gcoin:*', 'scrolith:ratelimit:*']) {
+      let cursor = '0';
+      do {
+        const [nextCursor, found] = await client.scan(cursor, 'MATCH', pattern, 'COUNT', '500');
+        cursor = nextCursor;
+        keys.push(...found);
+      } while (cursor !== '0');
+    }
     if (keys.length > 0) await client.del(...keys);
     await client.quit();
   } catch {
