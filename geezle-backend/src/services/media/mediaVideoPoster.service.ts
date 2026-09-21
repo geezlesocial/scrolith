@@ -265,7 +265,11 @@ export const generateVideoPosterAndThumb = async (params: {
     return { ok: false, errorCode: 'VIDEO_POSTER_FAILED', message: 'input_missing' };
   }
 
-  const available = injectedRunner ? true : await isFfmpegAvailable();
+  // An explicit runner is a complete execution dependency (used by isolated
+  // tests and controlled callers); do not consult the host ffmpeg binary when
+  // one is supplied. Production callers use the default runner and retain the
+  // normal availability check.
+  const available = params.runner || injectedRunner ? true : await isFfmpegAvailable();
   if (!available) {
     return { ok: false, errorCode: 'VIDEO_POSTER_UNAVAILABLE', message: 'ffmpeg_missing' };
   }
