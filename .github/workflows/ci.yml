@@ -15,19 +15,30 @@ on:
       - 'docs/**'
       - 'geezle-backend/docs/**'
 
+  workflow_dispatch:
+    inputs:
+      run_e2e:
+        description: 'Run Cypress against the configured backend'
+        required: true
+        default: false
+        type: boolean
+
+      deploy_production:
+        description: 'Explicitly authorize production frontend deployment'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
 jobs:
   build:
+    name: Build and validate frontend
     runs-on: ubuntu-latest
 
     env:
-      # Secrets used by conditional steps are exposed through job-level
-      # environment variables so conditions can safely use env.*.
       BACKEND_URL: ${{ secrets.BACKEND_URL }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}
-      AWS_ACCESS_KEY_ID_VALUE: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY_VALUE: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_REGION_VALUE: ${{ secrets.AWS_REGION }}
-      CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
 
     steps:
       - name: Checkout
@@ -46,6 +57,8 @@ jobs:
         env:
           VITE_BACKEND_URL: ${{ env.BACKEND_URL }}
         run: |
+          set -euo pipefail
+
           # Pull-request compilation must not depend on a real production
           # backend endpoint.
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -z "$VITE_BACKEND_URL" ]; then
@@ -66,24 +79,37 @@ jobs:
         env:
           VITE_BACKEND_URL: ${{ env.BACKEND_URL }}
         run: |
+          set -euo pipefail
+
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -z "$VITE_BACKEND_URL" ]; then
             export VITE_BACKEND_URL="https://backend.invalid"
           fi
 
-          npm test --if-present
+          npm run test --if-present
 
-      - name: Run Cypress E2E (optional)
-        if: ${{ env.BACKEND_URL != '' }}
+      - name: Run Cypress E2E
+        if: >-
+          ${{
+            github.event_name == 'workflow_dispatch' &&
+            inputs.run_e2e == true &&
+            env.BACKEND_URL != ''
+          }}
         shell: bash
         env:
           CYPRESS_apiUrl: ${{ env.BACKEND_URL }}
           VITE_BACKEND_URL: ${{ env.BACKEND_URL }}
         run: |
-          # Cypress is optional and requires a configured backend target.
-          npx cypress run --config baseUrl="$BACKEND_URL" || true
+          set -euo pipefail
+          npx cypress run --config baseUrl="$BACKEND_URL"
 
       - name: Upload Cypress artifacts
-        if: ${{ env.BACKEND_URL != '' }}
+        if: >-
+          ${{
+            always() &&
+            github.event_name == 'workflow_dispatch' &&
+            inputs.run_e2e == true &&
+            env.BACKEND_URL != ''
+          }}
         uses: actions/upload-artifact@v4
         with:
           name: cypress-artifacts
@@ -94,16 +120,69 @@ jobs:
             cypress/report
           if-no-files-found: ignore
 
+  deploy:
+    name: Deploy frontend to production (manual authorization required)
+    needs: build
+    runs-on: ubuntu-latest
+
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' &&
+        github.ref == 'refs/heads/main' &&
+        inputs.deploy_production == true
+      }}
+
+    environment:
+      name: production
+
+    env:
+      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      AWS_ACCESS_KEY_ID_VALUE: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY_VALUE: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION_VALUE: ${{ secrets.AWS_REGION }}
+      CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+
+    steps:
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          missing=0
+
+          if [ -z "$S3_BUCKET" ]; then
+            echo "::error::S3_BUCKET is not configured."
+            missing=1
+          fi
+
+          if [ -z "$AWS_ACCESS_KEY_ID_VALUE" ]; then
+            echo "::error::AWS_ACCESS_KEY_ID is not configured."
+            missing=1
+          fi
+
+          if [ -z "$AWS_SECRET_ACCESS_KEY_VALUE" ]; then
+            echo "::error::AWS_SECRET_ACCESS_KEY is not configured."
+            missing=1
+          fi
+
+          if [ -z "$AWS_REGION_VALUE" ]; then
+            echo "::error::AWS_REGION is not configured."
+            missing=1
+          fi
+
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+          echo "Production frontend deployment configuration is present."
+
+      - name: Download frontend build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist
+
       - name: Configure AWS credentials
-        if: >-
-          ${{
-            github.event_name == 'push' &&
-            github.ref == 'refs/heads/main' &&
-            env.S3_BUCKET != '' &&
-            env.AWS_ACCESS_KEY_ID_VALUE != '' &&
-            env.AWS_SECRET_ACCESS_KEY_VALUE != '' &&
-            env.AWS_REGION_VALUE != ''
-          }}
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID_VALUE }}
@@ -111,17 +190,10 @@ jobs:
           aws-region: ${{ env.AWS_REGION_VALUE }}
 
       - name: Sync frontend build to S3
-        if: >-
-          ${{
-            github.event_name == 'push' &&
-            github.ref == 'refs/heads/main' &&
-            env.S3_BUCKET != '' &&
-            env.AWS_ACCESS_KEY_ID_VALUE != '' &&
-            env.AWS_SECRET_ACCESS_KEY_VALUE != '' &&
-            env.AWS_REGION_VALUE != ''
-          }}
         shell: bash
         run: |
+          set -euo pipefail
+
           aws s3 sync \
             dist \
             "s3://$S3_BUCKET" \
@@ -137,17 +209,11 @@ jobs:
             --acl public-read
 
       - name: Invalidate CloudFront cache
-        if: >-
-          ${{
-            github.event_name == 'push' &&
-            github.ref == 'refs/heads/main' &&
-            env.CLOUDFRONT_DISTRIBUTION_ID != '' &&
-            env.AWS_ACCESS_KEY_ID_VALUE != '' &&
-            env.AWS_SECRET_ACCESS_KEY_VALUE != '' &&
-            env.AWS_REGION_VALUE != ''
-          }}
+        if: ${{ env.CLOUDFRONT_DISTRIBUTION_ID != '' }}
         shell: bash
         run: |
+          set -euo pipefail
+
           aws cloudfront create-invalidation \
             --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" \
             --paths "/*"
