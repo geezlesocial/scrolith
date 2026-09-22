@@ -56,13 +56,26 @@ jobs:
         shell: bash
         env:
           VITE_BACKEND_URL: ${{ env.BACKEND_URL }}
+          DEPLOY_PRODUCTION: ${{ inputs.deploy_production }}
         run: |
           set -euo pipefail
 
-          # Pull-request compilation must not depend on a real production
-          # backend endpoint.
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -z "$VITE_BACKEND_URL" ]; then
+          # Ordinary CI builds must not require a live production backend.
+          # Use a deliberately inert target when no backend URL is configured.
+          #
+          # An explicitly authorized production deployment must fail closed
+          # rather than produce a deployable build using the inert target.
+          if [ -z "$VITE_BACKEND_URL" ] && [ -z "$BACKEND_URL" ]; then
+            if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "${DEPLOY_PRODUCTION:-false}" = "true" ]; then
+              echo "::error::BACKEND_URL must be configured before an authorized production deployment."
+              exit 1
+            fi
+
             export VITE_BACKEND_URL="https://backend.invalid"
+            export BACKEND_URL="https://backend.invalid"
+          else
+            export VITE_BACKEND_URL="${VITE_BACKEND_URL:-$BACKEND_URL}"
+            export BACKEND_URL="${BACKEND_URL:-$VITE_BACKEND_URL}"
           fi
 
           npm run build
@@ -81,11 +94,25 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -z "$VITE_BACKEND_URL" ]; then
-            export VITE_BACKEND_URL="https://backend.invalid"
-          fi
+          export VITE_BACKEND_URL="${VITE_BACKEND_URL:-https://backend.invalid}"
+          export BACKEND_URL="${BACKEND_URL:-https://backend.invalid}"
 
           npm run test --if-present
+
+      - name: Validate requested E2E configuration
+        if: >-
+          ${{
+            github.event_name == 'workflow_dispatch' &&
+            inputs.run_e2e == true
+          }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "$BACKEND_URL" ]; then
+            echo "::error::BACKEND_URL must be configured when run_e2e=true."
+            exit 1
+          fi
 
       - name: Run Cypress E2E
         if: >-
@@ -100,6 +127,7 @@ jobs:
           VITE_BACKEND_URL: ${{ env.BACKEND_URL }}
         run: |
           set -euo pipefail
+
           npx cypress run --config baseUrl="$BACKEND_URL"
 
       - name: Upload Cypress artifacts
