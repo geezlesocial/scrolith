@@ -2,20 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
     paths-ignore:
       - '**/*.md'
       - 'docs/**'
       - 'geezle-backend/docs/**'
-
-  pull_request:
-    branches: [ main ]
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - 'geezle-backend/docs/**'
-
-  workflow_dispatch:
 
 jobs:
   build:
