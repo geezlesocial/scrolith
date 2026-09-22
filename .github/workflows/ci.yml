@@ -20,9 +20,8 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # Secrets that are needed by conditional steps are exposed through
-      # job-level environment variables because GitHub Actions does not
-      # allow direct secrets.* references in step-level if expressions.
+      # Secrets used by conditional steps are exposed through job-level
+      # environment variables so conditions can safely use env.*.
       BACKEND_URL: ${{ secrets.BACKEND_URL }}
       S3_BUCKET: ${{ secrets.S3_BUCKET }}
       AWS_ACCESS_KEY_ID_VALUE: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -40,19 +39,15 @@ jobs:
           node-version: '18'
 
       - name: Install frontend dependencies
-        run: |
-          cd geezle
-          npm ci
+        run: npm ci
 
       - name: Build frontend
         shell: bash
         env:
           VITE_BACKEND_URL: ${{ env.BACKEND_URL }}
         run: |
-          cd geezle
-
-          # Pull requests must remain buildable without requiring access
-          # to a real production backend endpoint.
+          # Pull-request compilation must not depend on a real production
+          # backend endpoint.
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -z "$VITE_BACKEND_URL" ]; then
             export VITE_BACKEND_URL="https://backend.invalid"
           fi
@@ -63,15 +58,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
-          path: geezle/dist
+          path: dist
+          if-no-files-found: error
 
       - name: Run frontend unit tests
         shell: bash
         env:
           VITE_BACKEND_URL: ${{ env.BACKEND_URL }}
         run: |
-          cd geezle
-
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -z "$VITE_BACKEND_URL" ]; then
             export VITE_BACKEND_URL="https://backend.invalid"
           fi
@@ -80,30 +74,31 @@ jobs:
 
       - name: Run Cypress E2E (optional)
         if: ${{ env.BACKEND_URL != '' }}
-        run: |
-          cd geezle
-          # Cypress should be installed as a devDependency.
-          npx cypress run --config baseUrl="$BACKEND_URL" || true
+        shell: bash
         env:
           CYPRESS_apiUrl: ${{ env.BACKEND_URL }}
           VITE_BACKEND_URL: ${{ env.BACKEND_URL }}
+        run: |
+          # Cypress is optional and requires a configured backend target.
+          npx cypress run --config baseUrl="$BACKEND_URL" || true
 
-      - name: Upload Cypress artifacts (videos/screenshots)
+      - name: Upload Cypress artifacts
         if: ${{ env.BACKEND_URL != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: cypress-artifacts
           path: |
-            geezle/cypress/videos
-            geezle/cypress/screenshots
-            geezle/cypress/results
-            geezle/cypress/report
+            cypress/videos
+            cypress/screenshots
+            cypress/results
+            cypress/report
           if-no-files-found: ignore
 
       - name: Configure AWS credentials
         if: >-
           ${{
             github.event_name == 'push' &&
+            github.ref == 'refs/heads/main' &&
             env.S3_BUCKET != '' &&
             env.AWS_ACCESS_KEY_ID_VALUE != '' &&
             env.AWS_SECRET_ACCESS_KEY_VALUE != '' &&
@@ -119,6 +114,7 @@ jobs:
         if: >-
           ${{
             github.event_name == 'push' &&
+            github.ref == 'refs/heads/main' &&
             env.S3_BUCKET != '' &&
             env.AWS_ACCESS_KEY_ID_VALUE != '' &&
             env.AWS_SECRET_ACCESS_KEY_VALUE != '' &&
@@ -127,7 +123,7 @@ jobs:
         shell: bash
         run: |
           aws s3 sync \
-            geezle/dist \
+            dist \
             "s3://$S3_BUCKET" \
             --delete \
             --acl public-read \
@@ -135,7 +131,7 @@ jobs:
 
           # Ensure index.html is not aggressively cached.
           aws s3 cp \
-            geezle/dist/index.html \
+            dist/index.html \
             "s3://$S3_BUCKET/index.html" \
             --cache-control "no-cache, no-store, must-revalidate" \
             --acl public-read
@@ -144,6 +140,7 @@ jobs:
         if: >-
           ${{
             github.event_name == 'push' &&
+            github.ref == 'refs/heads/main' &&
             env.CLOUDFRONT_DISTRIBUTION_ID != '' &&
             env.AWS_ACCESS_KEY_ID_VALUE != '' &&
             env.AWS_SECRET_ACCESS_KEY_VALUE != '' &&
