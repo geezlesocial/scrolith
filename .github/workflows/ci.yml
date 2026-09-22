@@ -8,6 +8,13 @@ on:
       - 'docs/**'
       - 'geezle-backend/docs/**'
 
+  pull_request:
+    branches: [ main, master ]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'geezle-backend/docs/**'
+
 jobs:
   build:
     runs-on: ubuntu-latest
