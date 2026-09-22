@@ -18,6 +18,18 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    env:
+      # Secrets that are needed by conditional steps are exposed through
+      # job-level environment variables because GitHub Actions does not
+      # allow direct secrets.* references in step-level if expressions.
+      BACKEND_URL: ${{ secrets.BACKEND_URL }}
+      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      AWS_ACCESS_KEY_ID_VALUE: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY_VALUE: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION_VALUE: ${{ secrets.AWS_REGION }}
+      CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,11 +45,19 @@ jobs:
           npm ci
 
       - name: Build frontend
+        shell: bash
+        env:
+          VITE_BACKEND_URL: ${{ env.BACKEND_URL }}
         run: |
           cd geezle
+
+          # Pull requests must remain buildable without requiring access
+          # to a real production backend endpoint.
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -z "$VITE_BACKEND_URL" ]; then
+            export VITE_BACKEND_URL="https://backend.invalid"
+          fi
+
           npm run build
-        env:
-          VITE_BACKEND_URL: ${{ secrets.BACKEND_URL }}
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -46,48 +66,91 @@ jobs:
           path: geezle/dist
 
       - name: Run frontend unit tests
+        shell: bash
+        env:
+          VITE_BACKEND_URL: ${{ env.BACKEND_URL }}
         run: |
           cd geezle
+
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -z "$VITE_BACKEND_URL" ]; then
+            export VITE_BACKEND_URL="https://backend.invalid"
+          fi
+
           npm test --if-present
-        env:
-          VITE_BACKEND_URL: ${{ secrets.BACKEND_URL }}
 
       - name: Run Cypress E2E (optional)
-        if: ${{ secrets.BACKEND_URL != '' }}
+        if: ${{ env.BACKEND_URL != '' }}
         run: |
           cd geezle
-          # Cypress should be installed as a devDependency; run tests against provided BACKEND_URL
-          npx cypress run --config baseUrl=${{ secrets.BACKEND_URL }} || true
+          # Cypress should be installed as a devDependency.
+          npx cypress run --config baseUrl="$BACKEND_URL" || true
         env:
-          CYPRESS_apiUrl: ${{ secrets.BACKEND_URL }}
-          VITE_BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          CYPRESS_apiUrl: ${{ env.BACKEND_URL }}
+          VITE_BACKEND_URL: ${{ env.BACKEND_URL }}
 
       - name: Upload Cypress artifacts (videos/screenshots)
-        if: ${{ secrets.BACKEND_URL != '' }}
+        if: ${{ env.BACKEND_URL != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: cypress-artifacts
           path: |
             geezle/cypress/videos
             geezle/cypress/screenshots
-            geezle/cypress/results || geezle/cypress/report
+            geezle/cypress/results
+            geezle/cypress/report
+          if-no-files-found: ignore
 
       - name: Configure AWS credentials
-        if: ${{ secrets.S3_BUCKET != '' && secrets.AWS_ACCESS_KEY_ID != '' && secrets.AWS_SECRET_ACCESS_KEY != '' }}
+        if: >-
+          ${{
+            github.event_name == 'push' &&
+            env.S3_BUCKET != '' &&
+            env.AWS_ACCESS_KEY_ID_VALUE != '' &&
+            env.AWS_SECRET_ACCESS_KEY_VALUE != '' &&
+            env.AWS_REGION_VALUE != ''
+          }}
         uses: aws-actions/configure-aws-credentials@v2
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID_VALUE }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY_VALUE }}
+          aws-region: ${{ env.AWS_REGION_VALUE }}
 
       - name: Sync frontend build to S3
-        if: ${{ secrets.S3_BUCKET != '' }}
+        if: >-
+          ${{
+            github.event_name == 'push' &&
+            env.S3_BUCKET != '' &&
+            env.AWS_ACCESS_KEY_ID_VALUE != '' &&
+            env.AWS_SECRET_ACCESS_KEY_VALUE != '' &&
+            env.AWS_REGION_VALUE != ''
+          }}
+        shell: bash
         run: |
-          aws s3 sync geezle/dist s3://${{ secrets.S3_BUCKET }} --delete --acl public-read --cache-control "public, max-age=31536000, immutable"
-          # Ensure index.html is not aggressively cached
-          aws s3 cp geezle/dist/index.html s3://${{ secrets.S3_BUCKET }}/index.html --cache-control "no-cache, no-store, must-revalidate" --acl public-read
+          aws s3 sync \
+            geezle/dist \
+            "s3://$S3_BUCKET" \
+            --delete \
+            --acl public-read \
+            --cache-control "public, max-age=31536000, immutable"
+
+          # Ensure index.html is not aggressively cached.
+          aws s3 cp \
+            geezle/dist/index.html \
+            "s3://$S3_BUCKET/index.html" \
+            --cache-control "no-cache, no-store, must-revalidate" \
+            --acl public-read
 
       - name: Invalidate CloudFront cache
-        if: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID != '' }}
+        if: >-
+          ${{
+            github.event_name == 'push' &&
+            env.CLOUDFRONT_DISTRIBUTION_ID != '' &&
+            env.AWS_ACCESS_KEY_ID_VALUE != '' &&
+            env.AWS_SECRET_ACCESS_KEY_VALUE != '' &&
+            env.AWS_REGION_VALUE != ''
+          }}
+        shell: bash
         run: |
-          aws cloudfront create-invalidation --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
+          aws cloudfront create-invalidation \
+            --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" \
+            --paths "/*"
