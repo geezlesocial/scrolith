@@ -2,11 +2,13 @@ import request from 'supertest';
 import prisma from '../../utils/prismaClient';
 import app from '../../testPaymentApp';
 
+const mockPaymentIntentId = 'fixture-payment-intent';
+
 // Mock Stripe package to avoid network calls and to control webhook construction
 jest.mock('stripe', () => {
   return jest.fn().mockImplementation(() => ({
     paymentIntents: {
-      create: jest.fn().mockResolvedValue({ id: 'fixture-payment-intent', client_secret: 'fixture-client-secret' }),
+      create: jest.fn().mockResolvedValue({ id: mockPaymentIntentId, client_secret: 'fixture-client-secret' }),
       retrieve: jest.fn().mockResolvedValue({ id: 'pi_integration_123', amount_received: 5000, amount: 5000, currency: 'usd', status: 'succeeded' })
     },
       webhooks: {
@@ -50,7 +52,7 @@ describe('Payment gateway integration tests', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.clientSecret).toBeDefined();
-    expect(res.body.paymentIntentId).toBe('pi_integration_123');
+    expect(res.body.paymentIntentId).toBe(mockPaymentIntentId);
   });
 
   test('Stripe webhook for payment_intent.succeeded updates ad payment and ad status', async () => {

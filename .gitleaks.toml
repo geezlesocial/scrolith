@@ -17,6 +17,13 @@ regexes = [ '''"current_key"''' ]
 id = "generic-api-key"
 
 [[rules.allowlists]]
+description = "Reviewed synthetic Phase 26 release evidence line."
+condition = "AND"
+paths = [ '''.*[/\\]geezle[/\\]playwright-results[/\\]phase26[/\\]release-gate-summary\.json$''' ]
+regexTarget = "line"
+regexes = [ '''^\s*"Preference\ API:\ empty/invalid\ rejected;\ alias\ normalize\ en/EN/fil->en/tl;\ decision\ endpoint\ live\.",\s*$''' ]
+
+[[rules.allowlists]]
 description = "The mobile Firebase client configuration contains one expected public client-key field."
 condition = "AND"
 paths = [ '''.*mobile/android/app/google-services\.json$''' ]
