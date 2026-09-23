@@ -39,4 +39,5 @@ playwright/.cache/
 **/*.zip
 tests/**/resources/
 tests/**/admin-config-trace/
+/tests/.auth-storage.json
 
