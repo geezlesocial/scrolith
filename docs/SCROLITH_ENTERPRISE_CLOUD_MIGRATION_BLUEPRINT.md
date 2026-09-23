@@ -140,7 +140,7 @@ gcloud storage buckets describe gs://scrolith-prod-kyc-private
 ### 1.2.5 Secrets
 
 ```bash
-gcloud secrets list --project=scrolith-500821
+gcloud secrets list --project="${GCP_PROJECT_ID}"
 # For each secret: versions, IAM accessors — never print values
 gcloud secrets get-iam-policy JWT_SECRET
 ```

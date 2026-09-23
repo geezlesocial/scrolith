@@ -160,7 +160,9 @@ export const PaymentService = {
               };
 
               if (providerId === 'stripe') {
-                  intent.clientSecret = 'pi_123_secret_456';
+                  // This client-side adapter is a demo/mock flow; never model a
+                  // provider-shaped secret, even as placeholder data.
+                  intent.clientSecret = 'demo_client_secret_placeholder';
               } else if (providerId === 'paypal') {
                   intent.redirectUrl = 'https://www.paypal.com/checkoutnow?token=...';
               } else if (providerId === 'paystack' || providerId === 'flutterwave') {

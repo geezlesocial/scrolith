@@ -44,7 +44,8 @@ describe('scrolitha contextual post helpers', () => {
 
   test('validates answers and blocks fake web search / loops / secrets', () => {
     expect(validateContextualAnswer('I searched the web and confirmed it.', 'unverified').ok).toBe(false);
-    expect(validateContextualAnswer('api_key=sk-12345678901234567890', 'supported').ok).toBe(false);
+    const syntheticSecret = `sk-${'1'.repeat(20)}`;
+    expect(validateContextualAnswer(`api_key=${syntheticSecret}`, 'supported').ok).toBe(false);
     const loop = validateContextualAnswer('Ping @Scrolitha again please', 'supported');
     expect(loop.ok).toBe(true);
     expect(loop.text).not.toMatch(/@scrolitha/i);

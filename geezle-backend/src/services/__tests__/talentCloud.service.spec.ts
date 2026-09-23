@@ -319,7 +319,7 @@ describe('talentCloud.service', () => {
     mockPrisma.apiCredential.findFirst.mockResolvedValue({
       id: 'cred-live-1',
       name: 'Enterprise Ingest Key',
-      keyPrefix: 'sk_123456789',
+      keyPrefix: 'fixture-prefix',
       secretHash: 'stored-hash',
       scopes: ['talent_cloud.manage'],
       status: 'ACTIVE',
@@ -328,7 +328,7 @@ describe('talentCloud.service', () => {
     mockPrisma.apiCredential.update.mockResolvedValue({
       id: 'cred-live-1',
       name: 'Enterprise Ingest Key',
-      keyPrefix: 'sk_123456789',
+      keyPrefix: 'fixture-prefix',
       secretHash: 'stored-hash',
       scopes: ['talent_cloud.manage'],
       status: 'ACTIVE',
@@ -359,14 +359,14 @@ describe('talentCloud.service', () => {
     const service = await import('../talentCloud.service');
     const result = await service.ingestInboundConnectorEvent(
       'connector-2',
-      { 'x-scrolith-api-key': 'sk_1234567890abcdefghijklmnop' },
+      { 'x-scrolith-api-key': 'fixture-api-key' },
       { eventType: 'invoice.approved', invoiceId: 'inv-8' }
     );
 
     expect(mockPrisma.apiCredential.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          keyPrefix: 'sk_123456789'
+          keyPrefix: 'fixture-api-'
         })
       })
     );

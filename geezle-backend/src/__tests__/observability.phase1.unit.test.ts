@@ -79,11 +79,12 @@ describe('observability phase1 metrics', () => {
 
 describe('observability structured log redaction', () => {
   test('redacts bearer tokens and password fields', () => {
+    const syntheticJwt = ['eyJhbGciOiJIUzI1NiJ9', 'aaa', 'bbb'].join('.');
     const redacted = redactSecrets({
       authorization: 'Bearer abc.def.ghi',
       password: 'super-secret',
       nested: { turn_secret: 'xyz', ok: 1 },
-      note: 'token=eyJhbGciOiJIUzI1NiJ9.aaa.bbb'
+      note: `token=${syntheticJwt}`
     }) as any;
     expect(redacted.authorization).toBe('[REDACTED]');
     expect(redacted.password).toBe('[REDACTED]');

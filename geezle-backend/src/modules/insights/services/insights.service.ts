@@ -181,7 +181,7 @@ const DEFAULT_QUEST_CATALOG = [
     rotationWeight: 90
   },
   {
-    key: 'WEEKLY_CONSISTENCY_3',
+    key: 'WEEKLY_CONSISTENCY_3', // gitleaks:allow — stable quest identifier, not credential material
     title: 'Consistency Sprint',
     description: 'Keep a 3-day streak this week.',
     roleScope: ['all'],

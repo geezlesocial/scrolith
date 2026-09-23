@@ -1,0 +1,24 @@
+title = "Scrolith G2 release-tree secret scan exceptions"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "gcp-api-key"
+
+[[rules.allowlists]]
+description = "The mobile Firebase client configuration contains one expected public client-key field."
+condition = "AND"
+paths = [ '''.*mobile/android/app/google-services\.json$''' ]
+regexTarget = "line"
+regexes = [ '''"current_key"''' ]
+
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "The mobile Firebase client configuration contains one expected public client-key field."
+condition = "AND"
+paths = [ '''.*mobile/android/app/google-services\.json$''' ]
+regexTarget = "line"
+regexes = [ '''"current_key"''' ]

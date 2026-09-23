@@ -6,7 +6,7 @@ import app from '../../testPaymentApp';
 jest.mock('stripe', () => {
   return jest.fn().mockImplementation(() => ({
     paymentIntents: {
-      create: jest.fn().mockResolvedValue({ id: 'pi_integration_123', client_secret: 'cs_integration_123' }),
+      create: jest.fn().mockResolvedValue({ id: 'fixture-payment-intent', client_secret: 'fixture-client-secret' }),
       retrieve: jest.fn().mockResolvedValue({ id: 'pi_integration_123', amount_received: 5000, amount: 5000, currency: 'usd', status: 'succeeded' })
     },
       webhooks: {

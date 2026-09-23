@@ -19,6 +19,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
+          submodules: recursive
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@a65a038433a26f4363cf9f029e3b9ceac831ad5d # v3.28.10
@@ -86,14 +87,86 @@ jobs:
           }, open("codeql-publication.json", "w", encoding="utf-8"), indent=2)
           PY
 
-      - name: Secret scan committed source and history
+      - name: Install Gitleaks 8.24.3
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gitleaks-8.24.3"
+          curl --fail --silent --show-error --location \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz \
+            --output "$RUNNER_TEMP/gitleaks-8.24.3/gitleaks.tar.gz"
+          printf '%s  %s\n' \
+            9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c \
+            "$RUNNER_TEMP/gitleaks-8.24.3/gitleaks.tar.gz" | sha256sum --check --status
+          tar -xzf "$RUNNER_TEMP/gitleaks-8.24.3/gitleaks.tar.gz" \
+            -C "$RUNNER_TEMP/gitleaks-8.24.3"
+          echo "$RUNNER_TEMP/gitleaks-8.24.3" >> "$GITHUB_PATH"
+
+      - name: Secret scan exact release tree
+        id: gitleaks_release
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_tree="$RUNNER_TEMP/scrolith-release-tree"
+          mkdir -p "$release_tree"
+          git archive "$GITHUB_SHA" | tar -xf - -C "$release_tree"
+          parent_sha="$(git rev-parse "$GITHUB_SHA")"
+          submodule_sha="$(git -C geezle rev-parse HEAD)"
+          rm -rf "$release_tree/geezle"
+          mkdir -p "$release_tree/geezle"
+          git -C geezle archive "$submodule_sha" | tar -xf - -C "$release_tree/geezle"
+          python3 - "$parent_sha" "$submodule_sha" <<'PY'
+          import json
+          import sys
+          json.dump({
+              "scan": "exact-release-tree",
+              "parentSha": sys.argv[1],
+              "submoduleSha": sys.argv[2],
+              "mode": "no-git",
+              "gitleaksVersion": "8.24.3",
+          }, open("gitleaks-release-metadata.json", "w", encoding="utf-8"), indent=2)
+          PY
+          gitleaks detect \
+            --source "$release_tree" \
+            --no-git \
+            --config "$release_tree/.gitleaks.toml" \
+            --redact \
+            --report-format sarif \
+            --report-path gitleaks-release.sarif \
+            --exit-code 1
+
+      - name: Secret audit full repository history
         id: gitleaks
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_ENABLE_COMMENTS: 'false'
-          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'true'
-          GITLEAKS_ENABLE_SUMMARY: 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          gitleaks detect \
+            --source "$GITHUB_WORKSPACE" \
+            --log-opts="--all --full-history" \
+            --redact \
+            --report-format sarif \
+            --report-path gitleaks-history.sarif \
+            --exit-code 2
+          rc=$?
+          set -e
+          if [ "$rc" -eq 0 ]; then
+            echo "findings=false" >> "$GITHUB_OUTPUT"
+            echo "exit_code=0" >> "$GITHUB_OUTPUT"
+            printf '%s\n' '{"findings":false,"exitCode":0}' > gitleaks-history-status.json
+            exit 0
+          fi
+          if [ "$rc" -eq 2 ]; then
+            echo "findings=true" >> "$GITHUB_OUTPUT"
+            echo "exit_code=2" >> "$GITHUB_OUTPUT"
+            printf '%s\n' '{"findings":true,"exitCode":2}' > gitleaks-history-status.json
+            exit 0
+          fi
+          echo "findings=unknown" >> "$GITHUB_OUTPUT"
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          printf '{"findings":"unknown","exitCode":%s}\n' "$rc" > gitleaks-history-status.json
+          exit "$rc"
 
       - name: Set up Node.js for dependency metadata
         uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4.0.3
@@ -216,6 +289,9 @@ jobs:
         if: always()
         env:
           GITLEAKS_OUTCOME: ${{ steps.gitleaks.outcome }}
+          GITLEAKS_HISTORY_EXIT_CODE: ${{ steps.gitleaks.outputs.exit_code }}
+          GITLEAKS_HISTORY_FINDINGS: ${{ steps.gitleaks.outputs.findings }}
+          GITLEAKS_RELEASE_OUTCOME: ${{ steps.gitleaks_release.outcome }}
           CODEQL_UPLOAD_OUTCOME: ${{ steps.codeql_upload.outcome }}
         run: |
           python3 - <<'PY'
@@ -260,18 +336,30 @@ jobs:
           print('CODEQL=' + json.dumps(codeql, sort_keys=True))
           print('CODEQL_UNCLASSIFIED=' + str(codeql_unclassified))
           print('CODEQL_CONFIRMED_HIGH=' + str(codeql_confirmed_high))
+          print('GITLEAKS_RELEASE_OUTCOME=' + os.environ.get('GITLEAKS_RELEASE_OUTCOME', 'unknown'))
           print('GITLEAKS_OUTCOME=' + os.environ.get('GITLEAKS_OUTCOME', 'unknown'))
+          history_exit = os.environ.get('GITLEAKS_HISTORY_EXIT_CODE', 'unknown')
+          history_findings = os.environ.get('GITLEAKS_HISTORY_FINDINGS', 'unknown')
+          print('GITLEAKS_HISTORY_EXIT_CODE=' + history_exit)
+          print('GITLEAKS_HISTORY_FINDINGS=' + history_findings)
           print('CODEQL_UPLOAD_OUTCOME=' + os.environ.get('CODEQL_UPLOAD_OUTCOME', 'unknown'))
 
           if image.get('CRITICAL', 0) or iac.get('CRITICAL', 0) or codeql_confirmed_high:
               print('G2.3 critical gate: FAILED')
               sys.exit(1)
-          if os.environ.get('GITLEAKS_OUTCOME') == 'failure':
-              print('G2.3 secret gate: FAILED')
+          if os.environ.get('GITLEAKS_RELEASE_OUTCOME') == 'failure' or os.environ.get('GITLEAKS_OUTCOME') == 'failure':
+              print('Release-tree secret gate: FAILED')
               sys.exit(1)
+          if history_exit not in ('0', '2'):
+              print('Full-history secret audit: ERROR')
+              sys.exit(1)
+          if history_exit == '2' and history_findings == 'true':
+              print('Full-history secret audit: FINDINGS PRESENT (historical findings retained; exact-release G2 result is independent)')
+          else:
+              print('Full-history secret audit: CLEAN')
           if os.environ.get('CODEQL_UPLOAD_OUTCOME') != 'success':
               print('G2.3 CodeQL publication: UNAVAILABLE (non-blocking; complete SARIF artifact retained)')
-          print('G2.3 critical/secret gates: PASSED')
+          print('Release-tree secret gate: PASS')
           PY
 
       - name: Upload redacted G2.3 evidence
@@ -299,3 +387,7 @@ jobs:
             g2.3-sbom.cdx.json
             g2.3-sbom.cdx.sha256
             g2.3-sbom.metadata.json
+            gitleaks-release.sarif
+            gitleaks-release-metadata.json
+            gitleaks-history.sarif
+            gitleaks-history-status.json

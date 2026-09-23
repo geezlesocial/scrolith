@@ -38,7 +38,7 @@ const normalizePem = (raw: string, kind: 'PRIVATE' | 'PUBLIC'): string => {
   const body = trimmed.replace(/\s+/g, '');
   const lines = body.match(/.{1,64}/g) || [body];
   if (kind === 'PRIVATE') {
-    return `-----BEGIN PRIVATE KEY-----\n${lines.join('\n')}\n-----END PRIVATE KEY-----`;
+    return `-----BEGIN PRIVATE KEY-----\n${lines.join('\n')}\n-----END PRIVATE KEY-----`; // gitleaks:allow — runtime PEM formatting wrapper; no embedded key
   }
   return `-----BEGIN PUBLIC KEY-----\n${lines.join('\n')}\n-----END PUBLIC KEY-----`;
 };

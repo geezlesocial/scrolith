@@ -84,8 +84,7 @@ describe('Phase 25B sanitizeInternalRedirect', () => {
 
 describe('Phase 25B auth log redaction', () => {
   test('redacts JWT and token query params', () => {
-    const jwt =
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U';
+    const jwt = 'fixture.jwt.value';
     const url = `https://scrolith.com/auth/oauth/callback?token=${jwt}&redirect=%2F`;
     const redacted = redactSensitiveQuery(url);
     expect(redacted).not.toContain(jwt);
