@@ -10,7 +10,7 @@ export type NotificationMuteScope = {
   mutedUntil?: number | null;
 };
 
-const MUTE_KEY = 'scrolith.notification.mutes.v1';
+const MUTE_KEY = 'scrolith.notification.mutes.v1'; // gitleaks:allow — stable browser storage key, not credential material
 
 const readMutes = (): NotificationMuteScope[] => {
   if (typeof localStorage === 'undefined') return [];

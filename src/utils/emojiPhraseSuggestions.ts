@@ -236,8 +236,8 @@ export const insertEmojiAtCaret = (
   return { value: `${before}${insert}${after}`, caret: before.length + insert.length };
 };
 
-const RECENT_KEY = 'scrolith.emoji.recent.v1';
-const FREQ_KEY = 'scrolith.emoji.frequent.v1';
+const RECENT_KEY = 'scrolith.emoji.recent.v1'; // gitleaks:allow — stable browser storage key, not credential material
+const FREQ_KEY = 'scrolith.emoji.frequent.v1'; // gitleaks:allow — stable browser storage key, not credential material
 
 export const readRecentEmojis = (limit = 8): string[] => {
   try {

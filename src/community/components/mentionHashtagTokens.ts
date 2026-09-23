@@ -20,7 +20,7 @@ export const MENTION_SPECIAL_SUGGESTIONS = [
   { username: 'Scrolitha', name: 'Scrolitha AI', mentionKind: 'SCROLITHA' }
 ] as const;
 
-const RECENT_MENTIONS_KEY = 'scrolith.mentions.recent.v1';
+const RECENT_MENTIONS_KEY = 'scrolith.mentions.recent.v1'; // gitleaks:allow — stable browser storage key, not credential material
 
 export const loadRecentMentions = (): string[] => {
   try {
