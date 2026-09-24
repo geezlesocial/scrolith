@@ -15,8 +15,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-2",
@@ -34,8 +34,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-3",
@@ -53,8 +53,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-4",
@@ -72,8 +72,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-5",
@@ -91,8 +91,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-6",
@@ -110,8 +110,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-7",
@@ -129,8 +129,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-8",
@@ -148,8 +148,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-9",
@@ -167,8 +167,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-10",
@@ -186,8 +186,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-11",
@@ -205,8 +205,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-12",
@@ -224,8 +224,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-13",
@@ -243,8 +243,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-14",
@@ -262,8 +262,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-15",
@@ -281,8 +281,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-16",
@@ -300,8 +300,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-17",
@@ -319,8 +319,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-18",
@@ -338,8 +338,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-19",
@@ -357,8 +357,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-20",
@@ -376,8 +376,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-21",
@@ -395,8 +395,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-22",
@@ -414,8 +414,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-23",
@@ -433,8 +433,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-24",
@@ -452,8 +452,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-25",
@@ -471,8 +471,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-26",
@@ -490,8 +490,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-27",
@@ -509,8 +509,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-28",
@@ -528,8 +528,8 @@
         "owner":  "Build/test owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-29",
@@ -547,8 +547,8 @@
         "owner":  "Build/test owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-30",
@@ -566,8 +566,8 @@
         "owner":  "Build/test owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-31",
@@ -585,8 +585,8 @@
         "owner":  "Build/test owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-32",
@@ -604,8 +604,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-33",
@@ -623,8 +623,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-34",
@@ -642,8 +642,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-35",
@@ -661,8 +661,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-36",
@@ -680,8 +680,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-37",
@@ -699,8 +699,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-38",
@@ -718,8 +718,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-39",
@@ -737,8 +737,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-40",
@@ -756,8 +756,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-41",
@@ -775,8 +775,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-42",
@@ -794,8 +794,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-43",
@@ -813,8 +813,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-44",
@@ -832,8 +832,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-45",
@@ -851,8 +851,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-46",
@@ -870,8 +870,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-47",
@@ -889,8 +889,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-48",
@@ -908,8 +908,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-49",
@@ -927,8 +927,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-50",
@@ -946,8 +946,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-51",
@@ -965,8 +965,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-52",
@@ -984,8 +984,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-53",
@@ -1003,8 +1003,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-54",
@@ -1022,8 +1022,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-55",
@@ -1041,8 +1041,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-56",
@@ -1060,8 +1060,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-57",
@@ -1079,8 +1079,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-58",
@@ -1098,8 +1098,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-59",
@@ -1117,8 +1117,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-60",
@@ -1136,8 +1136,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-61",
@@ -1155,8 +1155,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-62",
@@ -1174,8 +1174,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-63",
@@ -1193,8 +1193,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-64",
@@ -1212,8 +1212,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-65",
@@ -1231,8 +1231,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-66",
@@ -1250,8 +1250,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-67",
@@ -1269,8 +1269,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-68",
@@ -1288,8 +1288,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-69",
@@ -1307,8 +1307,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-70",
@@ -1326,8 +1326,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-71",
@@ -1345,8 +1345,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-72",
@@ -1364,8 +1364,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-73",
@@ -1383,8 +1383,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-74",
@@ -1402,8 +1402,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "candidate-e987826fa-result-new-1",
@@ -1421,8 +1421,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-75",
@@ -1440,8 +1440,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-76",
@@ -1459,8 +1459,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-77",
@@ -1478,8 +1478,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-78",
@@ -1497,8 +1497,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-79",
@@ -1516,8 +1516,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-80",
@@ -1535,8 +1535,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-81",
@@ -1554,8 +1554,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-82",
@@ -1573,8 +1573,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-83",
@@ -1592,8 +1592,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-84",
@@ -1611,8 +1611,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-85",
@@ -1630,8 +1630,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-86",
@@ -1649,8 +1649,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-87",
@@ -1668,8 +1668,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-88",
@@ -1687,8 +1687,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-89",
@@ -1706,8 +1706,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-90",
@@ -1725,8 +1725,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-91",
@@ -1744,8 +1744,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-92",
@@ -1763,8 +1763,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-93",
@@ -1782,8 +1782,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-94",
@@ -1801,8 +1801,8 @@
         "owner":  "Backend security owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-95",
@@ -1820,8 +1820,8 @@
         "owner":  "Build/test owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-96",
@@ -1839,8 +1839,8 @@
         "owner":  "Build/test owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-97",
@@ -1858,8 +1858,8 @@
         "owner":  "Build/test owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-98",
@@ -1877,8 +1877,8 @@
         "owner":  "Build/test owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-99",
@@ -1896,8 +1896,8 @@
         "owner":  "Build/test owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-100",
@@ -1915,8 +1915,8 @@
         "owner":  "Build/test owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-101",
@@ -1934,8 +1934,8 @@
         "owner":  "Build/test owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-102",
@@ -1953,8 +1953,8 @@
         "owner":  "Build/test owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-103",
@@ -1972,8 +1972,8 @@
         "owner":  "Build/test owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     },
     {
         "finding_id":  "post-run-1-result-104",
@@ -1991,7 +1991,7 @@
         "owner":  "Build/test owner",
         "review_date":  "2026-09-24",
         "expiry_date":  "",
-        "source_candidate":  "e987826fa9a51d03c46c554dce8930bda88068a6",
-        "fresh_sarif_sha256":  "18D9E37E6E3FF38F03DA7E7C73866D9B4C93AAFB573D34FCECC61399DDFBED4A"
+        "source_candidate":  "4fa003df704a3a369a1923dd1d752fc937ddd971",
+        "fresh_sarif_sha256":  "CBD3A5440642321E771B6808257B0CFEFD934E1106C504854E11889C4F7B5053"
     }
 ]
