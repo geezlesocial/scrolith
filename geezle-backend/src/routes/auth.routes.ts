@@ -18,7 +18,9 @@ import {
 } from '../controllers/userLanguagePreferences.controller';
 import {
   begin2FAEnrollment,
+  begin2FAEnrollmentFromSetup,
   confirm2FAEnrollment,
+  confirm2FAEnrollmentFromSetup,
   disableMy2FA,
   getMy2FAStatus,
   verify2FALogin
@@ -71,6 +73,8 @@ router.post('/register', registerRateLimiter, registerIdentifierRateLimiter, reg
 router.post('/login', loginRateLimiter, loginIdentifierRateLimiter, login);
 router.post('/login/approval/exchange', loginRateLimiter, loginIdentifierRateLimiter, exchangeApprovedLogin);
 router.post('/2fa/verify', admin2faVerifyRateLimiter, admin2faIdentifierRateLimiter, verify2FALogin);
+router.post('/2fa/enroll/setup/begin', admin2faVerifyRateLimiter, admin2faIdentifierRateLimiter, begin2FAEnrollmentFromSetup);
+router.post('/2fa/enroll/setup/confirm', admin2faVerifyRateLimiter, admin2faIdentifierRateLimiter, confirm2FAEnrollmentFromSetup);
 router.post('/forgot-password', forgotPasswordRateLimiter, forgotPasswordIdentifierRateLimiter, forgotPassword);
 router.post('/reset-password', resetPasswordRateLimiter, resetPasswordIdentifierRateLimiter, resetPassword);
 router.get('/oauth/:provider', oauthRateLimiter, oauthIdentifierRateLimiter, startOAuth);

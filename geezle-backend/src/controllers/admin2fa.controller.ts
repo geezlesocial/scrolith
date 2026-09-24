@@ -20,11 +20,101 @@ const isWaived = (user: { twoFactorWaivedUntil?: Date | null }) => {
   return new Date(user.twoFactorWaivedUntil).getTime() > Date.now();
 };
 
+type SetupChallengeData = {
+  userId?: string;
+  exp?: number;
+  needsSetup?: boolean;
+  setupStartedAt?: number;
+};
+
+const setupChallengeTokenFromRequest = (req: Request): string =>
+  String(
+    req.body?.setupChallengeToken ||
+      req.body?.challengeToken ||
+      req.body?.challenge_token ||
+      ''
+  ).trim();
+
+type EffectiveMfaDecision = {
+  required: boolean;
+  staff: {
+    status: string;
+    require2FA: boolean;
+    role: { isActive: boolean } | null;
+  } | null;
+};
+
+export const getEffectiveMfaDecision = async (user: { id: string; role: string }): Promise<EffectiveMfaDecision> => {
+  const [controls, staff] = await Promise.all([
+    getSystemControls(),
+    prisma.staffUser.findUnique({
+      where: { userId: user.id },
+      select: {
+        status: true,
+        require2FA: true,
+        role: { select: { isActive: true } }
+      }
+    })
+  ]);
+  const globalPolicyRequired =
+    controls.admin2FA &&
+    (isAdminRole(user.role) || isAnalystMfaRequiredByPolicy(user.role, controls.admin2FA));
+  const activeStaffRequirement =
+    staff?.status === 'ACTIVE' &&
+    staff.role?.isActive === true &&
+    staff.require2FA === true;
+  return {
+    required: Boolean(globalPolicyRequired || activeStaffRequirement),
+    staff
+  };
+};
+
+const loadSetupChallenge = async (req: Request, requireStarted: boolean) => {
+  const challengeToken = setupChallengeTokenFromRequest(req);
+  if (!/^[a-f0-9]{48}$/i.test(challengeToken)) return null;
+
+  const record = await prisma.appSetting.findUnique({
+    where: { scope: `2fa_challenge_${challengeToken}` }
+  });
+  const data = (record?.data || {}) as SetupChallengeData;
+  if (
+    !record ||
+    data.needsSetup !== true ||
+    !data.userId ||
+    !Number.isFinite(Number(data.exp)) ||
+    Number(data.exp) <= Date.now() ||
+    (requireStarted && !Number.isFinite(Number(data.setupStartedAt)))
+  ) {
+    return null;
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: String(data.userId) },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      isActive: true,
+      twoFactorEnabled: true,
+      twoFactorSecret: true,
+      twoFactorWaivedUntil: true
+    }
+  });
+  if (!user || user.isActive === false || user.twoFactorEnabled || isWaived(user)) return null;
+
+  const mfaDecision = await getEffectiveMfaDecision(user);
+  if (mfaDecision.staff && (mfaDecision.staff.status !== 'ACTIVE' || mfaDecision.staff.role?.isActive !== true)) {
+    return null;
+  }
+  if (!mfaDecision.required) return null;
+
+  return { challengeToken, record, data, user };
+};
+
 export const getMy2FAStatus = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
-    const controls = await getSystemControls();
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -38,10 +128,11 @@ export const getMy2FAStatus = async (req: Request, res: Response) => {
       }
     });
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+    const mfaDecision = await getEffectiveMfaDecision(user);
     return res.json({
       success: true,
       data: {
-        admin2FAPolicyEnforced: controls.admin2FA,
+        admin2FAPolicyEnforced: mfaDecision.required,
         isAdmin: isAdminRole(user.role),
         twoFactorEnabled: Boolean(user.twoFactorEnabled),
         enrolledAt: user.twoFactorEnrolledAt,
@@ -49,8 +140,7 @@ export const getMy2FAStatus = async (req: Request, res: Response) => {
         waivedUntil: user.twoFactorWaivedUntil,
         waivedReason: user.twoFactorWaivedReason,
         requiresSetup:
-          controls.admin2FA &&
-          isAdminRole(user.role) &&
+          mfaDecision.required &&
           !user.twoFactorEnabled &&
           !isWaived(user)
       }
@@ -149,6 +239,127 @@ export const confirm2FAEnrollment = async (req: Request, res: Response) => {
     });
   } catch (e: any) {
     return res.status(500).json({ success: false, error: e?.message || 'Failed to confirm 2FA' });
+  }
+};
+
+/**
+ * Initial privileged enrollment using only the short-lived setup challenge
+ * returned after a successful password check. This intentionally does not
+ * attach req.user or issue a session before MFA is confirmed.
+ */
+export const begin2FAEnrollmentFromSetup = async (req: Request, res: Response) => {
+  try {
+    const context = await loadSetupChallenge(req, false);
+    if (!context) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid or expired MFA setup challenge',
+        code: 'MFA_SETUP_CHALLENGE_INVALID'
+      });
+    }
+
+    const secret = generateBase32Secret(20);
+    await prisma.user.update({
+      where: { id: context.user.id },
+      data: {
+        twoFactorSecret: secret,
+        twoFactorEnabled: false
+      } as any
+    });
+    await prisma.userSettings
+      .upsert({
+        where: { userId: context.user.id },
+        create: { userId: context.user.id, twoFactorEnabled: false } as any,
+        update: { twoFactorEnabled: false } as any
+      })
+      .catch(() => undefined);
+    await prisma.appSetting.update({
+      where: { scope: `2fa_challenge_${context.challengeToken}` },
+      data: {
+        data: {
+          ...context.data,
+          setupStartedAt: Date.now()
+        }
+      }
+    });
+
+    const otpauthUrl = buildOtpAuthUri({
+      secret,
+      accountName: context.user.email,
+      issuer: 'Scrolith'
+    });
+    return res.json({
+      success: true,
+      data: {
+        secret,
+        otpauthUrl,
+        qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(otpauthUrl)}`
+      }
+    });
+  } catch {
+    return res.status(500).json({ success: false, error: 'Failed to begin MFA setup' });
+  }
+};
+
+export const confirm2FAEnrollmentFromSetup = async (req: Request, res: Response) => {
+  try {
+    const context = await loadSetupChallenge(req, true);
+    const token = String(req.body?.token || req.body?.code || '').trim();
+    if (!context || !token) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid or expired MFA setup challenge',
+        code: 'MFA_SETUP_CHALLENGE_INVALID'
+      });
+    }
+    if (!context.user.twoFactorSecret || !verifyTotp(context.user.twoFactorSecret, token)) {
+      return res.status(400).json({ success: false, error: 'Invalid authenticator code', code: 'INVALID_TOTP' });
+    }
+
+    const backupPlain = generateBackupCodes(8);
+    const backupHashed = backupPlain.map(hashBackupCode);
+    await prisma.$transaction(async (tx: any) => {
+      const claimed = await tx.appSetting.deleteMany({
+        where: { scope: `2fa_challenge_${context.challengeToken}` }
+      });
+      if (claimed.count !== 1) {
+        throw new Error('MFA setup challenge already used');
+      }
+      await tx.user.update({
+        where: { id: context.user.id },
+        data: {
+          twoFactorEnabled: true,
+          twoFactorBackupCodes: backupHashed,
+          twoFactorEnrolledAt: new Date(),
+          twoFactorWaivedUntil: null,
+          twoFactorWaivedById: null,
+          twoFactorWaivedReason: null,
+          twoFactorSecret: context.user.twoFactorSecret
+        } as any
+      });
+      await tx.userSettings.upsert({
+        where: { userId: context.user.id },
+        create: { userId: context.user.id, twoFactorEnabled: true } as any,
+        update: { twoFactorEnabled: true } as any
+      });
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        enabled: true,
+        backupCodes: backupPlain
+      }
+    });
+  } catch (error: any) {
+    if (String(error?.message || '').includes('already used')) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid or expired MFA setup challenge',
+        code: 'MFA_SETUP_CHALLENGE_INVALID'
+      });
+    }
+    return res.status(500).json({ success: false, error: 'Failed to confirm MFA setup' });
   }
 };
 
@@ -379,8 +590,7 @@ export const evaluateAdmin2FAGate = async (user: {
 > => {
   if (isWaived(user)) return { required: false };
 
-  const controls = await getSystemControls();
-  const adminPolicy = controls.admin2FA && (isAdminRole(user.role) || isAnalystMfaRequiredByPolicy(user.role, controls.admin2FA));
+  const mfaDecision = await getEffectiveMfaDecision(user);
   const userEnrolled = Boolean(user.twoFactorEnabled && user.twoFactorSecret);
 
   // Enrolled users always challenged at login (unless waived).
@@ -389,7 +599,7 @@ export const evaluateAdmin2FAGate = async (user: {
   }
 
   // Platform Admin 2FA policy: admins must enroll even if not yet enabled.
-  if (adminPolicy) {
+  if (mfaDecision.required) {
     return { required: true, challengeToken: await createChallenge(user.id, true) };
   }
 
