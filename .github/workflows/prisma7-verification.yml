@@ -174,14 +174,47 @@ jobs:
         run: |
           set -euo pipefail
 
+          SMOKE_JWT_SECRET="$(
+            printf '%s' "scrolith-runtime-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+              | sha256sum \
+              | awk '{print $1}'
+          )"
+
           cleanup() {
             if docker container inspect "$SMOKE_CONTAINER" >/dev/null 2>&1; then
+              exit_code="$(docker inspect --format '{{.State.ExitCode}}' "$SMOKE_CONTAINER" 2>/dev/null || printf '%s' unknown)"
+              printf 'FINAL_RUNTIME_EXIT_CODE=%s\n' "$exit_code"
+              log_file=''
+              sanitized_log_file=''
+
               if [ "${SMOKE_PASSED:-0}" != "1" ]; then
-                echo 'Final runtime smoke test failed; sanitized container logs:'
-                docker logs "$SMOKE_CONTAINER" 2>&1 \
-                  | sed -E 's#(postgres(ql)?://)[^@[:space:]]+@#\1[REDACTED]@#g; s#(redis://)[^@[:space:]]+@#\1[REDACTED]@g; s#(Bearer[[:space:]]+)[^[:space:]]+#\1[REDACTED]#gi'
+                printf '%s\n' 'Final runtime smoke test failed; sanitized container logs:'
+                if log_file="$(mktemp 2>/dev/null)"; then
+                  if docker logs "$SMOKE_CONTAINER" >"$log_file" 2>&1; then
+                    if sanitized_log_file="$(mktemp 2>/dev/null)" && \
+                      sed -E \
+                        -e 's#(postgres(ql)?://)[^@[:space:]]+@#\1[REDACTED]@#g' \
+                        -e 's#(redis://)[^@[:space:]]+@#\1[REDACTED]@#g' \
+                        -e 's#(Bearer[[:space:]]+)[^[:space:]]+#\1[REDACTED]#gi' \
+                        "$log_file" >"$sanitized_log_file"; then
+                      if ! cat "$sanitized_log_file"; then
+                        printf '%s\n' 'WARNING: sanitized container log output failed; raw logs withheld.' >&2
+                      fi
+                    else
+                      printf '%s\n' 'WARNING: container log sanitization failed; raw logs withheld.' >&2
+                    fi
+                  else
+                    printf '%s\n' 'WARNING: container log collection failed; raw logs withheld.' >&2
+                  fi
+                else
+                  printf '%s\n' 'WARNING: temporary log file creation failed; raw logs withheld.' >&2
+                fi
               fi
-              docker rm --force "$SMOKE_CONTAINER" >/dev/null
+
+              docker rm --force "$SMOKE_CONTAINER" >/dev/null 2>&1 || \
+                printf '%s\n' 'WARNING: smoke container removal failed.' >&2
+              [ -z "$log_file" ] || rm -f "$log_file" || true
+              [ -z "$sanitized_log_file" ] || rm -f "$sanitized_log_file" || true
             fi
           }
           trap cleanup EXIT
@@ -194,6 +227,7 @@ jobs:
             --env APP_RUNTIME=ci \
             --env DISABLE_BACKGROUND_WORKERS=true \
             --env PORT="$SMOKE_PORT" \
+            --env JWT_SECRET="$SMOKE_JWT_SECRET" \
             --env DATABASE_URL="$DATABASE_URL" \
             --env REDIS_URL="$REDIS_URL" \
             --env REDIS_TEST_MODE=local \
