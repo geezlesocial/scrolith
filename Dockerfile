@@ -49,6 +49,14 @@ FROM nginx:1.27-alpine AS runtime
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 
+RUN mkdir -p /var/cache/nginx /var/log/nginx /var/lib/nginx /run \
+  && chown -R nginx:nginx /var/cache/nginx /var/log/nginx /var/lib/nginx /run /usr/share/nginx/html
+
+USER nginx
+
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD ["wget", "--spider", "--quiet", "http://127.0.0.1:8080/"]
 
 CMD ["nginx", "-g", "daemon off;"]
