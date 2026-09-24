@@ -6,6 +6,7 @@ import { sendSystemMessage } from '../services/systemMessaging';
 import realtime from '../utils/realtime';
 import EVENTS from '../realtime/events';
 import { writeKycAuditEvent, createKycCorrelationId } from '../services/kyc/kyc.audit.service';
+import { isSafeObjectKey, setSafeObjectValue } from '../utils/security/safeObjectKey';
 import { applyKycDecision, KycDecisionError } from '../services/kyc/kyc.decision.service';
 import {
   processKycSecureUpload,
@@ -131,7 +132,9 @@ const deepMergeReplaceArrays = (existing: any, incoming: any): any => {
   if (!isPlainObject(incoming)) return incoming;
   const out: any = { ...(isPlainObject(existing) ? existing : {}) };
   for (const key of Object.keys(incoming)) {
-    out[key] = deepMergeReplaceArrays(existing ? existing[key] : undefined, incoming[key]);
+    if (!isSafeObjectKey(key)) continue;
+    const safeKey = key.trim();
+    setSafeObjectValue(out, safeKey, deepMergeReplaceArrays(existing ? existing[safeKey] : undefined, incoming[key]));
   }
   return out;
 };

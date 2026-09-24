@@ -21,6 +21,7 @@ import { createDistributedRateLimitStore } from './middleware/distributedRateLim
 import { jwtSecret } from './utils/security/requiredSecret';
 import { getTrustedClientIp } from './utils/security/clientIdentity';
 import { handleBasicHealth, isBasicHealthPath } from './middleware/basicHealth';
+import { safeLogLine } from './utils/security/safeLog';
 
 // Import routes
 import cmsRoutes from './routes/cms';
@@ -3950,8 +3951,8 @@ app.use((req: Request, res: Response, next) => {
     const duration = Date.now() - start;
     const user = req.user;
     console.log(
-      `[API] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${duration}ms) ` +
-      `${user?.id ? `user=${user.id}` : ''} ${user?.role ? `role=${user.role}` : ''}`.trim()
+      `[API] ${safeLogLine(req.method)} ${safeLogLine(req.originalUrl)} -> ${res.statusCode} (${duration}ms) ` +
+      `${user?.id ? `user=${safeLogLine(user.id)}` : ''} ${user?.role ? `role=${safeLogLine(user.role)}` : ''}`.trim()
     );
   });
   next();
@@ -5038,10 +5039,10 @@ app.use('*', (req: Request, res: Response) => {
 
 // Error handling middleware
 app.use((err: Error, req: Request, res: Response, next: any) => {
-  console.error('Server error:', err);
-  console.error('Error stack:', err.stack);
-  console.error('Request path:', req.path);
-  console.error('Request method:', req.method);
+  console.error('Server error:', safeLogLine(err));
+  console.error('Error stack:', safeLogLine(err.stack));
+  console.error('Request path:', safeLogLine(req.path));
+  console.error('Request method:', safeLogLine(req.method));
   res.status(500).json({ 
     success: false,
     error: 'Internal Server Error',

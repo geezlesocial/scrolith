@@ -28,6 +28,13 @@ describe('deepMergeReplaceArrays', () => {
     const result = deepMergeReplaceArrays(existing, undefined);
     expect(result).toEqual(existing);
   });
+
+  test('ignores prototype-pollution keys while preserving normal settings', () => {
+    const incoming = JSON.parse('{"__proto__":{"polluted":true},"constructor":{"polluted":true},"safe":2}');
+    const result = deepMergeReplaceArrays({}, incoming);
+    expect(({} as any).polluted).toBeUndefined();
+    expect(result).toEqual({ safe: 2 });
+  });
 });
 
 describe('validateSystem', () => {

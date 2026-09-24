@@ -1,8 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prismaClient';
+import { safeLogLine } from '../utils/security/safeLog';
 
 export const adminMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  console.log(`Admin middleware: ${req.method} ${req.path}`);
+  console.log('Admin middleware:', safeLogLine(req.method), safeLogLine(req.path));
 
   // Get user from request (added by authMiddleware)
   const user = req.user;
@@ -70,8 +71,7 @@ export const adminMiddleware = (req: Request, res: Response, next: NextFunction)
       return res.status(403).json({ error: 'Admin access required' });
     })
     .catch((error) => {
-      console.error('Admin middleware staff lookup failed', error);
+      console.error('Admin middleware staff lookup failed', safeLogLine(error));
       return res.status(500).json({ error: 'Failed to validate admin access' });
     });
 };
-

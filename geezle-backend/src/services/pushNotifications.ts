@@ -2,6 +2,7 @@ import admin from 'firebase-admin';
 import fs from 'fs';
 import path from 'path';
 import prisma from '../utils/prismaClient';
+import { setSafeObjectValue } from '../utils/security/safeObjectKey';
 import { buildNotificationActionUrl, normalizeNotificationActionUrl } from './notificationActionUrl.service';
 import {
   formatNotificationTitleWithCategory,
@@ -373,13 +374,13 @@ const normalizeData = (data?: Record<string, any>) => {
   Object.entries(data).forEach(([key, value]) => {
     if (value === undefined || value === null) return;
     if (typeof value === 'string') {
-      normalized[key] = value;
+      setSafeObjectValue(normalized, key, value);
       return;
     }
     try {
-      normalized[key] = JSON.stringify(value);
+      setSafeObjectValue(normalized, key, JSON.stringify(value));
     } catch {
-      normalized[key] = String(value);
+      setSafeObjectValue(normalized, key, String(value));
     }
   });
   return normalized;

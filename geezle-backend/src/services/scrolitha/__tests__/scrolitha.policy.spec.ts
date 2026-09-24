@@ -73,4 +73,10 @@ describe('sanitizeScrolithaMetadata', () => {
       })
     ).toThrow('Remote Scrolitha Core endpoints must use HTTPS unless they are local or private network addresses.');
   });
+
+  test('does not copy prototype-pollution keys into metadata', () => {
+    const metadata = sanitizeScrolithaMetadata('user', JSON.parse('{"__proto__":{"polluted":true},"safe":"ok"}'));
+    expect(({} as any).polluted).toBeUndefined();
+    expect(metadata.safe).toBe('ok');
+  });
 });

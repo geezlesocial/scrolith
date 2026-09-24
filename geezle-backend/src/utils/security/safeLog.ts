@@ -16,3 +16,14 @@ export const safeLogValue = (value: unknown, depth = 0): unknown => {
   }
   return typeof value;
 };
+
+/** Serialize diagnostic metadata as one bounded line for text log sinks. */
+export const safeLogLine = (value: unknown): string => {
+  const sanitized = safeLogValue(value);
+  if (typeof sanitized === 'string') return sanitized;
+  try {
+    return JSON.stringify(sanitized).replace(/[\r\n\t]/g, ' ').slice(0, 800);
+  } catch {
+    return '[unserializable]';
+  }
+};

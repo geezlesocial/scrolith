@@ -2,6 +2,7 @@ import express, { Request } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { writeFileAtomicallySync } from '../../utils/atomicFile';
+import { isSafeObjectKey, setSafeObjectValue } from '../../utils/security/safeObjectKey';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminMiddleware } from '../../middleware/admin.middleware';
 import { requireAnyPermission, requirePermission } from '../../middleware/rbac.middleware';
@@ -116,12 +117,14 @@ const deepMerge = <T extends Record<string, any>>(base: T, patch: any): T => {
   if (!isObjectLike(patch)) return base;
   const out: any = { ...base };
   Object.keys(patch).forEach((key) => {
-    const next = patch[key];
-    const prev = out[key];
+    if (!isSafeObjectKey(key)) return;
+    const safeKey = key.trim();
+    const next = patch[safeKey];
+    const prev = out[safeKey];
     if (isObjectLike(prev) && isObjectLike(next)) {
-      out[key] = deepMerge(prev, next);
+      setSafeObjectValue(out, safeKey, deepMerge(prev, next));
     } else if (next !== undefined) {
-      out[key] = next;
+      setSafeObjectValue(out, safeKey, next);
     }
   });
   return out as T;

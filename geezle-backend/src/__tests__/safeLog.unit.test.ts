@@ -1,4 +1,4 @@
-import { safeLogValue } from '../utils/security/safeLog';
+import { safeLogLine, safeLogValue } from '../utils/security/safeLog';
 
 describe('safeLogValue', () => {
   test('redacts sensitive fields and removes control characters', () => {
@@ -14,5 +14,11 @@ describe('safeLogValue', () => {
       values: Array.from({ length: 20 }, (_, index) => index),
       deep: { a: { b: '[nested]' } }
     });
+  });
+
+  test('serializes structured values as a bounded single log line', () => {
+    const line = safeLogLine({ note: 'first\nsecond', token: 'hidden' });
+    expect(line).not.toContain('\n');
+    expect(line).toContain('[redacted]');
   });
 });

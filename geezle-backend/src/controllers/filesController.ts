@@ -8,7 +8,7 @@ import { Jimp } from 'jimp';
 import { jwtSecret } from '../utils/security/requiredSecret';
 import { isPathWithin, requirePathWithin } from '../utils/security/safePath';
 import { setSafeObjectValue } from '../utils/security/safeObjectKey';
-import { safeLogValue } from '../utils/security/safeLog';
+import { safeLogLine } from '../utils/security/safeLog';
 import { writeFileAtomicallySync } from '../utils/atomicFile';
 // Prefer Node's crypto.randomUUID to avoid importing `uuid` (ESM issues in some test runners)
 const crypto = require('crypto');
@@ -3330,33 +3330,36 @@ export const uploadFile = async (req: Request, res: Response) => {
               contentType: req.file.mimetype || getMimeTypeFromFilename(faviconName),
               objectKey: `media/system/favicon/${faviconName}`
             });
-            console.log('Created favicon copy in GCS media bucket:', safeLogValue(faviconName));
+            console.log('Created favicon copy in GCS media bucket:', safeLogLine(faviconName));
           } else if (provider === FIREBASE_STORAGE_PROVIDER && req.file.buffer) {
             await uploadBufferToFirebaseStorage({
               buffer: req.file.buffer,
               contentType: req.file.mimetype || getMimeTypeFromFilename(faviconName),
               fileName: faviconName
             });
-            console.log('Created favicon copy in Firebase Storage:', safeLogValue(faviconName));
+            console.log('Created favicon copy in Firebase Storage:', safeLogLine(faviconName));
           } else if (provider === AZURE_BLOB_STORAGE_PROVIDER && req.file.buffer) {
             await uploadBufferToBlob({
               buffer: req.file.buffer,
               contentType: req.file.mimetype || getMimeTypeFromFilename(faviconName),
               fileName: faviconName
             });
-            console.log('Created favicon copy in Azure Blob:', safeLogValue(faviconName));
+            console.log('Created favicon copy in Azure Blob:', safeLogLine(faviconName));
           } else {
             const faviconPath = path.join(UPLOAD_DIR, faviconName);
-            if (req.file.path && fs.existsSync(req.file.path)) {
-              fs.copyFileSync(req.file.path, faviconPath);
+            const sourcePath = req.file.path && isPathWithin(UPLOAD_DIR, req.file.path)
+              ? path.resolve(req.file.path)
+              : undefined;
+            if (sourcePath && fs.existsSync(sourcePath)) {
+              fs.copyFileSync(sourcePath, faviconPath);
             } else if (req.file.buffer) {
               writeFileAtomicallySync(faviconPath, req.file.buffer);
             }
             fs.chmodSync(faviconPath, 0o644);
-            console.log('Created favicon copy at uploads/', safeLogValue(faviconName));
+            console.log('Created favicon copy at uploads/', safeLogLine(faviconName));
           }
         } catch (e) {
-          console.warn('Failed to create favicon copy:', e);
+            console.warn('Failed to create favicon copy:', safeLogLine(e));
         }
       }
     } catch (e) {
@@ -3366,7 +3369,7 @@ export const uploadFile = async (req: Request, res: Response) => {
     res.json({ success: true, data: toClientFile(responseRecord, getBaseFileUrl(req)) });
   } catch (error) {
     safeUnlink(req.file?.path);
-    console.error('Failed to upload file:', error);
+    console.error('Failed to upload file:', safeLogLine(error));
     res.status(500).json({ success: false, error: 'Failed to upload file' });
   }
 };
@@ -3523,7 +3526,7 @@ export const uploadMedia = async (req: Request, res: Response) => {
     res.json(toMediaItem(responseRecord, getBaseFileUrl(req)));
   } catch (error) {
     safeUnlink(req.file?.path);
-    console.error('Failed to upload media:', error);
+    console.error('Failed to upload media:', safeLogLine(error));
     res.status(500).json({ success: false, error: 'Failed to upload file' });
   }
 };

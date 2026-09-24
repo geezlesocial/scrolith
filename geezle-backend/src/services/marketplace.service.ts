@@ -3,6 +3,7 @@ import { notifyAdmins, notifyUser } from '../utils/notify';
 import { DEFAULT_MARKETPLACE_CATEGORIES } from '../config/marketplaceCategories';
 import { publishIntegrationEvent } from './talentCloud.service';
 import { ENGAGEMENT_EVENT_TYPES, recordEngagementSignal } from './engagementMilestones';
+import { isSafeObjectKey, setSafeObjectValue } from '../utils/security/safeObjectKey';
 import {
   normalizePublicMedia,
   resolveDirectMediaUrl,
@@ -95,7 +96,9 @@ const deepMerge = (existing: any, incoming: any): any => {
   if (!isPlainObject(incoming)) return incoming;
   const out: Record<string, any> = { ...(isPlainObject(existing) ? existing : {}) };
   for (const key of Object.keys(incoming)) {
-    out[key] = deepMerge(existing ? existing[key] : undefined, incoming[key]);
+    if (!isSafeObjectKey(key)) continue;
+    const safeKey = key.trim();
+    setSafeObjectValue(out, safeKey, deepMerge(existing ? existing[safeKey] : undefined, incoming[key]));
   }
   return out;
 };

@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { safeLogValue } from '../utils/security/safeLog';
+import { safeLogLine } from '../utils/security/safeLog';
 
 // Updated mock settings to match frontend structure
 const mockSystemSettings = {
@@ -60,7 +60,7 @@ export const getSettings = async (req: Request, res: Response) => {
 
 export const saveSettings = async (req: Request, res: Response) => {
   try {
-    console.log('System settings saved:', safeLogValue(req.body));
+    console.log('System settings saved:', safeLogLine(req.body));
     res.json({ 
       success: true, 
       message: 'System settings saved successfully' 
@@ -111,7 +111,7 @@ export const getPlatformSettings = async (req: Request, res: Response) => {
 
 export const savePlatformSettings = async (req: Request, res: Response) => {
   try {
-    console.log('Platform settings saved:', safeLogValue(req.body));
+    console.log('Platform settings saved:', safeLogLine(req.body));
     res.json({ 
       success: true, 
       message: 'Platform settings saved successfully' 
@@ -163,7 +163,7 @@ export const getCategories = async (req: Request, res: Response) => {
 
 export const saveCategory = async (req: Request, res: Response) => {
   try {
-    console.log('Category saved:', safeLogValue(req.body));
+    console.log('Category saved:', safeLogLine(req.body));
     res.json({ 
       success: true, 
       message: 'Category saved successfully',
@@ -179,7 +179,7 @@ export const saveCategory = async (req: Request, res: Response) => {
 
 export const deleteCategory = async (req: Request, res: Response) => {
   try {
-    console.log('Category deleted:', safeLogValue(req.params.id));
+    console.log('Category deleted:', safeLogLine(req.params.id));
     res.json({ 
       success: true, 
       message: 'Category deleted successfully' 
@@ -223,7 +223,7 @@ export const getPlans = async (req: Request, res: Response) => {
 
 export const savePlan = async (req: Request, res: Response) => {
   try {
-    console.log('Plan saved:', safeLogValue(req.body));
+    console.log('Plan saved:', safeLogLine(req.body));
     res.json({ 
       success: true, 
       message: 'Plan saved successfully',
@@ -239,7 +239,7 @@ export const savePlan = async (req: Request, res: Response) => {
 
 export const updatePlan = async (req: Request, res: Response) => {
   try {
-    console.log('Plan updated:', safeLogValue(req.params.id), safeLogValue(req.body));
+    console.log('Plan updated:', safeLogLine(req.params.id), safeLogLine(req.body));
     res.json({ 
       success: true, 
       message: 'Plan updated successfully' 
@@ -254,7 +254,7 @@ export const updatePlan = async (req: Request, res: Response) => {
 
 export const deletePlan = async (req: Request, res: Response) => {
   try {
-    console.log('Plan deleted:', safeLogValue(req.params.id));
+    console.log('Plan deleted:', safeLogLine(req.params.id));
     res.json({ 
       success: true, 
       message: 'Plan deleted successfully' 
@@ -324,7 +324,7 @@ export const getFraudAlerts = async (req: Request, res: Response) => {
 
 export const updateUserStatus = async (req: Request, res: Response) => {
   try {
-    console.log('User status updated:', req.body);
+    console.log('User status updated:', safeLogLine(req.body));
     res.json({ 
       success: true, 
       message: 'User status updated successfully' 

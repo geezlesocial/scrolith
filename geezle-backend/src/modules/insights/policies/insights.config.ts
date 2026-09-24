@@ -1,4 +1,5 @@
 import prisma from '../../../utils/prismaClient';
+import { isSafeObjectKey, setSafeObjectValue } from '../../../utils/security/safeObjectKey';
 
 export type FeedMode = 'growth' | 'opportunity' | 'network' | 'learning';
 
@@ -99,12 +100,14 @@ const deepMerge = <T extends Record<string, any>>(base: T, patch: any): T => {
   if (!isPlainObject(patch)) return base;
   const output: Record<string, any> = { ...base };
   Object.entries(patch).forEach(([key, value]) => {
-    const prev = output[key];
+    if (!isSafeObjectKey(key)) return;
+    const safeKey = key.trim();
+    const prev = output[safeKey];
     if (isPlainObject(prev) && isPlainObject(value)) {
-      output[key] = deepMerge(prev, value);
+      setSafeObjectValue(output, safeKey, deepMerge(prev, value));
       return;
     }
-    if (value !== undefined) output[key] = value;
+    if (value !== undefined) setSafeObjectValue(output, safeKey, value);
   });
   return output as T;
 };
@@ -254,4 +257,3 @@ export const updateInsightsConfig = async (patch: any): Promise<InsightsConfig> 
   });
   return merged;
 };
-

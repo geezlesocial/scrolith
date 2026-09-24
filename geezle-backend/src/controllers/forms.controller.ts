@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import prisma from '../utils/prismaClient';
 import { writeFileAtomicallySync } from '../utils/atomicFile';
+import { isSafeObjectKey, setSafeObjectValue } from '../utils/security/safeObjectKey';
 
 const SETTINGS_DIR = path.resolve(__dirname, '../../data');
 const SETTINGS_FILE = path.join(SETTINGS_DIR, 'platform-system-settings.json');
@@ -91,7 +92,9 @@ const deepMergeReplaceArrays = (existing: any, incoming: any): any => {
   if (!isPlainObject(incoming)) return incoming;
   const out: any = { ...(isPlainObject(existing) ? existing : {}) };
   for (const key of Object.keys(incoming)) {
-    out[key] = deepMergeReplaceArrays(existing ? existing[key] : undefined, incoming[key]);
+    if (!isSafeObjectKey(key)) continue;
+    const safeKey = key.trim();
+    setSafeObjectValue(out, safeKey, deepMergeReplaceArrays(existing ? existing[safeKey] : undefined, incoming[key]));
   }
   return out;
 };

@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto';
 import prisma from '../../../utils/prismaClient';
 import { writeNotificationAudit } from '../analytics';
 import { NotificationAdminDefaultsService } from '../adminDefaults.service';
+import { isSafeObjectKey, setSafeObjectValue } from '../../../utils/security/safeObjectKey';
 
 const isMissing = (err: any) =>
   err?.code === 'P2021' ||
@@ -185,7 +186,8 @@ export class NotificationOpsConfigService {
     const next = { ...current.value, ...patch };
     // Clamp ranges
     for (const k of Object.keys(next) as (keyof NotificationRetentionPolicies)[]) {
-      next[k] = Math.max(7, Math.min(3650, Number(next[k]) || DEFAULT_RETENTION[k]));
+      if (!isSafeObjectKey(k)) continue;
+      setSafeObjectValue(next, k, Math.max(7, Math.min(3650, Number(next[k]) || DEFAULT_RETENTION[k])));
     }
     return saveKey('retention', next, actorId);
   }

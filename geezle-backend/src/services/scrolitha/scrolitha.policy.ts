@@ -1,6 +1,7 @@
 import prisma from '../../utils/prismaClient';
 import { incrementMinuteCounter, scrolithaCache } from './scrolitha.cache';
 import { getScrolithaKnowledgeBundle } from './scrolitha.knowledge';
+import { isSafeObjectKey, setSafeObjectValue } from '../../utils/security/safeObjectKey';
 import type { ScrolithaActor, ScrolithaScope, ScrolithaToolDefinition } from './scrolitha.types';
 
 const CONFIG_CACHE_PREFIX = 'scrolitha:config:';
@@ -218,12 +219,14 @@ const mergeMetadataObjects = (
 ): Record<string, any> => {
   const out: Record<string, any> = { ...base };
   for (const [key, value] of Object.entries(patch)) {
-    const current = out[key];
+    if (!isSafeObjectKey(key)) continue;
+    const safeKey = key.trim();
+    const current = out[safeKey];
     if (isPlainObject(current) && isPlainObject(value)) {
-      out[key] = mergeMetadataObjects(current, value);
+      setSafeObjectValue(out, safeKey, mergeMetadataObjects(current, value));
       continue;
     }
-    out[key] = value;
+    setSafeObjectValue(out, safeKey, value);
   }
   return out;
 };
@@ -528,9 +531,9 @@ export const redactPayload = (payload: any, sensitiveFields?: string[]) => {
     const next: Record<string, any> = {};
     for (const [key, entry] of Object.entries(value)) {
       if (fields.has(key.toLowerCase())) {
-        next[key] = '[REDACTED]';
+        setSafeObjectValue(next, key, '[REDACTED]');
       } else {
-        next[key] = walk(entry);
+        setSafeObjectValue(next, key, walk(entry));
       }
     }
     return next;

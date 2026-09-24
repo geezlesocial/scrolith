@@ -11,6 +11,7 @@ import { resolveDirectMediaUrl, resolveFileBaseUrl } from '../utils/mediaUrl';
 import { resolveEffectiveCurrencies } from '../services/fx.service';
 import { buildAdsConfigCurrencyView } from '../services/currencySurface.service';
 import { getAllowedObjectValue, setSafeObjectValue } from '../utils/security/safeObjectKey';
+import { safeLogLine } from '../utils/security/safeLog';
 
 const ADS_CONFIG_SCOPE = 'community_ads_config';
 
@@ -2308,7 +2309,7 @@ export const rejectAd = async (req: Request, res: Response) => {
             status: 'refunded'
           } });
         } catch (err) {
-          console.error('Error processing ad refund for ad', adId, err);
+          console.error('Error processing ad refund for ad', safeLogLine(adId), safeLogLine(err));
         }
       }
     }

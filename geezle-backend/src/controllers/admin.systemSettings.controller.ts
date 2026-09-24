@@ -3,6 +3,7 @@ import prisma from '../utils/prismaClient';
 import fs from 'fs';
 import path from 'path';
 import { writeFileAtomicallySync } from '../utils/atomicFile';
+import { isSafeObjectKey, setSafeObjectValue } from '../utils/security/safeObjectKey';
 import {
   createEmailTransporter,
   normalizeEmailSettings,
@@ -105,7 +106,9 @@ export const deepMergeReplaceArrays = (existing: any, incoming: any): any => {
   if (!isPlainObject(incoming)) return incoming;
   const out: any = { ...(isPlainObject(existing) ? existing : {}) };
   for (const key of Object.keys(incoming)) {
-    out[key] = deepMergeReplaceArrays(existing ? existing[key] : undefined, incoming[key]);
+    if (!isSafeObjectKey(key)) continue;
+    const safeKey = key.trim();
+    setSafeObjectValue(out, safeKey, deepMergeReplaceArrays(existing ? existing[safeKey] : undefined, incoming[key]));
   }
   return out;
 };

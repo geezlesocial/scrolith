@@ -7,6 +7,7 @@ import { notifyAdmins } from '../utils/notify';
 import { sendSystemMessage } from '../services/systemMessaging';
 import { maybeDecryptSecret } from '../utils/secretCipher';
 import { publishIntegrationEvent } from '../services/talentCloud.service';
+import { safeLogLine } from '../utils/security/safeLog';
 
 const nowIso = () => new Date().toISOString();
 
@@ -590,7 +591,7 @@ export const requestWithdrawal = async (req: Request, res: Response) => {
 
     return ok(res, mapWithdrawal(result), 'Withdrawal requested successfully');
   } catch (error: any) {
-    console.error('Withdrawal request error:', error);
+    console.error('Withdrawal request error:', safeLogLine(error));
     return fail(res, 500, error?.message || 'Failed to request withdrawal', 'ERR_INTERNAL');
   }
 };
@@ -1188,4 +1189,3 @@ export const rejectWithdrawalAdmin = async (req: Request, res: Response) => {
     return fail(res, 500, error?.message || 'Failed to reject withdrawal', 'ERR_INTERNAL');
   }
 };
-
