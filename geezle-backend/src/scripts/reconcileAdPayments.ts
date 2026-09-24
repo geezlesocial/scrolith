@@ -1,4 +1,13 @@
-// Use runtime require to avoid including the original script in TS compilation rootDir
-const rp = require('../../scripts/reconcileAdPayments');
-export const reconcileAdPayments = rp.reconcileAdPayments;
-export const closeReconciliationResources = rp.closeReconciliationResources;
+import { reconcileAdPayments } from '../services/adPaymentReconciliation.service';
+import { disconnectPrisma } from '../utils/prismaClient';
+
+let disconnectPromise: Promise<void> | undefined;
+
+export { reconcileAdPayments };
+
+export const closeReconciliationResources = async () => {
+  if (!disconnectPromise) {
+    disconnectPromise = disconnectPrisma();
+  }
+  return disconnectPromise;
+};

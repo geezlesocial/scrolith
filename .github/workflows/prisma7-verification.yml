@@ -166,6 +166,59 @@ jobs:
       - name: Clean backend Docker build
         run: docker build --file Dockerfile.acr.temp --tag scrolith-backend:prisma7-ci .
 
+      - name: Verify final runtime artifact and startup health
+        shell: bash
+        env:
+          SMOKE_CONTAINER: scrolith-backend-prisma7-smoke
+          SMOKE_PORT: '18080'
+        run: |
+          set -euo pipefail
+
+          cleanup() {
+            if docker container inspect "$SMOKE_CONTAINER" >/dev/null 2>&1; then
+              if [ "${SMOKE_PASSED:-0}" != "1" ]; then
+                echo 'Final runtime smoke test failed; sanitized container logs:'
+                docker logs "$SMOKE_CONTAINER" 2>&1 \
+                  | sed -E 's#(postgres(ql)?://)[^@[:space:]]+@#\1[REDACTED]@#g; s#(redis://)[^@[:space:]]+@#\1[REDACTED]@g; s#(Bearer[[:space:]]+)[^[:space:]]+#\1[REDACTED]#gi'
+              fi
+              docker rm --force "$SMOKE_CONTAINER" >/dev/null
+            fi
+          }
+          trap cleanup EXIT
+
+          test -f dist/scripts/reconcileAdPayments.js
+          ! grep -Fq '../../scripts/reconcileAdPayments' dist/scripts/reconcileAdPayments.js
+
+          docker run --detach --name "$SMOKE_CONTAINER" --network host \
+            --env NODE_ENV=production \
+            --env APP_RUNTIME=ci \
+            --env DISABLE_BACKGROUND_WORKERS=true \
+            --env PORT="$SMOKE_PORT" \
+            --env DATABASE_URL="$DATABASE_URL" \
+            --env REDIS_URL="$REDIS_URL" \
+            --env REDIS_TEST_MODE=local \
+            --env REDIS_RATE_LIMIT_FAIL_CLOSED=true \
+            scrolith-backend:prisma7-ci >/dev/null
+
+          for attempt in $(seq 1 60); do
+            if ! docker inspect --format '{{.State.Running}}' "$SMOKE_CONTAINER" 2>/dev/null | grep -qx true; then
+              echo 'Final runtime container exited before readiness.' >&2
+              exit 1
+            fi
+            status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+              --max-time 2 "http://127.0.0.1:${SMOKE_PORT}/api/health" || true)"
+            if [ "$status" = '200' ]; then
+              echo 'FINAL_RUNTIME_HEALTH=200'
+              SMOKE_PASSED=1
+              export SMOKE_PASSED
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo 'Final runtime health check timed out.' >&2
+          exit 1
+
       - name: Production dependency audit
         shell: bash
         run: |
