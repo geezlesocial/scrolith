@@ -169,7 +169,18 @@ jobs:
           IMAGE_REF: ${{ steps.image.outputs.PUSHED_REF }}
         run: |
           set -euo pipefail
-          cosign attest --yes --predicate g1-provenance.json --type slsaprovenance "$IMAGE_REF"
+          jq -e '
+            ._type == "https://in-toto.io/Statement/v0.1" and
+            .predicateType == "https://slsa.dev/provenance/v0.2" and
+            (.predicate.builder | type == "object") and
+            (.predicate.builder.id | type == "string" and length > 0) and
+            (.subject | length == 1) and
+            (.subject[0].digest.sha256 | type == "string" and length == 64)
+          ' g1-provenance.json >/dev/null
+          cosign attest --yes \
+            --predicate g1-provenance.json \
+            --type https://slsa.dev/provenance/v0.2 \
+            "$IMAGE_REF"
 
       - name: Verify signed provenance for exact digest
         shell: bash
