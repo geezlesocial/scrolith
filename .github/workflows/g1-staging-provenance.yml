@@ -1,0 +1,197 @@
+name: G1 Staging Image Provenance
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact source commit to build
+        required: true
+        type: string
+      image_tag:
+        description: New immutable evidence tag containing the source SHA prefix
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-sign-and-record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      ACR_NAME: acrscrolithstaging8098
+      ACR_LOGIN_SERVER: acrscrolithstaging8098.azurecr.io
+      IMAGE_REPOSITORY: scrolith-backend
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
+      DOCKERFILE: geezle-backend/Dockerfile.acr.temp
+
+    steps:
+      - name: Checkout exact source commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 1
+          submodules: false
+
+      - name: Verify exact source and build inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -f "$DOCKERFILE"
+          test -f geezle-backend/package.json
+          case "$IMAGE_TAG" in
+            *"${SOURCE_SHA:0:12}"*) ;;
+            *) echo 'Image tag must contain the source SHA prefix.' >&2; exit 1 ;;
+          esac
+
+      - name: Verify Azure OIDC configuration is present
+        shell: bash
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$AZURE_CLIENT_ID"
+          test -n "$AZURE_TENANT_ID"
+          test -n "$AZURE_SUBSCRIPTION_ID"
+
+      - name: Login to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to ACR
+        shell: bash
+        run: az acr login --name "$ACR_NAME"
+
+      - name: Build and push exactly one image tag
+        id: image
+        shell: bash
+        env:
+          IMAGE_URI: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          image_ref="$IMAGE_URI:$IMAGE_TAG"
+          existing_tag="$(az acr repository show-tags \
+            --name "$ACR_NAME" \
+            --repository "$IMAGE_REPOSITORY" \
+            --query "[?name=='$IMAGE_TAG'].name | [0]" -o tsv)"
+          test -z "$existing_tag"
+          docker build --file "$DOCKERFILE" --tag "$image_ref" geezle-backend
+          docker push "$image_ref"
+          pushed_ref="$(docker image inspect --format '{{index .RepoDigests 0}}' "$image_ref")"
+          case "$pushed_ref" in
+            "$IMAGE_URI"@sha256:*) ;;
+            *) echo 'Registry digest was not returned for the pushed image.' >&2; exit 1 ;;
+          esac
+          image_digest="${pushed_ref##*@}"
+          printf 'IMAGE_DIGEST=%s\n' "$image_digest" >> "$GITHUB_OUTPUT"
+          printf 'IMAGE_URI=%s\n' "$IMAGE_URI" >> "$GITHUB_OUTPUT"
+          printf 'IMAGE_REF=%s\n' "$image_ref" >> "$GITHUB_OUTPUT"
+          printf 'PUSHED_REF=%s\n' "$pushed_ref" >> "$GITHUB_OUTPUT"
+
+      - name: Verify registry digest and single image manifest
+        shell: bash
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.IMAGE_DIGEST }}
+        run: |
+          set -euo pipefail
+          registry_digest="$(az acr manifest list-metadata \
+            --registry "$ACR_LOGIN_SERVER" \
+            --name "$IMAGE_REPOSITORY" \
+            --query "[?digest=='$IMAGE_DIGEST'].digest | [0]" -o tsv)"
+          test "$registry_digest" = "$IMAGE_DIGEST"
+          az acr manifest list-metadata \
+            --registry "$ACR_LOGIN_SERVER" \
+            --name "$IMAGE_REPOSITORY" \
+            --query "[?digest=='$IMAGE_DIGEST'] | length(@)" -o tsv | grep -qx '1'
+
+      - name: Generate digest-bound CycloneDX SBOM
+        uses: anchore/sbom-action@d94f46e13c6c62f59525ac9a1e147a99dc0b9bf5 # v0.24.0
+        with:
+          image: ${{ steps.image.outputs.IMAGE_REF }}
+          format: cyclonedx-json
+          output-file: g1-sbom.cdx.json
+          artifact-name: g1-sbom-cyclonedx
+          syft-version: v1.18.1
+          upload-artifact: 'false'
+
+      - name: Record digest-bound SBOM metadata
+        shell: bash
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.IMAGE_DIGEST }}
+          IMAGE_REF: ${{ steps.image.outputs.PUSHED_REF }}
+        run: |
+          set -euo pipefail
+          sha256sum g1-sbom.cdx.json > g1-sbom.cdx.sha256
+          jq -n \
+            --arg sourceCommit "$SOURCE_SHA" \
+            --arg dockerfile "$DOCKERFILE" \
+            --arg image "$IMAGE_REF" \
+            --arg digest "$IMAGE_DIGEST" \
+            --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{sourceCommit:$sourceCommit,dockerfile:$dockerfile,image:$image,imageDigest:$digest,generator:"Anchore SBOM Action / Syft v1.18.1",generatedAt:$generatedAt,artifact:"g1-sbom.cdx.json"}' \
+            > g1-sbom.metadata.json
+
+      - name: Create source-bound SLSA provenance predicate
+        shell: bash
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.IMAGE_DIGEST }}
+          IMAGE_URI: ${{ steps.image.outputs.IMAGE_URI }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg repo "https://github.com/${GITHUB_REPOSITORY}" \
+            --arg sourceCommit "$SOURCE_SHA" \
+            --arg dockerfile "$DOCKERFILE" \
+            --arg image "$IMAGE_URI" \
+            --arg digest "$IMAGE_DIGEST" \
+            --arg builder "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/${GITHUB_WORKFLOW_REF#*/}@${GITHUB_REF}" \
+            --arg invocation "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --arg started "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            ' {_type:"https://in-toto.io/Statement/v1",subject:[{name:$image,digest:{sha256:($digest|sub("^sha256:";""))}}],predicateType:"https://slsa.dev/provenance/v1",predicate:{buildDefinition:{buildType:"https://github.com/slsa-framework/slsa-github-generator/generic@v1",externalParameters:{repository:$repo,sourceCommit:$sourceCommit,dockerfile:$dockerfile},resolvedDependencies:[{uri:$repo,digest:{gitCommit:$sourceCommit}}]},runDetails:{builder:{id:$builder},metadata:{invocationId:$invocation,startedOn:$started}}}}' \
+            > g1-provenance.json
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@1aa8e0f2454b781fbf0fbf306a4c9533a0c57409 # v3.7.0
+
+      - name: Sign digest with keyless Cosign provenance
+        shell: bash
+        env:
+          COSIGN_YES: 'true'
+          IMAGE_REF: ${{ steps.image.outputs.PUSHED_REF }}
+        run: |
+          set -euo pipefail
+          cosign attest --yes --predicate g1-provenance.json --type slsaprovenance "$IMAGE_REF"
+
+      - name: Verify signed provenance for exact digest
+        shell: bash
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.PUSHED_REF }}
+        run: |
+          set -euo pipefail
+          cosign verify-attestation \
+            --type slsaprovenance \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/g1-staging-provenance\.yml@refs/heads/.+$" \
+            "$IMAGE_REF" > g1-provenance-verification.json
+
+      - name: Upload immutable provenance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g1-provenance-${{ inputs.source_sha }}-${{ github.run_id }}
+          if-no-files-found: error
+          path: |
+            g1-sbom.cdx.json
+            g1-sbom.cdx.sha256
+            g1-sbom.metadata.json
+            g1-provenance.json
+            g1-provenance-verification.json
