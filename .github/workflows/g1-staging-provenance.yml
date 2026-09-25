@@ -156,7 +156,7 @@ jobs:
             --arg builder "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/${GITHUB_WORKFLOW_REF#*/}@${GITHUB_REF}" \
             --arg invocation "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
             --arg started "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            ' {_type:"https://in-toto.io/Statement/v1",subject:[{name:$image,digest:{sha256:($digest|sub("^sha256:";""))}}],predicateType:"https://slsa.dev/provenance/v1",predicate:{buildDefinition:{buildType:"https://github.com/slsa-framework/slsa-github-generator/generic@v1",externalParameters:{repository:$repo,sourceCommit:$sourceCommit,dockerfile:$dockerfile},resolvedDependencies:[{uri:$repo,digest:{gitCommit:$sourceCommit}}]},runDetails:{builder:{id:$builder},metadata:{invocationId:$invocation,startedOn:$started}}}}' \
+            ' {_type:"https://in-toto.io/Statement/v0.1",subject:[{name:$image,digest:{sha256:($digest|sub("^sha256:";""))}}],predicateType:"https://slsa.dev/provenance/v0.2",predicate:{builder:{id:$builder},buildType:"https://github.com/slsa-framework/slsa-github-generator/generic@v1",invocation:{configSource:{uri:$repo,digest:{gitCommit:$sourceCommit},entryPoint:$dockerfile},parameters:{sourceCommit:$sourceCommit,dockerfile:$dockerfile,image:$image,imageDigest:$digest,workflowInvocation:$invocation}},buildConfig:{repository:$repo,sourceCommit:$sourceCommit,dockerfile:$dockerfile,image:$image,imageDigest:$digest},metadata:{buildStartedOn:$started,invocationId:$invocation},materials:[{uri:$repo,digest:{gitCommit:$sourceCommit}}]}}' \
             > g1-provenance.json
 
       - name: Install Cosign
