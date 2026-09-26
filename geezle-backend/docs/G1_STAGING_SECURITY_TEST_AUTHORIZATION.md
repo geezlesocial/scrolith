@@ -1,163 +1,110 @@
 # Scrolith G1 Staging Security Test Authorization
 
-Status:
-`G1 BLOCKED -- MISSING AUTHORIZATION
+> **Status: BLOCKED — formal approval, account mapping, candidate verification, and corrected provenance are incomplete.**
 
-Owner:
-Ibrahim Muhammed Jibrin
+This document is a **draft scope and control record**. It does not itself authorize scanning. Do not run DAST until the candidate identity is verified, all approval fields are completed by the authorized approver, and the approval is recorded.
 
-Role:
-Owner
+## Purpose and boundaries
 
-Emergency email:
-[ibrahimjibrinnn@gmail.com](mailto:ibrahimjibrinnn@gmail.com)
+This authorization is limited to a non-destructive, read-only authenticated discovery check against the verified zero-traffic staging candidate. It excludes production and any traffic change, deployment, data mutation, or active testing outside the allowlist below.
 
-Emergency phone:
-+639159459320
+## Candidate and provenance
 
-Approved frontend URL:
-[https://ca-scrolith-staging-web.yellowmushroom-b8714740.southeastasia.azurecontainerapps.io](https://ca-scrolith-staging-web.yellowmushroom-b8714740.southeastasia.azurecontainerapps.io)
+- Source commit supplied for the prior build: `4fa003df704a3a369a1923dd1d752fc937ddd971`
+- Dockerfile: `geezle-backend/Dockerfile.acr.temp`
+- Historical provenance workflow run: [36144883827](https://github.com/geezlesocial/scrolith/actions/runs/36144883827)
+- Historical image tag: `g1-provenance-4fa003df704a-20260925-04`
+- Historical image digest: `sha256:3ff3d08f8151d3b351f6fe980b0cbe83fd989380bde61a059b68567da6268246`
+- Historical SBOM checksum: `caab12dc03693de1101923ea3c928ccd060ec19b02459d406c664b311e0f5106`
+- Historical provenance status: signature verification succeeded, but the predicate builder identity was malformed. These historical values are retained for traceability and **must not be treated as accepted G1 provenance or as the scan target**.
+- Corrected provenance workflow ref: `main` only, `.github/workflows/g1-staging-provenance.yml`
+- Corrected workflow run ID: **PENDING**
+- Accepted candidate image reference and digest: **PENDING corrected workflow run**
+- Accepted SBOM checksum: **PENDING corrected workflow run**
+- Attestation subject, builder identity, and signature verification: **PENDING corrected workflow run and independent review**
 
-Approved API URL:
-[https://ca-scrolith-staging-api.yellowmushroom-b8714740.southeastasia.azurecontainerapps.io](https://ca-scrolith-staging-api.yellowmushroom-b8714740.southeastasia.azurecontainerapps.io)
+The corrected workflow must bind the attestation subject to the exact image digest and identify the trusted workflow as `https://github.com/geezlesocial/scrolith/.github/workflows/g1-staging-provenance.yml@refs/heads/main`.
 
-Source commit:
-`4fa003df704a3a369a1923dd1d752fc937ddd971
+## Staging target — verify read-only before approval
 
-Dockerfile:
-`geezle-backend/Dockerfile.acr.temp
+- Verified candidate revision: **PENDING**
+- Verified direct candidate API URL: **PENDING**
+- Verified candidate image digest currently running: **PENDING**
+- Verified candidate traffic weight: **PENDING — must be 0%**
+- Direct candidate health result and timestamp: **PENDING**
+- Frontend URL, if required for this scope: **PENDING verification**
 
-Image:
-`acrscrolithstaging8098.azurecr.io/scrolith-backend:g1-provenance-4fa003df704a-20260925-04
+Previously listed service URLs are not proof that the zero-traffic candidate is the target. Do not use a stable service alias unless read-only evidence proves it resolves to the exact authorized candidate. If the candidate image is not already deployed, stop; deployment requires separate approval.
 
-Image digest:
-`sha256:3ff3d08f8151d3b351f6fe980b0cbe83fd989380bde61a059b68567da6268246
+## Proposed test scope
 
-Provenance workflow:
-[GitHub Actions run 36144883827](https://github.com/geezlesocial/scrolith/actions/runs/36144883827)
+**Mode:** Read-only discovery only. No form submissions, state changes, fuzzing, destructive tests, or authenticated route traversal beyond the explicitly approved paths.
 
-SBOM checksum:
-`caab12dc03693de1101923ea3c928ccd060ec19b02459d406c664b311e0f5106
+**Proposed route allowlist:**
 
-Approved testing mode:
-`A -- read-only/discovery testing only
+- `GET /api/health`
+- `HEAD /api/health`
+- `GET /api/readyz`
+- `HEAD /api/readyz`
+- `GET /api/health/ready`
+- `HEAD /api/health/ready`
+- `GET /api/auth/health`
 
-Approved routes:
+Any additional route, method, payload, or test class requires a revised written approval before use.
 
-- `GET /api/health
-- `HEAD /api/health
-- `GET /api/readyz
-- `HEAD /api/readyz
-- `GET /api/health/ready
-- `HEAD /api/health/ready
-- `GET /api/auth/health
-
-Excluded routes and actions:
+**Excluded routes and actions:**
 
 - All `POST`, `PUT`, `PATCH`, and `DELETE` requests
-- Payments, payouts, escrow, withdrawals, and KYC
-- Uploads and file operations
-- OAuth and MFA enrollment/rese
-- Admin routes
-- Metrics and route-discovery routes
+- Payments, payouts, escrow, withdrawals, KYC, uploads, and file operations
+- OAuth or MFA enrollment/reset flows
+- Admin routes, metrics, and route-discovery routes
 - AI and external integrations
 - WebSocket and Socket.IO testing
-- Database and Redis mutations
-- Production connectivity
-- Non-test data
+- Database or Redis mutations
+- Production connectivity and non-test data
 
-Accounts:
+## Test identities and credential controls
 
-Standard account:
-[staging-dast-user@scrolith.com](mailto:staging-dast-user@scrolith.com)
+Account identifiers and credential references must be recorded in a **private access-controlled approval attachment**, not in this public repository.
 
-Standard account role:
-Standard staging user / non-privileged synthetic accoun
+- Non-privileged synthetic staging account and role mapping: **PENDING independent verification**
+- Credential-to-account mapping and private secret reference: **PENDING independent verification**
+- Privileged account use and necessity, if any: **PENDING explicit approval**
+- MFA requirement and validation evidence for any privileged account: **PENDING independent verification**
+- Tokens, passwords, MFA seeds, and backup codes: **must never be written to this document, source control, or public workflow artifacts**
 
-Admin account:
-[staging-dast-admin@scrolith.com](mailto:staging-dast-admin@scrolith.com)
+Do not infer that a secret belongs to an account based only on its name.
 
-Admin account role:
-Staging administrator / privileged synthetic account, limited to approved read-only checks
+## Proposed execution limits
 
-Admin MFA:
-YES -- verified by the owner before testing
+These are proposed limits and become effective only after formal approval:
 
-Credential store:
-Azure Key Vault: `kv-scrolith-stg-8098
+- Proposed UTC window: `2026-09-26T14:00:00Z` to `2026-09-26T14:30:00Z`
+- Maximum duration: 30 minutes
+- Maximum total requests: 300
+- Workers: 1
+- Maximum rate: 1 request per second per account
+- Request timeout: 10 seconds
+- Retry limit: 1 retry per request
 
-Known Key Vault secret:
-`STAGING-PLATFORM-ADMIN-PASSWORD
+The monitoring owner and emergency-stop contact must be named in the private approval record before execution.
 
-Important:
-Do not claim that `STAGING-PLATFORM-ADMIN-PASSWORD` belongs to either DAST account until the account-to-secret mapping is independently verified. The standard DAST credential mapping remains `PENDING`.
+Stop immediately on any production connectivity, unexpected mutation, account-isolation failure, non-test-data access, sustained 5xx rate above 5% for two minutes, CPU or memory above 85% for five minutes, PostgreSQL connections above 80% capacity, Redis memory above 80%, or unexpected upload/payment/KYC/escrow/withdrawal activity.
 
-Testing window:
+## Evidence and cleanup
 
-UTC start:
-`2026-09-26T14:00:00Z
+Store scan reports, account mapping, approval evidence, and operational logs in an access-controlled private evidence location. Do not put sensitive values in this public repository or in publicly accessible workflow artifacts. Redact sensitive values from any report prepared for broader sharing.
 
-UTC end:
-`2026-09-26T14:30:00Z
+After evidence is verified, revoke temporary sessions and remove scanner artifacts as permitted by the signed approval.
 
-Philippine Time:
-September 26, 2026, 10:00 PM-10:30 PM
+## Formal approval — incomplete
 
-Maximum duration:
-30 minutes
+- Formal approval reference: **PENDING**
+- Authorized approver name and role: **PENDING**
+- Electronic approval record: **PENDING**
+- UTC approval timestamp: **PENDING**
+- Private account-to-credential mapping attached and verified: **PENDING**
+- Exact candidate revision, direct API URL, and image digest approved: **PENDING**
+- Monitoring owner and private emergency-stop contact confirmed: **PENDING**
 
-Maximum total requests:
-300
-
-Request timeout:
-10 seconds
-
-Retry limit:
-1 retry per reques
-
-DAST workers:
-1
-
-Rate limits:
-
-- 1 request/second/accoun
-- 0.5 request/second/IP on sensitive routes
-- 1 upload/second/account, although uploads are excluded
-- 1 AI request/10 seconds/account, although AI routes are excluded
-- 2 WebSocket connections/account, although WebSocket testing is excluded
-
-Monitoring owner:
-Ibrahim Muhammed Jibrin
-
-Emergency-stop procedure:
-Immediately stop the scanner, revoke its session, and notify Ibrahim Muhammed Jibrin at [ibrahimjibrinnn@gmail.com](mailto:ibrahimjibrinnn@gmail.com) or +639159459320. Stop immediately upon production connectivity, unexpected mutation, sustained 5xx increase, resource threshold breach, or account-isolation issue.
-
-Automatic stop conditions:
-
-- HTTP 5xx above 5% for two continuous minutes
-- CPU above 85% for five minutes
-- Memory above 85% for five minutes
-- PostgreSQL connections above 80% capacity
-- Redis memory above 80% capacity
-- Any production connectivity
-- Any non-test-data mutation
-- Any unexpected upload, payment, payout, KYC, escrow, or withdrawal activity
-- Any account-isolation failure
-
-Evidence-retention location:
-Private GitHub Actions artifact for the approved repository, with sensitive values redacted
-
-Cleanup authorization:
-YES -- remove temporary scanner artifacts and sessions after evidence is verified
-
-Formal approval reference:
-`PENDING
-
-Electronic approval:
-`PENDING
-
-UTC approval timestamp:
-`PENDING
-
-Final status:
-`G1 BLOCKED -- MISSING AUTHORIZATION
+> **Final status: G1 BLOCKED — DO NOT START DAST.**
