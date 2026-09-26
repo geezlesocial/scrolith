@@ -48,6 +48,13 @@ jobs:
             *) echo 'Image tag must contain the source SHA prefix.' >&2; exit 1 ;;
           esac
 
+      - name: Require trusted main-branch workflow identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_workflow_ref="${GITHUB_REPOSITORY}/.github/workflows/g1-staging-provenance.yml@refs/heads/main"
+          test "${GITHUB_WORKFLOW_REF:?GITHUB_WORKFLOW_REF is required}" = "$expected_workflow_ref"
+
       - name: Verify Azure OIDC configuration is present
         shell: bash
         env:
@@ -147,13 +154,20 @@ jobs:
           IMAGE_URI: ${{ steps.image.outputs.IMAGE_URI }}
         run: |
           set -euo pipefail
+          workflow_ref="${GITHUB_WORKFLOW_REF:?GITHUB_WORKFLOW_REF is required}"
+          expected_workflow_ref="${GITHUB_REPOSITORY}/.github/workflows/g1-staging-provenance.yml@refs/heads/main"
+          if [[ "$workflow_ref" != "$expected_workflow_ref" ]]; then
+            printf 'Unexpected provenance workflow ref: %s\n' "$workflow_ref" >&2
+            exit 1
+          fi
+          builder="https://github.com/${workflow_ref}"
           jq -n \
             --arg repo "https://github.com/${GITHUB_REPOSITORY}" \
             --arg sourceCommit "$SOURCE_SHA" \
             --arg dockerfile "$DOCKERFILE" \
             --arg image "$IMAGE_URI" \
             --arg digest "$IMAGE_DIGEST" \
-            --arg builder "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/${GITHUB_WORKFLOW_REF#*/}@${GITHUB_REF}" \
+            --arg builder "$builder" \
             --arg invocation "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
             --arg started "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             ' {_type:"https://in-toto.io/Statement/v0.1",subject:[{name:$image,digest:{sha256:($digest|sub("^sha256:";""))}}],predicateType:"https://slsa.dev/provenance/v0.2",predicate:{builder:{id:$builder},buildType:"https://github.com/slsa-framework/slsa-github-generator/generic@v1",invocation:{configSource:{uri:$repo,digest:{gitCommit:$sourceCommit},entryPoint:$dockerfile},parameters:{sourceCommit:$sourceCommit,dockerfile:$dockerfile,image:$image,imageDigest:$digest,workflowInvocation:$invocation}},buildConfig:{repository:$repo,sourceCommit:$sourceCommit,dockerfile:$dockerfile,image:$image,imageDigest:$digest},metadata:{buildStartedOn:$started,invocationId:$invocation},materials:[{uri:$repo,digest:{gitCommit:$sourceCommit}}]}}' \
@@ -191,7 +205,7 @@ jobs:
           cosign verify-attestation \
             --type slsaprovenance \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/g1-staging-provenance\.yml@refs/heads/.+$" \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/g1-staging-provenance.yml@refs/heads/main" \
             "$IMAGE_REF" > g1-provenance-verification.json
 
       - name: Upload immutable provenance evidence
