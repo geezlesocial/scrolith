@@ -205,7 +205,7 @@ jobs:
           cosign verify-attestation \
             --type slsaprovenance \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/g1-staging-provenance.yml@refs/heads/main" \\
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/g1-staging-provenance.yml@refs/heads/main" \
             "$IMAGE_REF" > g1-provenance-verification.json
 
       - name: Upload immutable provenance evidence
