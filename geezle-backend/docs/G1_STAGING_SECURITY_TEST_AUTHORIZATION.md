@@ -75,9 +75,9 @@ Account identifiers and credential references must be recorded in a **private ac
 
 Do not infer that a secret belongs to an account based only on its name.
 
-## Proposed execution limits
+## Approved execution limits — conditional on prerequisites
 
-These are proposed limits and become effective only after formal approval:
+These owner-approved limits apply only to the read-only scope and approved UTC window below, after every prerequisite in the formal approval section has been verified:
 
 - Owner-approved UTC window, subject to all prerequisites below: `2026-09-27T14:00:00Z` to `2026-09-27T14:30:00Z` (September 27, 2026, 10:00–10:30 PM PHT/SGT, UTC+8)
 - Maximum duration: 30 minutes
