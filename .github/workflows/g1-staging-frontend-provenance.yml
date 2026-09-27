@@ -106,10 +106,11 @@ jobs:
           fi
           rm -f "$build_log"
           trap - EXIT
-          image_digest="$(az acr manifest list-metadata \
-            --registry "$ACR_LOGIN_SERVER" \
-            --name "$IMAGE_REPOSITORY" \
-            --query "[?contains(tags, '$image_tag')].digest | [0]" -o tsv)"
+          image_digest="$(az acr repository show-tags \
+            --name "$ACR_NAME" \
+            --repository "$IMAGE_REPOSITORY" \
+            --detail \
+            --query "[?name=='$image_tag'].digest | [0]" -o tsv)"
           [[ "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           echo "::add-mask::$image_digest"
           manifest_count="$(az acr manifest list-metadata \
