@@ -1,0 +1,39 @@
+name: Validate G1 Staging API Origin
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-origin:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    environment: g1-staging-artifact
+    env:
+      CANDIDATE_ORIGIN: ${{ secrets.G1_STAGING_API_CANDIDATE_ORIGIN }}
+    steps:
+      - name: Compare protected origin fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_sha256='df78b9e1da46489d951e4fab69b0e4b2a2dc0f2155ca79cae0a729e51bc81c88'
+
+          if [[ -z "${CANDIDATE_ORIGIN:-}" ]]; then
+            echo 'FAIL'
+            exit 1
+          fi
+
+          actual_sha256="$(printf '%s' "$CANDIDATE_ORIGIN" | sha256sum | cut -d' ' -f1)" || {
+            echo 'FAIL'
+            exit 1
+          }
+
+          if [[ "$actual_sha256" == "$expected_sha256" ]]; then
+            echo 'PASS'
+          else
+            echo 'FAIL'
+            exit 1
+          fi
