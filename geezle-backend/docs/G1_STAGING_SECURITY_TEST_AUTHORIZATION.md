@@ -66,8 +66,8 @@ Account identifiers and credential references must be recorded in a **private ac
 
 - Non-privileged synthetic staging account and role mapping: independently checked by Webskill Design in the restricted private record; see [Issue #128 confirmation](https://github.com/geezlesocial/scrolith/issues/128#issuecomment-5851243832).
 - Credential-to-account mapping: independently checked by Webskill Design in the restricted private record at `2026-09-27T00:39:24Z`; see [Issue #128 confirmation](https://github.com/geezlesocial/scrolith/issues/128#issuecomment-5851352333). No credential values are included here.
-- Privileged account use: none is authorized for the current allowlist. Any need for a privileged account requires explicit approval before use.
-- MFA evidence for a privileged account: not applicable unless the scope is revised to include one.
+- Privileged account use and necessity, if any: **PENDING explicit approval**.
+- MFA requirement and validation evidence for any privileged account: **PENDING independent verification**.
 - Tokens, passwords, MFA seeds, and backup codes: **must never be written to this document, source control, or public workflow artifacts**
 
 Do not infer that a secret belongs to an account based only on its name.
