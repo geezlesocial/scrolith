@@ -7,6 +7,7 @@
   "type": "module",
   "main": "desktop/main.cjs",
   "scripts": {
+    "test": "node --test tests/unit/g1-api-verification.test.mjs",
     "dev": "vite --config ./vite.config.ts",
     "build": "vite build",
     "preview": "vite preview",
@@ -17,6 +18,8 @@
     "test:mobile:unit": "node --import tsx --test tests/unit/**/*.test.ts",
     "test:mobile:release": "node scripts/mobile-release-gate.cjs",
     "test:cert:unit": "node --import tsx --test tests/unit/enterpriseSpacingScale.test.ts tests/unit/postCardDesignSystem.test.ts tests/unit/postCardVisualQaChecklist.test.ts tests/unit/phase2116ReleaseGate.test.ts src/utils/__tests__/phase2114FeedStability.spec.ts src/utils/__tests__/phase2114FeedIntegrityStress.spec.ts",
+    "test:g1:api-verification": "node --test tests/unit/g1-api-verification.test.mjs",
+    "g1:api-verification": "node scripts/g1-api-verification.mjs",
     "test:cert:storage": "node scripts/phase2116-generate-storage-state.mjs",
     "test:cert:e2e": "npx playwright test -c tests/certification/playwright.config.ts --project=desktop-chrome --project=mobile-390 --project=pixel-7 --project=iphone-15",
     "test:cert:e2e:all-mobile": "npx playwright test -c tests/certification/playwright.config.ts --project=pixel-7 --project=iphone-15 --project=mobile-390",
