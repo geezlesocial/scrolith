@@ -47,6 +47,25 @@ test('staging CSP renders only the exact revision origin in connect-src', () => 
   assert.equal(directives[0].includes('wss:'), false);
 });
 
+test('staging build keeps the configured API origin aligned across CSP and API requests', () => {
+  assert.match(stagingDockerfile, /--mount=type=secret,id=staging_api_origin/);
+  assert.match(stagingDockerfile, /export STAGING_API_ORIGIN="\$\(cat \/run\/secrets\/staging_api_origin\)"/);
+  assert.match(stagingDockerfile, /export VITE_BACKEND_URL="\$STAGING_API_ORIGIN"/);
+  assert.match(stagingDockerfile, /export VITE_API_URL="\$STAGING_API_ORIGIN\/api"/);
+
+  const apiBase = resolveConfiguredApiBase({
+    VITE_API_URL: `${sampleOrigin}/api`,
+    VITE_BACKEND_URL: sampleOrigin,
+  });
+  const rendered = renderStagingNginxConfig(template, sampleOrigin);
+  const connectSources = [...rendered.matchAll(/connect-src\s+([^;]+);/g)].map((match) => match[1].trim());
+
+  assert.equal(apiBase, `${sampleOrigin}/api`);
+  assert.equal(`${apiBase}/homepage/guest`, `${sampleOrigin}/api/homepage/guest`);
+  assert.equal(`${apiBase}/cms/platform-settings`, `${sampleOrigin}/api/cms/platform-settings`);
+  assert.deepEqual(connectSources, [`'self' ${sampleOrigin}`]);
+});
+
 test('staging SPA fallback and static assets have deliberate cache and path behavior', () => {
   const staticStart = template.indexOf('location ~*');
   const spaStart = template.indexOf('location / {');
