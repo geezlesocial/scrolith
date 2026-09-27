@@ -10,13 +10,8 @@ This authorization is limited to a non-destructive, read-only authenticated disc
 
 ## Candidate and provenance
 
-- Source commit supplied for the prior build: `4fa003df704a3a369a1923dd1d752fc937ddd971`
-- Dockerfile: `geezle-backend/Dockerfile.acr.temp`
-- Historical provenance workflow run: [36144883827](https://github.com/geezlesocial/scrolith/actions/runs/36144883827)
-- Historical image tag: `g1-provenance-4fa003df704a-20260925-04`
-- Historical image digest: `sha256:3ff3d08f8151d3b351f6fe980b0cbe83fd989380bde61a059b68567da6268246`
-- Historical SBOM checksum: `caab12dc03693de1101923ea3c928ccd060ec19b02459d406c664b311e0f5106`
-- Historical provenance status: signature verification succeeded, but the predicate builder identity was malformed. These historical values are retained for traceability and **must not be treated as accepted G1 provenance or as the scan target**.
+- Historical provenance workflow run: [#36144883827](https://github.com/geezlesocial/scrolith/actions/runs/36144883827)
+- Historical provenance status: signature verification succeeded, but the predicate builder identity was malformed. Its candidate-specific values remain in the restricted private record and **must not be treated as accepted G1 provenance or as the scan target**.
 - Corrected provenance workflow ref: `main` only, `.github/workflows/g1-staging-provenance.yml`
 - Corrected workflow run from trusted `main`: [#36229461393](https://github.com/geezlesocial/scrolith/actions/runs/36229461393) — succeeded. Its artifact binds the approved image digest to the source and includes the SBOM and verified attestation. Candidate-specific identifiers and the digest remain in the restricted private record.
 - Accepted SBOM checksum and attestation evidence: recorded in the immutable artifact for run #36229461393.
@@ -26,7 +21,7 @@ The corrected workflow must bind the attestation subject to the exact image dige
 
 ## Staging target — verify read-only before approval
 
-- Candidate revision, direct URL, image digest, traffic weight, and health details are retained in the restricted private approval record.
+- Candidate revision, direct URL, image digest, traffic weight, and health details must be recorded in the restricted private approval record and are not reproduced here.
 - Earlier independent read-only check: [Issue #128 evidence comment](https://github.com/geezlesocial/scrolith/issues/128#issuecomment-5852043865), recorded at `2026-09-27T01:51:40Z` (health response at `2026-09-27T01:51:46Z`). This is earlier evidence, not the final pre-window check.
 - Fresh read-only candidate check immediately before the approved window: **PENDING**.
 - Frontend URL: not required for the current direct-API-only scope; adding frontend testing requires revised scope and approval.
@@ -102,7 +97,7 @@ After evidence is verified, revoke temporary sessions and remove scanner artifac
 - UTC approval timestamp: `2026-09-26T02:23:25Z` (GitHub comment creation timestamp)
 - Approved window: `2026-09-27T14:00:00Z` to `2026-09-27T14:30:00Z` (September 27, 2026, 10:00–10:30 PM PHT/SGT, UTC+8)
 - Private account-to-credential mapping independently verified by Webskill Design at `2026-09-27T00:39:24Z`; private details remain in the restricted record (see [Issue #128 confirmation](https://github.com/geezlesocial/scrolith/issues/128#issuecomment-5851352333)).
-- Exact candidate revision, direct API URL, image digest, 0% traffic, and health details are retained in the restricted private record. The earlier check is recorded at `2026-09-27T01:51:40Z`; final pre-window verification is **PENDING**.
+- Exact candidate revision, direct API URL, image digest, 0% traffic, and health details must remain in the restricted private record and are not reproduced here. The earlier check is recorded at `2026-09-27T01:51:40Z`; final pre-window verification is **PENDING**.
 - Corrected provenance: trusted-main workflow [#36229461393](https://github.com/geezlesocial/scrolith/actions/runs/36229461393) succeeded; the immutable artifact contains the digest-bound SBOM and verified attestation.
 - Monitoring owner Jamila Jibrin — Supervisor, and emergency-stop contact Iqra Jibrin — Project Manager, confirmed (see [Issue #128 confirmation](https://github.com/geezlesocial/scrolith/issues/128#issuecomment-5851243832)). Private contact methods remain in the restricted record.
 
