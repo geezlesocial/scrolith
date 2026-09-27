@@ -1,5 +1,20 @@
 const normalizeBase = (value: string) => value.replace(/\/+$/, '');
 const ensureApiSuffix = (value: string) => (value.endsWith('/api') ? value : `${value}/api`);
+export type ApiBaseEnvironment = {
+  VITE_API_URL?: string;
+  VITE_API_BASE_URL?: string;
+  VITE_BACKEND_URL?: string;
+};
+
+export const resolveConfiguredApiBase = ({
+  VITE_API_URL,
+  VITE_API_BASE_URL,
+  VITE_BACKEND_URL,
+}: ApiBaseEnvironment) => {
+  const configuredBase = VITE_API_URL || VITE_API_BASE_URL || VITE_BACKEND_URL || '';
+  return configuredBase ? ensureApiSuffix(normalizeBase(String(configuredBase))) : '';
+};
+
 const parseBool = (value: unknown, fallback = false) => {
   if (value === undefined || value === null) return fallback;
   const normalized = String(value).trim().toLowerCase();
@@ -157,12 +172,13 @@ const resolveNativeProdFallbackBase = () => {
 };
 
 const resolveEnvBase = () => {
-  const envBase =
-    vite.VITE_API_URL ||
-    vite.VITE_API_BASE_URL ||
-    (vite.VITE_BACKEND_URL ? normalizeBase(String(vite.VITE_BACKEND_URL)) : '');
+  const envBase = resolveConfiguredApiBase({
+    VITE_API_URL: vite.VITE_API_URL,
+    VITE_API_BASE_URL: vite.VITE_API_BASE_URL,
+    VITE_BACKEND_URL: vite.VITE_BACKEND_URL,
+  });
   if (!envBase) return '';
-  const normalized = ensureApiSuffix(String(envBase));
+  const normalized = envBase;
   const host = parseHost(normalized);
   if (vite.PROD && isReservedPlaceholderHost(host)) {
     return resolveNativeProdFallbackBase();
