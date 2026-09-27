@@ -7,9 +7,16 @@ import { renderStagingNginxConfig, validateStagingApiOrigin } from '../../script
 
 const sampleOrigin = 'https://candidate--revision.test.azurecontainerapps.io';
 const template = readFileSync(resolve(process.cwd(), 'nginx.staging.conf.template'), 'utf8');
+const stagingDockerfile = readFileSync(resolve(process.cwd(), 'Dockerfile.staging'), 'utf8');
+const productionDockerfile = readFileSync(resolve(process.cwd(), 'Dockerfile'), 'utf8');
+const productionNginx = readFileSync(resolve(process.cwd(), 'nginx.conf'), 'utf8');
 
 test('staging backend-origin configuration receives one /api suffix', () => {
   assert.equal(resolveConfiguredApiBase({ VITE_BACKEND_URL: sampleOrigin }), sampleOrigin + '/api');
+  assert.equal(
+    `${resolveConfiguredApiBase({ VITE_BACKEND_URL: sampleOrigin })}/auth/login`,
+    sampleOrigin + '/api/auth/login'
+  );
 });
 
 test('configured API URLs preserve one /api suffix and normalize trailing slashes', () => {
@@ -38,4 +45,48 @@ test('staging CSP renders only the exact revision origin in connect-src', () => 
   assert.equal(rendered.includes('__SCROLITH_STAGING_API_ORIGIN__'), false);
   assert.equal(directives[0].includes('*'), false);
   assert.equal(directives[0].includes('wss:'), false);
+});
+
+test('staging SPA fallback and static assets have deliberate cache and path behavior', () => {
+  const staticStart = template.indexOf('location ~*');
+  const spaStart = template.indexOf('location / {');
+  const staticEnd = template.indexOf('\n  }', staticStart);
+  const spaEnd = template.indexOf('\n  }', spaStart);
+  const staticAssets = staticStart >= 0 && staticEnd > staticStart ? template.slice(staticStart, staticEnd) : '';
+  const spa = spaStart >= 0 && spaEnd > spaStart ? template.slice(spaStart, spaEnd) : '';
+
+  assert.ok(staticAssets, 'static asset location exists');
+  assert.ok(spa, 'SPA location exists');
+  assert.ok(
+    staticAssets.includes('location ~* \\.(js|css|png|jpg|jpeg|gif|svg|ico|webp|avif|woff|woff2|ttf|otf)$'),
+    'built JavaScript, stylesheets, images, icons, and fonts use the static location'
+  );
+  assert.match(staticAssets, /expires 365d;/);
+  assert.match(staticAssets, /Cache-Control "public, max-age=31536000, immutable"/);
+  assert.match(staticAssets, /try_files \$uri =404;/);
+  assert.match(spa, /Cache-Control "no-cache"/);
+  assert.match(spa, /try_files \$uri \$uri\/ \/index\.html;/);
+});
+
+test('staging response headers are present in each location block', () => {
+  const locations = [...template.matchAll(/location[^{}]*\{([\s\S]*?)\n  \}/g)].map((match) => match[1]);
+  assert.equal(locations.length, 2);
+
+  for (const location of locations) {
+    assert.match(location, /add_header Content-Security-Policy/);
+    assert.match(location, /add_header X-Content-Type-Options/);
+    assert.match(location, /add_header X-Frame-Options/);
+    assert.match(location, /add_header Referrer-Policy/);
+    assert.match(location, /add_header Permissions-Policy/);
+    assert.match(location, /add_header Cross-Origin-Opener-Policy/);
+  }
+});
+
+test('staging image serves built assets with isolated Nginx configuration', () => {
+  assert.match(stagingDockerfile, /FROM nginx:1\.27-alpine AS runtime/);
+  assert.match(stagingDockerfile, /COPY --from=build \/tmp\/default\.conf \/etc\/nginx\/conf\.d\/default\.conf/);
+  assert.match(stagingDockerfile, /COPY --from=build \/app\/dist \/usr\/share\/nginx\/html/);
+  assert.match(productionDockerfile, /COPY nginx\.conf \/etc\/nginx\/conf\.d\/default\.conf/);
+  assert.doesNotMatch(productionDockerfile, /nginx\.staging\.conf\.template/);
+  assert.doesNotMatch(productionNginx, /__SCROLITH_STAGING_API_ORIGIN__|connect-src/);
 });
