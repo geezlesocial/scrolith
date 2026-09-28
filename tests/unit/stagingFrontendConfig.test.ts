@@ -6,6 +6,7 @@ import { resolveConfiguredApiBase } from '../../src/utils/apiBase';
 import { renderStagingNginxConfig, validateStagingApiOrigin } from '../../scripts/stagingFrontendConfig.mjs';
 
 const sampleOrigin = 'https://candidate--revision.test.azurecontainerapps.io';
+const selectedCandidateOrigin = 'https://ca-scrolith-staging-api--g1-9ee3af8-20260926.yellowmushroom-b8714740.southeastasia.azurecontainerapps.io';
 const template = readFileSync(resolve(process.cwd(), 'nginx.staging.conf.template'), 'utf8');
 const stagingDockerfile = readFileSync(resolve(process.cwd(), 'Dockerfile.staging'), 'utf8');
 const productionDockerfile = readFileSync(resolve(process.cwd(), 'Dockerfile'), 'utf8');
@@ -64,6 +65,20 @@ test('staging build keeps the configured API origin aligned across CSP and API r
   assert.equal(`${apiBase}/homepage/guest`, `${sampleOrigin}/api/homepage/guest`);
   assert.equal(`${apiBase}/cms/platform-settings`, `${sampleOrigin}/api/cms/platform-settings`);
   assert.deepEqual(connectSources, [`'self' ${sampleOrigin}`]);
+});
+
+test('selected G1 staging candidate uses one /api prefix and the same exact CSP origin', () => {
+  const apiBase = resolveConfiguredApiBase({
+    VITE_API_URL: `${selectedCandidateOrigin}/api`,
+    VITE_BACKEND_URL: selectedCandidateOrigin,
+  });
+  const rendered = renderStagingNginxConfig(template, selectedCandidateOrigin);
+  const connectSources = [...rendered.matchAll(/connect-src\s+([^;]+);/g)].map((match) => match[1].trim());
+
+  assert.equal(apiBase, `${selectedCandidateOrigin}/api`);
+  assert.equal(`${apiBase}/homepage/guest`, `${selectedCandidateOrigin}/api/homepage/guest`);
+  assert.deepEqual(connectSources, [`'self' ${selectedCandidateOrigin}`]);
+  assert.equal(connectSources[0].includes('*'), false);
 });
 
 test('staging SPA fallback and static assets have deliberate cache and path behavior', () => {
