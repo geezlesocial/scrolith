@@ -19,7 +19,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected_sha256='df78b9e1da46489d951e4fab69b0e4b2a2dc0f2155ca79cae0a729e51bc81c88'
+          expected_sha256='fe5cc55324c1c9fcf38f7367e8b2c52b62e6460f9b0e7d86d5e960863208b1ca'
 
           if [[ -z "${CANDIDATE_ORIGIN:-}" ]]; then
             echo 'FAIL'
