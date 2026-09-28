@@ -2,6 +2,7 @@ import React from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Sparkles, X } from "lucide-react";
 import AuthSocialButtons from "../../auth/AuthSocialButtons";
+import ScrolithHumanVerification from "../human-verification/ScrolithHumanVerification";
 import { useContent } from "../../context/ContentContext";
 import { useUser } from "../../context/UserContext";
 import { CMSService } from "../../services/cms";
@@ -106,13 +107,29 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
   const [signupLoading, setSignupLoading] = React.useState(false);
   const [loginError, setLoginError] = React.useState("");
   const [signupErrors, setSignupErrors] = React.useState<Record<string, string>>({});
+  const [loginHvToken, setLoginHvToken] = React.useState<string | null>(null);
+  const [loginHvRequired, setLoginHvRequired] = React.useState(true);
+  const [signupHvToken, setSignupHvToken] = React.useState<string | null>(null);
+  const [signupHvRequired, setSignupHvRequired] = React.useState(true);
   const embeddedModalSurface = hideStandaloneLinks;
   const formSpacingClass = embeddedModalSurface ? "space-y-3" : "space-y-4";
   const inputPaddingClass = embeddedModalSurface && !compactSurface ? "py-2.5" : "py-3";
 
   React.useEffect(() => {
     setActiveTab(normalizeGuestAuthTab(defaultTab || content?.defaultTab));
+    setLoginHvToken(null);
+    setLoginHvRequired(true);
+    setSignupHvToken(null);
+    setSignupHvRequired(true);
   }, [content?.defaultTab, defaultTab]);
+
+  const selectAuthTab = (tab: "login" | "signup") => {
+    setLoginHvToken(null);
+    setLoginHvRequired(true);
+    setSignupHvToken(null);
+    setSignupHvRequired(true);
+    setActiveTab(tab);
+  };
 
   React.useEffect(() => {
     let mounted = true;
@@ -159,9 +176,15 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
   const handleLoginSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setLoginError("");
+    if (loginHvRequired && !loginHvToken) {
+      setLoginError("Please complete human verification to continue.");
+      return;
+    }
     setLoginLoading(true);
     try {
-      const ok = await login(loginForm.email.trim(), loginForm.password);
+      const ok = await login(loginForm.email.trim(), loginForm.password, {
+        humanVerificationToken: loginHvToken || undefined
+      });
       if (!ok) setLoginError("Invalid credentials. Please try again.");
     } catch (error: any) {
       setLoginError(error?.message || "Unable to sign in.");
@@ -173,6 +196,10 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
   const handleSignupSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!validateSignup()) return;
+    if (signupHvRequired && !signupHvToken) {
+      setSignupErrors((prev) => ({ ...prev, submit: "Please complete human verification to continue." }));
+      return;
+    }
     setSignupLoading(true);
     setSignupErrors((prev) => ({ ...prev, submit: "" }));
     try {
@@ -198,7 +225,14 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
       }
 
       const fullName = `${signupForm.firstName.trim()} ${signupForm.lastName.trim()}`.trim();
-      const ok = await register(signupForm.email.trim(), fullName, signupForm.password, signupRole, recaptchaToken);
+      const ok = await register(
+        signupForm.email.trim(),
+        fullName,
+        signupForm.password,
+        signupRole,
+        recaptchaToken,
+        signupHvToken
+      );
       if (!ok) {
         setSignupErrors((prev) => ({ ...prev, submit: "Unable to create account right now." }));
         return;
@@ -229,7 +263,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
       <div className={`${embeddedModalSurface ? "mb-3" : "mb-4"} flex min-w-0 rounded-full border border-slate-200 bg-slate-50 p-1`}>
         <button
           type="button"
-          onClick={() => setActiveTab("login")}
+          onClick={() => selectAuthTab("login")}
           className={`min-w-0 flex-1 rounded-full px-3 py-2.5 text-sm font-semibold transition ${
             activeTab === "login" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
           }`}
@@ -238,7 +272,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab("signup")}
+          onClick={() => selectAuthTab("signup")}
           className={`min-w-0 flex-1 rounded-full px-3 py-2.5 text-sm font-semibold transition ${
             activeTab === "signup" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
           }`}
@@ -284,7 +318,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
           <div className="flex flex-col gap-2 text-xs sm:flex-row sm:items-center sm:justify-between">
             <button
               type="button"
-              onClick={() => setActiveTab("signup")}
+              onClick={() => selectAuthTab("signup")}
               className="text-left font-semibold text-blue-700 hover:text-blue-800"
             >
               New here? Create account
@@ -293,10 +327,17 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
               Forgot password?
             </Link>
           </div>
+          <ScrolithHumanVerification
+            endpoint="login"
+            onVerified={setLoginHvToken}
+            onRequiredChange={setLoginHvRequired}
+            onError={setLoginError}
+            className={embeddedModalSurface ? "p-3 shadow-none" : ""}
+          />
           <div className={embeddedModalSurface ? "pt-1" : ""}>
             <button
               type="submit"
-              disabled={loginLoading}
+              disabled={loginLoading || (loginHvRequired && !loginHvToken)}
               className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loginLoading ? "Signing in..." : content?.loginCtaLabel || "Login"}
@@ -434,10 +475,17 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
             </span>
           </label>
           {signupErrors.terms ? <p className="mt-1 text-xs text-red-600">{signupErrors.terms}</p> : null}
+          <ScrolithHumanVerification
+            endpoint="signup"
+            onVerified={setSignupHvToken}
+            onRequiredChange={setSignupHvRequired}
+            onError={(message) => setSignupErrors((prev) => ({ ...prev, submit: message }))}
+            className={embeddedModalSurface ? "p-3 shadow-none" : ""}
+          />
           <div className="flex flex-col gap-2 text-xs sm:flex-row sm:items-center sm:justify-between">
             <button
               type="button"
-              onClick={() => setActiveTab("login")}
+              onClick={() => selectAuthTab("login")}
               className="text-left font-semibold text-blue-700 hover:text-blue-800"
             >
               Already have an account?
@@ -451,7 +499,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
           <div className={embeddedModalSurface ? "pt-1" : ""}>
             <button
               type="submit"
-              disabled={signupLoading}
+              disabled={signupLoading || (signupHvRequired && !signupHvToken)}
               className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {signupLoading ? "Creating account..." : content?.signupCtaLabel || "Sign up"}
