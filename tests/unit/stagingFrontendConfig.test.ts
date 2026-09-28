@@ -6,7 +6,7 @@ import { resolveConfiguredApiBase } from '../../src/utils/apiBase';
 import { renderStagingNginxConfig, validateStagingApiOrigin } from '../../scripts/stagingFrontendConfig.mjs';
 
 const sampleOrigin = 'https://candidate--revision.test.azurecontainerapps.io';
-const selectedCandidateOrigin = 'https://ca-scrolith-staging-api--0000008.yellowmushroom-b8714740.southeastasia.azurecontainerapps.io';
+const selectedCandidateOrigin = 'https://ca-scrolith-staging-api---g1-candidate.yellowmushroom-b8714740.southeastasia.azurecontainerapps.io';
 const template = readFileSync(resolve(process.cwd(), 'nginx.staging.conf.template'), 'utf8');
 const stagingDockerfile = readFileSync(resolve(process.cwd(), 'Dockerfile.staging'), 'utf8');
 const productionDockerfile = readFileSync(resolve(process.cwd(), 'Dockerfile'), 'utf8');
@@ -35,6 +35,7 @@ test('VITE_API_URL remains the preferred API-base setting', () => {
 test('staging origin validation rejects non-HTTPS, app-level, and path-bearing URLs', () => {
   assert.throws(() => validateStagingApiOrigin('http://candidate--revision.test.azurecontainerapps.io'));
   assert.throws(() => validateStagingApiOrigin('https://candidate.test.azurecontainerapps.io'));
+  assert.throws(() => validateStagingApiOrigin('https://ca-scrolith-staging-api.yellowmushroom-b8714740.southeastasia.azurecontainerapps.io'));
   assert.throws(() => validateStagingApiOrigin(sampleOrigin + '/api'));
 });
 
@@ -68,6 +69,7 @@ test('staging build keeps the configured API origin aligned across CSP and API r
 });
 
 test('selected G1 staging candidate uses one /api prefix and the same exact CSP origin', () => {
+  assert.equal(validateStagingApiOrigin(selectedCandidateOrigin), selectedCandidateOrigin);
   const apiBase = resolveConfiguredApiBase({
     VITE_API_URL: `${selectedCandidateOrigin}/api`,
     VITE_BACKEND_URL: selectedCandidateOrigin,
