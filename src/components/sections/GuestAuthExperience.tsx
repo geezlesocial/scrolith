@@ -976,7 +976,6 @@ export const GuestAuthModal: React.FC<GuestAuthModalProps> = ({ open, onClose, c
             title={popup.headline || content?.authPanelTitle || "Welcome to Scrolith"}
             subtitle={popup.subheadline || content?.authPanelSubtitle}
             footerNote={popup.trustNote}
-            hideStandaloneLinks
             surfaceClassName={
               compactSurface
                 ? "rounded-[22px] border border-slate-200 bg-white p-3 shadow-sm sm:rounded-[28px] sm:p-4"
