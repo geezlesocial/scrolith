@@ -6,7 +6,7 @@ import { resolveConfiguredApiBase } from '../../src/utils/apiBase';
 import { renderStagingNginxConfig, validateStagingApiOrigin } from '../../scripts/stagingFrontendConfig.mjs';
 
 const sampleOrigin = 'https://candidate--revision.test.azurecontainerapps.io';
-const selectedCandidateOrigin = 'https://ca-scrolith-staging-api--0000007.yellowmushroom-b8714740.southeastasia.azurecontainerapps.io';
+const selectedCandidateOrigin = 'https://ca-scrolith-staging-api--0000008.yellowmushroom-b8714740.southeastasia.azurecontainerapps.io';
 const template = readFileSync(resolve(process.cwd(), 'nginx.staging.conf.template'), 'utf8');
 const stagingDockerfile = readFileSync(resolve(process.cwd(), 'Dockerfile.staging'), 'utf8');
 const productionDockerfile = readFileSync(resolve(process.cwd(), 'Dockerfile'), 'utf8');
