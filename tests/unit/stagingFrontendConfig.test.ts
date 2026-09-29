@@ -39,11 +39,11 @@ test('staging origin validation rejects non-HTTPS, app-level, and path-bearing U
   assert.throws(() => validateStagingApiOrigin(sampleOrigin + '/api'));
 });
 
-test('staging CSP renders only the exact revision origin in connect-src', () => {
+test('staging CSP allows only the exact revision API and required OSM tile origins in connect-src', () => {
   const rendered = renderStagingNginxConfig(template, sampleOrigin);
   const directives = [...rendered.matchAll(/connect-src\s+([^;]+);/g)].map((match) => match[1].trim());
 
-  assert.deepEqual(directives, ["'self' " + sampleOrigin]);
+  assert.deepEqual(directives, ["'self' " + sampleOrigin + ' https://tile.openstreetmap.org']);
   assert.equal(rendered.includes('__SCROLITH_STAGING_API_ORIGIN__'), false);
   assert.equal(directives[0].includes('*'), false);
   assert.equal(directives[0].includes('wss:'), false);
@@ -65,7 +65,7 @@ test('staging build keeps the configured API origin aligned across CSP and API r
   assert.equal(apiBase, `${sampleOrigin}/api`);
   assert.equal(`${apiBase}/homepage/guest`, `${sampleOrigin}/api/homepage/guest`);
   assert.equal(`${apiBase}/cms/platform-settings`, `${sampleOrigin}/api/cms/platform-settings`);
-  assert.deepEqual(connectSources, [`'self' ${sampleOrigin}`]);
+  assert.deepEqual(connectSources, [`'self' ${sampleOrigin} https://tile.openstreetmap.org`]);
 });
 
 test('selected G1 staging candidate uses one /api prefix and the same exact CSP origin', () => {
@@ -79,8 +79,10 @@ test('selected G1 staging candidate uses one /api prefix and the same exact CSP 
 
   assert.equal(apiBase, `${selectedCandidateOrigin}/api`);
   assert.equal(`${apiBase}/homepage/guest`, `${selectedCandidateOrigin}/api/homepage/guest`);
-  assert.deepEqual(connectSources, [`'self' ${selectedCandidateOrigin}`]);
+  assert.deepEqual(connectSources, [`'self' ${selectedCandidateOrigin} https://tile.openstreetmap.org`]);
   assert.equal(connectSources[0].includes('*'), false);
+  assert.equal(connectSources[0].includes('https://tile.openstreetmap.org'), true);
+  assert.doesNotMatch(connectSources[0], /https?:\/\/[^\s]+\*/);
 });
 
 test('staging SPA fallback and static assets have deliberate cache and path behavior', () => {
