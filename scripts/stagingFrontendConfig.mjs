@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const templatePath = resolve(scriptDirectory, '../nginx.staging.conf.template');
 const ORIGIN_PLACEHOLDER = '__SCROLITH_STAGING_API_ORIGIN__';
+const WEBSOCKET_ORIGIN_PLACEHOLDER = '__SCROLITH_STAGING_API_WEBSOCKET_ORIGIN__';
 const MAP_TILE_ORIGIN = 'https://tile.openstreetmap.org';
 
 export function validateStagingApiOrigin(value) {
@@ -38,21 +39,34 @@ export function validateStagingApiOrigin(value) {
 
 export function renderStagingNginxConfig(template, apiOrigin) {
   const validatedOrigin = validateStagingApiOrigin(apiOrigin);
-  const placeholders = template.split(ORIGIN_PLACEHOLDER).length - 1;
-  if (placeholders !== 1) {
-    throw new Error('Staging Nginx template must contain exactly one API-origin placeholder.');
+  const apiPlaceholders = template.split(ORIGIN_PLACEHOLDER).length - 1;
+  const websocketPlaceholders = template.split(WEBSOCKET_ORIGIN_PLACEHOLDER).length - 1;
+  if (apiPlaceholders !== 1 || websocketPlaceholders !== 1) {
+    throw new Error('Staging Nginx template must contain exactly one API and WebSocket origin placeholder.');
   }
 
-  const rendered = template.replace(ORIGIN_PLACEHOLDER, validatedOrigin);
+  const websocketUrl = new URL(validatedOrigin);
+  websocketUrl.protocol = 'wss:';
+  const websocketOrigin = websocketUrl.origin;
+  const rendered = template
+    .replace(ORIGIN_PLACEHOLDER, validatedOrigin)
+    .replace(WEBSOCKET_ORIGIN_PLACEHOLDER, websocketOrigin);
+  validateStagingConnectSources(rendered, validatedOrigin);
+  return rendered;
+}
+
+export function validateStagingConnectSources(rendered, apiOrigin) {
+  const validatedOrigin = validateStagingApiOrigin(apiOrigin);
+  const websocketUrl = new URL(validatedOrigin);
+  websocketUrl.protocol = 'wss:';
+  const websocketOrigin = websocketUrl.origin;
   const connectSources = [...rendered.matchAll(/connect-src\s+([^;]+);/g)].map((match) => match[1].trim());
-  const expectedConnectSources = `'self' ${validatedOrigin} ${MAP_TILE_ORIGIN}`;
+  const expectedConnectSources = `'self' ${validatedOrigin} ${websocketOrigin} ${MAP_TILE_ORIGIN}`;
   if (connectSources.length !== 1 || connectSources[0] !== expectedConnectSources) {
     throw new Error(
-      'Staging connect-src must allow only self, the configured API origin, and the required map tile origin.'
+      'Staging connect-src must allow only self, the configured API/WebSocket origins, and the required map tile origin.'
     );
   }
-
-  return rendered;
 }
 
 export function writeStagingNginxConfig(outputPath, apiOrigin) {
