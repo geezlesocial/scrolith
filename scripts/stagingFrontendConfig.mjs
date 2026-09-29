@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const templatePath = resolve(scriptDirectory, '../nginx.staging.conf.template');
 const ORIGIN_PLACEHOLDER = '__SCROLITH_STAGING_API_ORIGIN__';
+const MAP_TILE_ORIGIN = 'https://tile.openstreetmap.org';
 
 export function validateStagingApiOrigin(value) {
   if (typeof value !== 'string' || !value || value.trim() !== value) {
@@ -44,8 +45,11 @@ export function renderStagingNginxConfig(template, apiOrigin) {
 
   const rendered = template.replace(ORIGIN_PLACEHOLDER, validatedOrigin);
   const connectSources = [...rendered.matchAll(/connect-src\s+([^;]+);/g)].map((match) => match[1].trim());
-  if (connectSources.length !== 1 || connectSources[0] !== "'self' " + validatedOrigin) {
-    throw new Error('Staging connect-src must allow only self and the configured API origin.');
+  const expectedConnectSources = `'self' ${validatedOrigin} ${MAP_TILE_ORIGIN}`;
+  if (connectSources.length !== 1 || connectSources[0] !== expectedConnectSources) {
+    throw new Error(
+      'Staging connect-src must allow only self, the configured API origin, and the required map tile origin.'
+    );
   }
 
   return rendered;
