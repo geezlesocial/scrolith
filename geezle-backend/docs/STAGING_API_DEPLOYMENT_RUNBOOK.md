@@ -1,6 +1,6 @@
 # Scrolith Staging API Deployment Runbook
 
-**Status:** Proposed authoritative procedure pending merge to `backend/main`  
+**Status:** Authoritative — merged to `backend/main` via PR #145 on 1 October 2026
 **Scope:** Staging API only  
 **Target:** Azure Container Apps `ca-scrolith-staging-api` in `rg-scrolith-staging`  
 **Normal-traffic policy:** stable revision 100%; candidate revision 0%  
