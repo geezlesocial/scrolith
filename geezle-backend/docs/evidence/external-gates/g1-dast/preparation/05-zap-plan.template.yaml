@@ -1,0 +1,45 @@
+# TEMPLATE ONLY. NOT A RUNNABLE PLAN. DO NOT point at Scrolith staging.
+# PREPARATION ONLY — DOES NOT AUTHORIZE DAST.
+# Replace the .invalid placeholder only after a new written approval names the exact target.
+# This template deliberately has no jobs, spider, OpenAPI import, active scan, or credential values.
+
+env:
+  contexts:
+    - name: g1-role-placeholder
+      urls:
+        - https://REPLACE-WITH-OWNER-APPROVED-STAGING-API.invalid
+      # Explicit path allowlist must be generated only from handler-reviewed rows in
+      # 02-route-method-manifest.md. No approved scan paths exist at preparation time.
+      includePaths:
+        - '^https://REPLACE-WITH-OWNER-APPROVED-STAGING-API\.invalid/api/REQUIRES-APPROVED-PATH$'
+      excludePaths:
+        - '^https://REPLACE-WITH-OWNER-APPROVED-STAGING-API\.invalid/(?!api/REQUIRES-APPROVED-PATH$).*'
+        - '^https://REPLACE-WITH-OWNER-APPROVED-STAGING-API\.invalid/api/(auth/passkeys|.*remembered-profile)(/.*)?$'
+      authentication:
+        # Candidate design: manual auth-header auth only if a session was obtained
+        # through normal Scrolith login, Human Verification (if required), 2FA and
+        # trusted-device approval. The token must be injected by a reviewed ephemeral
+        # secret mechanism outside this committed plan, never stored in YAML/logs.
+        method: manual
+        parameters: {}
+        verification:
+          method: response
+          loggedInRegex: 'REPLACE-WITH-REVIEWED-SAFE-AUTHENTICATED-MARKER'
+          loggedOutRegex: 'REPLACE-WITH-REVIEWED-UNAUTHENTICATED-MARKER'
+      sessionManagement:
+        method: cookie
+      users:
+        - name: g1-role-placeholder
+          credentials:
+            username: ${G1_ROLE_USERNAME}
+            password: ${G1_ROLE_PASSWORD}
+  parameters:
+    failOnError: true
+    failOnWarning: false
+
+# Before any use, verify this exact schema against the pinned ZAP/add-on set and test
+# authentication only in an isolated non-Scrolith harness. ZAP manual auth uses the
+# configured authentication-header environment mechanism; Scrolith's normal login
+# can require Human Verification, 2FA and new-device approval. The credentials block
+# above is a placeholder only and is not a complete approval to automate those steps.
+# Separate ZAP process/context per role. No environment section may contain secrets.
