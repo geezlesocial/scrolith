@@ -5,6 +5,10 @@ import HumanVerificationService, {
   HumanVerificationEndpoint,
   HumanVerificationPublicSettings
 } from '../../services/humanVerification';
+import {
+  deliverHumanVerificationToken,
+  runHumanVerificationAutoLoad
+} from './autoLoadGate';
 
 export type ScrolithHumanVerificationProps = {
   endpoint: HumanVerificationEndpoint;
@@ -41,6 +45,7 @@ const ScrolithHumanVerification: React.FC<ScrolithHumanVerificationProps> = ({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const startedAtRef = useRef<number>(Date.now());
   const mountedRef = useRef(true);
+  const lastAutoLoadKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -99,9 +104,19 @@ const ScrolithHumanVerification: React.FC<ScrolithHumanVerificationProps> = ({
     }
   }, [disabled, endpoint, onError, onRequiredChange, onVerified]);
 
+  const loadChallengeRef = useRef(loadChallenge);
+
   useEffect(() => {
-    if (autoLoad) void loadChallenge();
-  }, [autoLoad, loadChallenge]);
+    loadChallengeRef.current = loadChallenge;
+  }, [loadChallenge]);
+
+  useEffect(() => {
+    runHumanVerificationAutoLoad(
+      lastAutoLoadKeyRef,
+      { autoLoad, disabled, endpoint },
+      () => void loadChallengeRef.current()
+    );
+  }, [autoLoad, disabled, endpoint]);
 
   const handleSelect = async (optionId: string, value: string) => {
     if (!challenge || verifying || verified || disabled) return;
@@ -138,7 +153,7 @@ const ScrolithHumanVerification: React.FC<ScrolithHumanVerificationProps> = ({
 
       setVerified(true);
       setError(null);
-      onVerified(result.verificationToken);
+      deliverHumanVerificationToken(result, onVerified);
     } catch (err: any) {
       const msg = err?.message || 'Verification failed.';
       setError(msg);
