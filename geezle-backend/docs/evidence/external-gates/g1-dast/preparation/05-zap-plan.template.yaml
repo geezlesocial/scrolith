@@ -1,45 +1,49 @@
 # TEMPLATE ONLY. NOT A RUNNABLE PLAN. DO NOT point at Scrolith staging.
 # PREPARATION ONLY — DOES NOT AUTHORIZE DAST.
-# Replace the .invalid placeholder only after a new written approval names the exact target.
-# This template deliberately has no jobs, spider, OpenAPI import, active scan, or credential values.
+# Replace the .invalid placeholder only after new written approval names the target.
+# No jobs, spider, OpenAPI import, active scan, or credentials are present.
 
 env:
   contexts:
-    - name: g1-role-placeholder
+    - name: g1-one-role-placeholder
       urls:
         - https://REPLACE-WITH-OWNER-APPROVED-STAGING-API.invalid
-      # Explicit path allowlist must be generated only from handler-reviewed rows in
-      # 02-route-method-manifest.md. No approved scan paths exist at preparation time.
+      # Exact paths only after the handler-reviewed manifest is approved.
       includePaths:
         - '^https://REPLACE-WITH-OWNER-APPROVED-STAGING-API\.invalid/api/REQUIRES-APPROVED-PATH$'
       excludePaths:
         - '^https://REPLACE-WITH-OWNER-APPROVED-STAGING-API\.invalid/(?!api/REQUIRES-APPROVED-PATH$).*'
         - '^https://REPLACE-WITH-OWNER-APPROVED-STAGING-API\.invalid/api/(auth/passkeys|.*remembered-profile)(/.*)?$'
       authentication:
-        # Candidate design: manual auth-header auth only if a session was obtained
-        # through normal Scrolith login, Human Verification (if required), 2FA and
-        # trusted-device approval. The token must be injected by a reviewed ephemeral
-        # secret mechanism outside this committed plan, never stored in YAML/logs.
+        # One ZAP process/context per authenticated role. Manual auth is only for a
+        # short-lived session obtained through the normal Scrolith login flow and
+        # any required Human Verification, MFA, and trusted-device approval.
+        # This does not re-authenticate. Expiry means STOP; never bypass a gate.
         method: manual
         parameters: {}
         verification:
           method: response
           loggedInRegex: 'REPLACE-WITH-REVIEWED-SAFE-AUTHENTICATED-MARKER'
           loggedOutRegex: 'REPLACE-WITH-REVIEWED-UNAUTHENTICATED-MARKER'
-      sessionManagement:
-        method: cookie
-      users:
-        - name: g1-role-placeholder
-          credentials:
-            username: ${G1_ROLE_USERNAME}
-            password: ${G1_ROLE_PASSWORD}
   parameters:
     failOnError: true
     failOnWarning: false
 
-# Before any use, verify this exact schema against the pinned ZAP/add-on set and test
-# authentication only in an isolated non-Scrolith harness. ZAP manual auth uses the
-# configured authentication-header environment mechanism; Scrolith's normal login
-# can require Human Verification, 2FA and new-device approval. The credentials block
-# above is a placeholder only and is not a complete approval to automate those steps.
-# Separate ZAP process/context per role. No environment section may contain secrets.
+# Manual bearer-header configuration, if approved and supported by the frozen
+# ZAP/add-on versions, is supplied only as system-level process environment outside
+# this file. Leave all values unset here:
+#   ZAP_AUTH_HEADER_VALUE  (ephemeral bearer value; never persist or log)
+#   ZAP_AUTH_HEADER        (normally the header name Authorization)
+#   ZAP_AUTH_HEADER_SITE   (anchored to the exact approved staging API HTTPS origin;
+#                           no wildcard, suffix match, or subdomain pattern)
+# Do not put token values in YAML, command arguments, artifacts, or logs. Do not put
+# username/password placeholders in a manual-header example. Do not translate a
+# cookie to a bearer token. If normal auth produces only a cookie, stop and obtain a
+# separate review of a cookie-session design; do not mix header and cookie models.
+# Do not claim this manual design automatically reauthenticates.
+# Do not add `sessionManagement: headers` unless the exact Authentication Helper
+# add-on/version is explicitly frozen and verified. Verify this YAML schema and
+# auth behavior against pinned ZAP/add-ons in an isolated non-Scrolith harness first.
+# Reference: https://www.zaproxy.org/docs/desktop/addons/automation-framework/authentication/
+# ZAP documents that these authentication-header environment variables must be
+# defined at system level (not in the AF env section) and recommends GUI validation.

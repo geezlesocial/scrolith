@@ -1,34 +1,38 @@
 # Proposed G1 rules of engagement and limits
 
-**PREPARATION ONLY — DOES NOT AUTHORIZE DAST.** The latest recorded candidate is historical evidence only: API revision `ca-scrolith-staging-api--cand-4fa003df-2130`, digest `sha256:9ee3af8d217ccd1c6bd23358c3c78019a63c640b0bd58b91659daad152564694`, `g1-candidate`; stable `ca-scrolith-staging-api--promote-addecb050`; recorded traffic stable 100%, candidate 0%. Fresh Azure verification is not performed or authorized here.
+**PREPARATION ONLY — DOES NOT AUTHORIZE DAST.** The candidate/revision details in this document are historical issue evidence, not a current Azure check. No target was contacted.
 
 ## Source inventory and scope math
 
-Against `backend/main` commit `c27caec1ef6ab71654fc3fc1d9bc6cd602c8ef2c`, a static parser over `geezle-backend/src/routes/**` found 1,591 route-call sites, of which 1,550 are single-line literal declarations; it leaves 41 declarations for manual expansion. The parsed declarations contain 1,217 distinct HTTP-method + router-local-path pairs across 141 route source files. Router prefixes in `src/server.ts`, nested mounts, direct `app.*` routes, runtime-conditional routes, dynamic path construction, and implicit middleware mean this is **not** a count of final externally reachable endpoints. The route manifest preserves source-local paths and mount prefixes so the owner can resolve them; it is not an authorization list.
+Against `backend/main` commit `c27caec1ef6ab71654fc3fc1d9bc6cd602c8ef2c`, a static parser over `geezle-backend/src/routes/**` found 1,591 route-call sites, of which 1,550 are single-line literal declarations; it leaves 41 declarations for manual expansion. The parsed declarations contain 1,217 distinct HTTP-method + router-local-path pairs across 141 route source files. Router prefixes in `src/server.ts`, nested mounts, direct `app.*` routes, runtime-conditional routes, dynamic path construction, and implicit middleware mean this is **not** a count of final externally reachable endpoints. The route manifest preserves source-local paths and mount prefixes; it is not an authorization list.
 
-Planning upper bound: 1,217 parsed method/path patterns × 7 contexts (guest plus six authenticated roles) = **8,519 context/pattern pairs** before role applicability, exclusions, parameter variants, authentication overhead, or scan payload multiplication. Therefore full coverage is not a one-window scan. No route has yet been cleared by handler-level review; the currently approved automated-ZAP and scripted-authorization budgets are both **0**.
+Planning upper bound: 1,217 parsed method/path patterns × 7 contexts (guest plus six authenticated roles) = **8,519 context/pattern pairs** before role applicability, exclusions, parameter variants, authentication overhead, or scan payload multiplication. This is not a full-G1 request estimate. No route is authorized by this document.
 
-## Conservative proposal for a later, owner-approved pilot
+## Proposed Phase 1 handler-reviewed pilot (owner approval still required)
 
-These are proposed caps, not approved limits. Select a small, handler-reviewed read-only subset first; do not use the entire census as a ZAP seed list.
+The separate pilot manifest in `02-route-method-manifest.md` reviews **5 distinct route/method pairs** across Guest and one ordinary Member context. It proposes seven scripted observations, a 50-request hard cap, and passive-only ZAP replay. These are planning values, not approved limits.
 
-| Limit | Proposed pilot cap | Basis |
+| Limit | Proposed Phase 1 cap | Basis |
 |---|---:|---|
-| Authenticated contexts active at once | 1 | Prevent cross-role token/session contamination. |
-| Scanner workers/concurrency | 1 | Serialize traffic and preserve attribution. |
-| Rate | 0.25 requests/second maximum | At most one request every four seconds; lower than the default scanner behavior. |
-| Maximum elapsed window | 60 minutes | Hard stop before owner-approved window end. |
-| Maximum total requests | 720 | 3,600 seconds × 0.25 requests/second; retries/auth/setup requests count against the same cap. |
-| ZAP request allocation | 480 | Three quarters of the total cap; only approved passive/low-impact checks in an exact allowlist. |
-| Scripted authorization checks | 120 | Explicit, paired positive/negative authorization cases on reviewed endpoints only. |
-| Authentication, health, verification and contingency reserve | 120 | Normal login/MFA/device approval, session verification, and at most one transport retry per request; all counted. |
-| Per-request timeout | 10 seconds | Governance default; stop on repeated timeouts or service impact. |
-| Retry | At most 1, transport failure only | Never retry 4xx/5xx, rate-limit, or application error responses. |
+| Active role contexts | 1 at a time | Separate Guest and Member processes/contexts; no identity crossover. |
+| Scanner workers | 1 | Serialize traffic and preserve attribution. |
+| Rate | 0.25 requests/second maximum | No more than one request every four seconds. |
+| Elapsed window | 60 minutes maximum | Independent hard stop. |
+| Total requests | **50** | Pilot-specific; every preflight, authentication, verification, scan, and retry request counts. |
+| Baseline route observations | 4 | Public reads, one approved-origin preflight, and authenticated own-session read. |
+| Negative authorization checks | 3 | Unauthenticated `/api/auth/me`; Member vs second synthetic user's settings; and a CORS negative-origin preflight only if staging's production-mode policy is privately confirmed. |
+| Normal authentication/verification overhead | Up to 16 | Normal login and any required HV/MFA/device approval plus session verification. Stop if exhausted. |
+| ZAP allowance | 20 | Passive-only replay of exact reviewed paths; no spider, active scan, or import/discovery job. |
+| Contingency | 7 | Setup variance and transport-only retry budget; stays within total cap. |
+| Per-request timeout | 10 seconds | Stop on repeated timeouts or service impact. |
+| Retry | At most 1, transport failure only | No retry for 4xx, 5xx, 429, or application errors. |
 
-720 requests can only touch 720 of 8,519 theoretical context/pattern pairs even once. This pilot cap is therefore for a single reviewed slice, not a full G1 pass. API/SRE must confirm actual safe rate and existing rate-limit headroom; if lower, use the lower value. Stop immediately on production-origin traffic, unexpected side effects, repeated 429/5xx, latency/health degradation, data exposure, wrong role, wrong image/revision, or any cap/window mismatch. No DoS, stress, broad crawl, brute force, fuzzing, or active scanning is authorized by this proposal.
+The mathematical timing envelope is **3,600 seconds × 0.25 requests/second = 900 requests**. The proposed **50-request hard cap** is intentionally much lower; the unused 850-request timing capacity is not an allowance. The elapsed-time, rate, and total-request caps are independent: reaching any one stops the test. Authentication overhead is a strict 16-request ceiling; if ordinary login, required Human Verification, MFA, device approval, or verification needs more, stop and obtain a revised approval. Do not bypass controls or automate reauthentication.
 
-## Handling and exclusions
+This pilot can assess only scanner/configuration correctness, allowlist behavior, normal-session handling, basic CORS/security-header observations, and a narrow authorization boundary. It cannot pass full G1. API/SRE must confirm a safe request rate and current limiter headroom; use a lower rate/cap if needed. Stop immediately on production-origin traffic, unexpected side effects, repeated 429/5xx, latency/health degradation, data exposure, wrong role, wrong image/revision, or any cap/window mismatch. No DoS, stress, broad crawl, brute force, fuzzing, or active scanning is proposed.
 
-Every mutation, upload, download, payment, Dashcoin Gift, webhook, email/notification, AI invocation, admin setting, deletion, restore, or real-time event stays `EXCLUDE` until an owner-reviewed synthetic fixture, bounded effect, and verified cleanup/rollback are documented. Never use customer data or real external integrations. Explicitly exclude production/edge, real payments, production webhooks, real KYC, private messages, destructive deletion without synthetic cleanup, restore, secret extraction, denial-of-service/load testing, DNS/SSL/IAM/billing changes, arbitrary admin configuration, passkeys, and remembered-profile persistence. See the per-pattern disposition in `02-route-method-manifest.md`.
+## Exclusions and decision gates
 
-Owner decision required before authorization: choose scope slice, role(s), exact method/path allowlist, request budgets, synthetic fixtures and cleanup, findings severity/stop rules, operator, independent verifier, monitor, emergency stop, target identity, UTC window, and evidence destination. Past approvals do not carry forward.
+Payments, Dashcoin Gifts, marketplace/order mutations, uploads, webhooks, AI mutation/invocation flows, WebSocket mutation/event testing, moderator/admin writes, deletion, KYC, real email/notifications, passkeys, remembered-device/profile persistence, destructive operations, and production remain excluded. Every other route remains held until its handler, authorization, side effects, rate limiting, fixture, cleanup, and test method are reviewed.
+
+Owner decision required before any authorization: exact target and revision/digest, role(s), route/method allowlist, request budgets, synthetic fixtures and cleanup, findings severity/stop rules, operator, independent verifier, monitor, emergency stop, evidence destination, and UTC window. Past approvals do not carry forward. Preparation is not authorization.
