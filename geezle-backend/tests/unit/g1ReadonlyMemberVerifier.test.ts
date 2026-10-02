@@ -7,6 +7,7 @@ import {
 } from '../../scripts/g1-readonly-member-verifier';
 
 const selectors = { memberA: 'member-a.private@example.test', memberB: 'member-b.private@example.test' };
+const sanitizedOutput = 'G1 synthetic Member verification completed; account-level results withheld.';
 const user = (id: string, role = 'USER', isActive = true): UserProjection => ({ id, role, isActive });
 const lookup = (records: UserProjection[]): jest.MockedFunction<FindUsers> =>
   jest.fn(async (_query: ReadonlyUserLookup) => records);
@@ -102,26 +103,21 @@ describe('G1 read-only member verifier', () => {
     });
   });
 
-  it('does not render selectors or internal IDs in PASS output', async () => {
+  it('renders the same fixed output for a passing result without account details', async () => {
     const findUsers = jest.fn<ReturnType<FindUsers>, Parameters<FindUsers>>()
       .mockResolvedValueOnce([user('must-not-appear-a')])
       .mockResolvedValueOnce([user('must-not-appear-b')]);
     const rendered = renderSanitizedOutput(await verifyMembers(selectors, findUsers));
 
-    expect(rendered).toBe([
-      'Member A role USER: PASS',
-      'Member A active: PASS',
-      'Member B role USER: PASS',
-      'Member B active: PASS',
-    ].join('\n'));
-    expect(rendered.split('\n')).toHaveLength(4);
-    expect(rendered).not.toMatch(/exists:/i);
+    expect(rendered).toBe(sanitizedOutput);
+    expect(rendered.split('\n')).toHaveLength(1);
     for (const privateValue of [...Object.values(selectors), 'must-not-appear-a', 'must-not-appear-b']) {
       expect(rendered).not.toContain(privateValue);
     }
+    expect(rendered).not.toMatch(/PASS|FAIL|exists:|email|database|environment/i);
   });
 
-  it('does not render selectors or internal IDs in FAIL output', async () => {
+  it('renders the identical fixed output for a failed result without account details', async () => {
     const findUsers = jest.fn<ReturnType<FindUsers>, Parameters<FindUsers>>()
       .mockResolvedValueOnce([user('private-internal-id-a', 'ADMIN')])
       .mockResolvedValueOnce([user('private-internal-id-b')]);
@@ -129,34 +125,43 @@ describe('G1 read-only member verifier', () => {
     const rendered = renderSanitizedOutput(result);
 
     expect(result.passed).toBe(false);
-    expect(rendered).toBe([
-      'Member A role USER: FAIL',
-      'Member A active: PASS',
-      'Member B role USER: PASS',
-      'Member B active: PASS',
-    ].join('\n'));
-    expect(rendered.split('\n')).toHaveLength(4);
-    expect(rendered).not.toMatch(/exists:/i);
+    expect(rendered).toBe(sanitizedOutput);
+    expect(rendered.split('\n')).toHaveLength(1);
     for (const privateValue of [...Object.values(selectors), 'private-internal-id-a', 'private-internal-id-b']) {
       expect(rendered).not.toContain(privateValue);
     }
+    expect(rendered).not.toMatch(/PASS|FAIL|exists:|email|database|environment/i);
   });
 
-  it('turns a rejected read into only sanitized FAIL output', async () => {
+  it('renders identical output for missing and ambiguous selector matches', async () => {
+    const missing = jest.fn<ReturnType<FindUsers>, Parameters<FindUsers>>()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([user('internal-b')]);
+    const missingResult = await verifyMembers(selectors, missing);
+    expect(missingResult.memberA.exists).toBe(false);
+    expect(missingResult.passed).toBe(false);
+
+    const ambiguous = jest.fn<ReturnType<FindUsers>, Parameters<FindUsers>>()
+      .mockResolvedValueOnce([user('internal-a1'), user('internal-a2')])
+      .mockResolvedValueOnce([user('internal-b')]);
+    const ambiguousResult = await verifyMembers(selectors, ambiguous);
+    expect(ambiguousResult.memberA.exists).toBe(false);
+    expect(ambiguousResult.passed).toBe(false);
+
+    expect(renderSanitizedOutput(missingResult)).toBe(sanitizedOutput);
+    expect(renderSanitizedOutput(ambiguousResult)).toBe(sanitizedOutput);
+    expect(renderSanitizedOutput(missingResult)).toBe(renderSanitizedOutput(ambiguousResult));
+  });
+
+  it('turns a rejected read into the same fixed non-identifying output', async () => {
     const privateErrorMessage = 'sensitive database detail must never be shown';
     const findUsers = jest.fn<ReturnType<FindUsers>, Parameters<FindUsers>>()
       .mockRejectedValue(new Error(privateErrorMessage));
     const result = await verifyMembers(selectors, findUsers);
     const rendered = renderSanitizedOutput(result);
 
-    expect(rendered).toBe([
-      'Member A role USER: FAIL',
-      'Member A active: FAIL',
-      'Member B role USER: FAIL',
-      'Member B active: FAIL',
-    ].join('\n'));
-    expect(rendered.split('\n')).toHaveLength(4);
-    expect(rendered).not.toMatch(/exists:/i);
+    expect(rendered).toBe(sanitizedOutput);
+    expect(rendered.split('\n')).toHaveLength(1);
     for (const privateValue of [...Object.values(selectors), privateErrorMessage]) {
       expect(rendered).not.toContain(privateValue);
     }
