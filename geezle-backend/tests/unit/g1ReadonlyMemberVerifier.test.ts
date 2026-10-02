@@ -6,7 +6,7 @@ import {
   verifyMembers,
 } from '../../scripts/g1-readonly-member-verifier';
 
-const selectors = { memberA: 'private-selector-a', memberB: 'private-selector-b' };
+const selectors = { memberA: 'member-a.private@example.test', memberB: 'member-b.private@example.test' };
 const user = (id: string, role = 'USER', isActive = true): UserProjection => ({ id, role, isActive });
 const lookup = (records: UserProjection[]): jest.MockedFunction<FindUsers> =>
   jest.fn(async (_query: ReadonlyUserLookup) => records);
@@ -109,13 +109,13 @@ describe('G1 read-only member verifier', () => {
     const rendered = renderSanitizedOutput(await verifyMembers(selectors, findUsers));
 
     expect(rendered).toBe([
-      'Member A exists: PASS',
       'Member A role USER: PASS',
       'Member A active: PASS',
-      'Member B exists: PASS',
       'Member B role USER: PASS',
       'Member B active: PASS',
     ].join('\n'));
+    expect(rendered.split('\n')).toHaveLength(4);
+    expect(rendered).not.toMatch(/exists:/i);
     for (const privateValue of [...Object.values(selectors), 'must-not-appear-a', 'must-not-appear-b']) {
       expect(rendered).not.toContain(privateValue);
     }
@@ -129,7 +129,14 @@ describe('G1 read-only member verifier', () => {
     const rendered = renderSanitizedOutput(result);
 
     expect(result.passed).toBe(false);
-    expect(rendered).toContain('Member A role USER: FAIL');
+    expect(rendered).toBe([
+      'Member A role USER: FAIL',
+      'Member A active: PASS',
+      'Member B role USER: PASS',
+      'Member B active: PASS',
+    ].join('\n'));
+    expect(rendered.split('\n')).toHaveLength(4);
+    expect(rendered).not.toMatch(/exists:/i);
     for (const privateValue of [...Object.values(selectors), 'private-internal-id-a', 'private-internal-id-b']) {
       expect(rendered).not.toContain(privateValue);
     }
@@ -143,13 +150,13 @@ describe('G1 read-only member verifier', () => {
     const rendered = renderSanitizedOutput(result);
 
     expect(rendered).toBe([
-      'Member A exists: FAIL',
       'Member A role USER: FAIL',
       'Member A active: FAIL',
-      'Member B exists: FAIL',
       'Member B role USER: FAIL',
       'Member B active: FAIL',
     ].join('\n'));
+    expect(rendered.split('\n')).toHaveLength(4);
+    expect(rendered).not.toMatch(/exists:/i);
     for (const privateValue of [...Object.values(selectors), privateErrorMessage]) {
       expect(rendered).not.toContain(privateValue);
     }

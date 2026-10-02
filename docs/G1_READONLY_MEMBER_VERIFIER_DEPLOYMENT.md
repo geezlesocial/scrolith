@@ -35,7 +35,13 @@ Do not proceed if any of these are unresolved:
 3. Database/schema/table mapping, role ownership, effective privileges, RLS, SECURITY DEFINER exposure, or role memberships are unknown or broader than intended.
 4. Selector secret creation, access, rotation, retention, and deletion are not approved and documented. Selectors must never enter source, image layers, command-line arguments, workflow inputs, or logs.
 5. Execution authorization does not prevent unauthorized users from invoking a Job that has access to the database and selectors.
-6. Output handling has not been verified to emit only the six sanitized PASS/FAIL lines and to prevent selector values, IDs, records, or exception text from appearing in logs.
+6. Output handling has not been verified to emit only these four sanitized PASS/FAIL lines and to prevent account existence, selector values, email addresses, IDs, records, database information, environment values, or exception text from appearing in logs:
+   ```text
+   Member A role USER: PASS/FAIL
+   Member A active: PASS/FAIL
+   Member B role USER: PASS/FAIL
+   Member B active: PASS/FAIL
+   ```
 7. A reviewer has not separately approved the exact source SHA, workflow, image digest, staging target, identities, secret references, one-run scope, and evidence retention plan.
 
 The existing `job-scrolith-stg-identities` and image `sha256:33b69ff35549901120a7434d90cf3c94b4b04b5122a38831c7cbfbf51cb860a3` are explicitly prohibited for this verification because that image/job path includes database-mutating seed behavior. Do not reuse it.
