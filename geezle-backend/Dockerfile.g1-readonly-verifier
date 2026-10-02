@@ -1,0 +1,32 @@
+# Revalidated 2026-10-02: Node 22.23.2 Alpine 3.24 linux/amd64 manifest.
+FROM --platform=linux/amd64 node:22.23.2-alpine3.24@sha256:b64da1de5a51067ab8e75f0bc8dbd0905d8894baa22261f439a4572f41291e50 AS build
+
+WORKDIR /opt/g1
+COPY package.g1-readonly-verifier.json ./package.json
+COPY package.g1-readonly-verifier-lock.json ./package-lock.json
+RUN npm ci --include=dev --no-audit --no-fund
+
+COPY prisma ./prisma
+COPY scripts/g1-readonly-member-verifier.ts ./scripts/g1-readonly-member-verifier.ts
+RUN cd prisma && ../node_modules/.bin/prisma generate --schema=schema.prisma
+RUN ./node_modules/.bin/tsc scripts/g1-readonly-member-verifier.ts \
+    --target ES2022 --module commonjs --moduleResolution node \
+    --esModuleInterop --skipLibCheck --types node \
+    --rootDir scripts --outDir dist
+
+FROM --platform=linux/amd64 node:22.23.2-alpine3.24@sha256:b64da1de5a51067ab8e75f0bc8dbd0905d8894baa22261f439a4572f41291e50 AS runtime
+
+WORKDIR /opt/g1
+COPY package.g1-readonly-verifier.json ./package.json
+COPY package.g1-readonly-verifier-lock.json ./package-lock.json
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
+    && rm -rf /root/.npm /usr/local/lib/node_modules/npm /usr/local/bin/npm \
+       /usr/local/bin/npx package.json package-lock.json
+
+COPY --from=build /opt/g1/node_modules/.prisma ./node_modules/.prisma
+COPY --from=build /opt/g1/dist/g1-readonly-member-verifier.js ./g1-readonly-member-verifier.js
+RUN addgroup -S -g 10001 verifier \
+    && adduser -S -D -H -u 10001 -G verifier verifier
+
+USER 10001:10001
+ENTRYPOINT ["node", "/opt/g1/g1-readonly-member-verifier.js"]

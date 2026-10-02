@@ -1,0 +1,29 @@
+# NON-EXECUTABLE REVIEW ARTIFACT.
+# Kept under docs/templates intentionally; do not move into .github/workflows
+# until a separate change and build authorization are approved.
+# Intended chain: exact source SHA -> dedicated Dockerfile -> immutable image
+# digest -> SBOM -> signed provenance/attestation. This file is not a workflow.
+
+name: G1 read-only verifier provenance (DRAFT ONLY)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact reviewed backend/main source SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  review-required:
+    # Deliberately inert placeholder: no runner, build, login, push, or deploy.
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Non-executable review template; separate authorization required"
