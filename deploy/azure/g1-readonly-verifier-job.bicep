@@ -93,7 +93,7 @@ resource verifierJob 'Microsoft.App/jobs@2026-01-01' = {
           name: 'g1-readonly-verifier'
           image: verifierImage
           resources: {
-            cpu: 0.25
+            cpu: json('0.25')
             memory: '0.5Gi'
           }
           env: [
