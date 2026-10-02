@@ -1,0 +1,19 @@
+{
+  "name": "scrolith-g1-readonly-verifier",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.18.0 <23"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "pg": "8.17.2"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.3",
+    "dotenv": "16.6.1",
+    "prisma": "7.10.0",
+    "typescript": "5.9.3"
+  }
+}
