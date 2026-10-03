@@ -17,6 +17,7 @@ const ListingsManagementTab = React.lazy(() => import('./admin/GigsJobs'));
 const FinancialsTab = React.lazy(() => import('./admin/FinancePayouts'));
 const GatewaysTab = React.lazy(() => import('./admin/PaymentGateways'));
 const CMSPages = React.lazy(() => import('./admin/CMSPages'));
+const FollowOnboardingManager = React.lazy(() => import('./admin/FollowOnboardingManager'));
 const HomepageSettings = React.lazy(() => import('./admin/HomepageSettings'));
 const BlogManagement = React.lazy(() => import('./admin/Blog'));
 const MarketingTab = React.lazy(() => import('./admin/Marketing'));
@@ -73,7 +74,7 @@ const AdminLivePlatform = React.lazy(() => import('../pages/AdminLivePlatform'))
 const ScrollAdminPanel = React.lazy(() => import('../features/scroll/ScrollAdminPanel'));
 
 // Define valid tab types
-type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'insights-growth' | 'listings' | 'marketplace' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'scroll' | 'live' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'access-control' | 'role-management' | 'policy-center' | 'approval-policies' | 'audit-logs' | 'security-alerts' | 'procurement' | 'compliance' | 'private-talent-cloud' | 'integrations' | 'scrolitha-controls' | 'managed-delivery' | 'feature-control' | 'discovery-studio' | 'journey-center' | 'notification-ops' | 'moderation-trust' | 'config-rollback' | 'realtime-ops' | 'moderator-console' | 'message-records' | 'messaging-groups' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'groups' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'scrolitha-ai' | 'apps' | 'developer-platform' | 'system-backup';
+type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'insights-growth' | 'listings' | 'marketplace' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'onboard-system' | 'blog' | 'scroll' | 'live' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'access-control' | 'role-management' | 'policy-center' | 'approval-policies' | 'audit-logs' | 'security-alerts' | 'procurement' | 'compliance' | 'private-talent-cloud' | 'integrations' | 'scrolitha-controls' | 'managed-delivery' | 'feature-control' | 'discovery-studio' | 'journey-center' | 'notification-ops' | 'moderation-trust' | 'config-rollback' | 'realtime-ops' | 'moderator-console' | 'message-records' | 'messaging-groups' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'groups' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'scrolitha-ai' | 'apps' | 'developer-platform' | 'system-backup';
 
 // Define navigation item interface
 interface NavItem {
@@ -322,6 +323,7 @@ const AdminDashboard: React.FC = () => {
                 { id: 'cms', label: 'CMS & Pages', icon: LayoutTemplate }, 
                 { id: 'homepage', label: 'Homepage Settings', icon: LayoutTemplate },
                 { id: 'mobile-homepage', label: 'Mobile Homepage', icon: Smartphone },
+                { id: 'onboard-system', label: 'Onboard System', icon: Users },
                 { id: 'blog', label: 'Blog', icon: BookOpen },
                 { id: 'scroll', label: 'Scroll Management', icon: Sparkles },
                 { id: 'live', label: 'Live Streaming', icon: Sparkles }
@@ -420,6 +422,7 @@ const AdminDashboard: React.FC = () => {
             case 'cms': return <CMSPages />;
             case 'homepage': return <HomepageSettings />;
             case 'mobile-homepage': return <MobileHomepage />;
+            case 'onboard-system': return <FollowOnboardingManager />;
             case 'blog': return <BlogManagement />;
             case 'scroll': return <ScrollAdminPanel />;
             case 'live': return <AdminLivePlatform />;

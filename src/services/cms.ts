@@ -1,4 +1,4 @@
-import { PlatformSettings, HomepageSection, HomeSlide, HeaderConfig, FooterConfig, TrendingConfig, ActivityConfig, UserRole, HeroSearchConfig, StaticPage, PageCategory, MediaItem, AuthPagesConfig, AnswersPageConfig, GuidesPageConfig, HirePageConfig, FreelancerPageConfig, SystemMessagesConfig, SystemMessagesVariables } from '../types';
+import { PlatformSettings, HomepageSection, HomeSlide, HeaderConfig, FooterConfig, TrendingConfig, ActivityConfig, UserRole, HeroSearchConfig, StaticPage, PageCategory, MediaItem, AuthPagesConfig, FollowOnboardingContent, AnswersPageConfig, GuidesPageConfig, HirePageConfig, FreelancerPageConfig, SystemMessagesConfig, SystemMessagesVariables } from '../types';
 import { AdminService } from './admin';
 import { AuthService } from './authService';
 import { tokenStore } from './tokenStore';
@@ -2713,6 +2713,19 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             console.error('Failed to save auth pages config:', error);
             throw error;
         }
+    },
+
+    getFollowOnboardingContent: async (admin = false): Promise<FollowOnboardingContent> => {
+        const path = admin ? '/cms/admin/follow-onboarding/content' : '/cms/follow-onboarding/content';
+        const response = await api.get(path);
+        const data = unwrap(response) as FollowOnboardingContent | { data?: FollowOnboardingContent };
+        return (data && 'data' in data ? data.data : data) as FollowOnboardingContent;
+    },
+
+    saveFollowOnboardingContent: async (content: FollowOnboardingContent): Promise<FollowOnboardingContent> => {
+        const response = await api.put('/cms/admin/follow-onboarding/content', content);
+        const data = unwrap(response) as FollowOnboardingContent | { data?: FollowOnboardingContent };
+        return (data && 'data' in data ? data.data : data) as FollowOnboardingContent;
     },
 
     // --- System Messages & Email Templates ---

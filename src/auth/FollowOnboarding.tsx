@@ -10,8 +10,11 @@ import {
   Users
 } from 'lucide-react';
 import { useUser } from '../context/UserContext';
-import { FollowOnboardingStatus, UserRole } from '../types';
+import { FollowOnboardingContent, FollowOnboardingStatus, UserRole } from '../types';
 import { AuthService } from '../services/authService';
+import { CMSService } from '../services/cms';
+import { useSocket } from '../context/SocketContext';
+import { DEFAULT_FOLLOW_ONBOARDING_CONTENT } from '../utils/followOnboardingCms';
 import { RecoService } from '../services/reco';
 import { CommunityService } from '../services/community';
 import { resolveAssetUrl } from '../utils/assetUrl';
@@ -318,6 +321,9 @@ const interleaveRecommendations = (
 const FollowOnboarding = () => {
   const navigate = useNavigate();
   const { user, updateUser } = useUser();
+  const { socket } = useSocket();
+  const [content, setContent] = useState<FollowOnboardingContent>(DEFAULT_FOLLOW_ONBOARDING_CONTENT);
+  const [contentUnavailable, setContentUnavailable] = useState(false);
   const [status, setStatus] = useState<FollowOnboardingStatus>(DEFAULT_STATUS);
   const [cards, setCards] = useState<RecommendationCard[]>([]);
   const [avatarFailures, setAvatarFailures] = useState<Record<string, boolean>>({});
@@ -330,6 +336,37 @@ const FollowOnboarding = () => {
   const [whyOpen, setWhyOpen] = useState(false);
   const [recoFilter, setRecoFilter] = useState<'all' | 'people' | 'pages'>('all');
   const rotationSeed = useMemo(() => createRotationSeed(), [user?.id]);
+
+  useEffect(() => {
+    let active = true;
+    const loadContent = async () => {
+      try {
+        const next = await CMSService.getFollowOnboardingContent();
+        if (active) {
+          setContent(next);
+          setContentUnavailable(false);
+        }
+      } catch {
+        if (active) setContentUnavailable(true);
+      }
+    };
+    void loadContent();
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+    const refresh = async () => {
+      try {
+        setContent(await CMSService.getFollowOnboardingContent());
+        setContentUnavailable(false);
+      } catch {
+        setContentUnavailable(true);
+      }
+    };
+    socket.on('cms:follow_onboarding_updated', refresh);
+    return () => { socket.off('cms:follow_onboarding_updated', refresh); };
+  }, [socket]);
 
   const selectedPageCount = useMemo(
     () => cards.filter((item) => item.targetType === 'page' && item.isFollowing).length,
@@ -678,7 +715,7 @@ const FollowOnboarding = () => {
           />
           <div>
             <p className="text-sm font-semibold text-slate-900">Scrolith</p>
-            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Set up your feed</p>
+            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{content.hero.eyebrow}</p>
           </div>
         </div>
         <div className="inline-flex items-center gap-1.5 rounded-full border border-blue-100 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
@@ -699,12 +736,23 @@ const FollowOnboarding = () => {
                 id="follow-onboarding-title"
                 className="text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl"
               >
-                Build your first Scrolith feed
+                {content.hero.title}
               </h1>
               <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">
-                Choose languages you understand, then follow at least one person or page. We&apos;ll personalize
-                your first feed from these choices.
+                {content.hero.description}
               </p>
+              {contentUnavailable ? <p className="mt-2 text-xs text-amber-700" role="status">Showing the standard onboarding presentation; saved content could not be refreshed.</p> : null}
+              {content.hero.imageUrl ? <img src={resolveAssetUrl(content.hero.imageUrl)} alt="" className="mt-4 max-h-56 w-full rounded-2xl object-cover" loading="lazy" /> : null}
+              {content.featureCards.some((card) => card.enabled) ? (
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  {content.featureCards.filter((card) => card.enabled).map((card) => (
+                    <article key={card.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                      {card.imageUrl ? <img src={resolveAssetUrl(card.imageUrl)} alt="" className="h-28 w-full object-cover" loading="lazy" /> : null}
+                      <div className="p-3"><h2 className="text-sm font-semibold text-slate-900">{card.title}</h2><p className="mt-1 text-xs leading-5 text-slate-600">{card.description}</p></div>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
 
               {/* Progress — min required, not max 6 */}
               <div
@@ -777,7 +825,7 @@ const FollowOnboarding = () => {
                   min={1}
                   max={24}
                   label="Languages I understand"
-                  helpText="Select all that apply. Languages are not nationality or country."
+                  helpText={content.guidance.language}
                 />
                 {!languagesOk ? (
                   <p className="mt-2 text-xs font-medium text-amber-700">Select at least one language.</p>
@@ -792,7 +840,7 @@ const FollowOnboarding = () => {
                   className="inline-flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm font-semibold text-slate-800 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
                   aria-expanded={whyOpen}
                 >
-                  Why we ask this
+                  {content.guidance.title}
                   <ChevronDown
                     className={`h-4 w-4 shrink-0 text-slate-500 transition ${whyOpen ? 'rotate-180' : ''}`}
                     aria-hidden
@@ -802,7 +850,7 @@ const FollowOnboarding = () => {
                   <div className="mt-2 space-y-2 rounded-xl border border-slate-200 bg-white p-3 text-sm leading-6 text-slate-600">
                     <p className="flex gap-2">
                       <Users className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" aria-hidden />
-                      Follows seed your first feed with people and pages you care about.
+                      {content.guidance.follows}
                     </p>
                     <p className="flex gap-2">
                       <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
@@ -810,7 +858,7 @@ const FollowOnboarding = () => {
                     </p>
                     <p className="flex gap-2">
                       <Building2 className="mt-0.5 h-4 w-4 shrink-0 text-violet-600" aria-hidden />
-                      You can change follows and languages anytime after you continue.
+                      {content.guidance.privacy}
                     </p>
                   </div>
                 ) : null}

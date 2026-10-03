@@ -977,6 +977,29 @@ export interface AuthPagesConfig {
   updated_at?: string;
 }
 
+export interface FollowOnboardingContent {
+  hero: {
+    eyebrow: string;
+    title: string;
+    description: string;
+    imageUrl: string;
+  };
+  featureCards: Array<{
+    id: string;
+    title: string;
+    description: string;
+    imageUrl: string;
+    enabled: boolean;
+  }>;
+  guidance: {
+    title: string;
+    language: string;
+    follows: string;
+    privacy: string;
+  };
+  updatedAt?: string;
+}
+
 export interface SystemMessageTemplateChannel {
   enabled: boolean;
   subject?: string;
