@@ -55,6 +55,7 @@ import {
   getPlatformSettingsPublic
 } from '../controllers/cmsController';
 import { getSystemMessagesConfig, saveSystemMessagesConfig } from '../controllers/cms.system-messages.controller';
+import { getFollowOnboardingContent, saveFollowOnboardingContent } from '../controllers/cms.follow-onboarding.controller';
 import { uploadMedia } from '../controllers/filesController';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { adminMiddleware } from '../middleware/admin.middleware';
@@ -152,6 +153,9 @@ router.get('/blog/settings', publicReadRoute(300, (req: Request, res: Response, 
 router.get('/auth-pages', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getAuthPagesConfig(req, res).catch(next);
 }));
+router.get('/follow-onboarding/content', (req: Request, res: Response, next: any) => {
+  getFollowOnboardingContent(req, res).catch(next);
+});
 router.get('/answers', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getAnswersPage(req, res).catch(next);
 }));
@@ -274,6 +278,8 @@ adminRouter.delete('/blog/categories/:id', requirePermission('cms.manage'), dele
 adminRouter.post('/blog/settings', requirePermission('cms.manage'), saveBlogSettings);
 
 adminRouter.post('/auth-pages', requirePermission('cms.manage'), saveAuthPagesConfig);
+adminRouter.get('/admin/follow-onboarding/content', requirePermission('cms.read'), getFollowOnboardingContent);
+adminRouter.put('/admin/follow-onboarding/content', requirePermission('cms.manage'), saveFollowOnboardingContent);
 adminRouter.post('/answers', requirePermission('cms.manage'), saveAnswersPage);
 adminRouter.post('/guides', requirePermission('cms.manage'), saveGuidesPage);
 adminRouter.post('/hire', requirePermission('cms.manage'), saveHirePage);
