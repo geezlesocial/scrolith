@@ -10,6 +10,7 @@ import { getApiBaseUrl } from "../../utils/apiBase";
 import { resolveAssetUrl, resolveResponsiveAssetUrl } from "../../utils/assetUrl";
 import { resolveGuestMarketplaceCategoryLabel } from "../../utils/guestCategoryLabel";
 import { resolveGuestMarketplaceListingImage, resolveMediaUrl } from "../../utils/guestMarketplaceMedia";
+import GuestMarketplacePreviewStatus from "./GuestMarketplacePreviewStatus";
 import {
   BriefcaseIcon as Briefcase
 } from "../icons/ShellIcons";
@@ -911,7 +912,8 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
     loading: boolean;
     loaded: boolean;
     gigs: Gig[];
-  }>({ loading: false, loaded: false, gigs: [] });
+    error: boolean;
+  }>({ loading: false, loaded: false, gigs: [], error: false });
   const [communityPreview, setCommunityPreview] = React.useState<{
     loading: boolean;
     loaded: boolean;
@@ -995,7 +997,8 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
     marketplacePreviewRequestRef.current = true;
 
     const loadMarketplacePreview = async () => {
-      setMarketplacePreview((prev) => ({ ...prev, loading: true }));
+      setMarketplacePreview((prev) => ({ ...prev, loading: true, error: false }));
+      let requestFailed = false;
       try {
         const withTimeout = <T,>(request: Promise<T>, timeoutMs = 7000): Promise<T> =>
           new Promise((resolve, reject) => {
@@ -1011,9 +1014,14 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
               });
           });
 
-        let previewItems = extractMarketplacePreviewItems(
-          await withTimeout(listMarketplaceListings({ page: 1, pageSize: 3, status: 'active', sort: 'recommended' }), 7000)
-        );
+        let previewItems: GuestMarketplacePreviewItem[] = [];
+        try {
+          previewItems = extractMarketplacePreviewItems(
+            await withTimeout(listMarketplaceListings({ page: 1, pageSize: 3, status: 'active', sort: 'recommended' }), 7000)
+          );
+        } catch {
+          requestFailed = true;
+        }
 
         if (!previewItems.length) {
           try {
@@ -1021,6 +1029,7 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
               await withTimeout(listMarketplaceListings({ page: 1, pageSize: 3, status: 'active', sort: 'popular' }), 5000)
             );
           } catch {
+            requestFailed = true;
             previewItems = [];
           }
         }
@@ -1030,16 +1039,22 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
             const homepage = await withTimeout(fetchGuestJson("/homepage/guest"), 7000);
             previewItems = extractMarketplacePreviewItems(homepage);
           } catch {
+            requestFailed = true;
             previewItems = [];
           }
         }
 
         if (!cancelled) {
-          setMarketplacePreview({ loading: false, loaded: true, gigs: previewItems as any });
+          setMarketplacePreview({
+            loading: false,
+            loaded: true,
+            gigs: previewItems as any,
+            error: requestFailed && previewItems.length === 0
+          });
         }
       } catch {
         if (!cancelled) {
-          setMarketplacePreview({ loading: false, loaded: true, gigs: [] });
+          setMarketplacePreview({ loading: false, loaded: true, gigs: [], error: true });
         }
       } finally {
         if (!cancelled) {
@@ -1288,20 +1303,10 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
                         })}
                       </div>
                     ) : (
-                      <div className="grid h-full min-h-[12rem] place-items-center rounded-2xl border border-dashed border-slate-200 bg-white/70 px-4 text-center">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-800">No live marketplace listings available right now.</p>
-                          <p className="mt-1 text-xs leading-5 text-slate-500">
-                            We only show real production listings — never placeholders.
-                          </p>
-                          <Link
-                            to="/auth/signup"
-                            className="mt-3 inline-flex min-h-[40px] items-center text-xs font-semibold text-blue-700 underline-offset-2 hover:underline"
-                          >
-                            Create free account
-                          </Link>
-                        </div>
-                      </div>
+                      <GuestMarketplacePreviewStatus
+                        error={marketplacePreview.error}
+                        onRetry={() => setMarketplacePreview({ loading: false, loaded: false, gigs: [], error: false })}
+                      />
                     )}
                   </div>
                 ) : showCommunityPreview ? (
