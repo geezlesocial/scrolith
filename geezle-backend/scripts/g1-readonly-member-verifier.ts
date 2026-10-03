@@ -96,16 +96,8 @@ export async function verifyMembers(
   }
 }
 
-export function renderSanitizedOutput(result: VerificationResult): string {
-  const status = (passed: boolean) => (passed ? 'PASS' : 'FAIL');
-  return [
-    `Member A exists: ${status(result.memberA.exists)}`,
-    `Member A role USER: ${status(result.memberA.roleUser)}`,
-    `Member A active: ${status(result.memberA.active)}`,
-    `Member B exists: ${status(result.memberB.exists)}`,
-    `Member B role USER: ${status(result.memberB.roleUser)}`,
-    `Member B active: ${status(result.memberB.active)}`,
-  ].join('\n');
+export function renderSanitizedOutput(_result: VerificationResult): string {
+  return 'G1 synthetic Member verification completed; account-level results withheld.';
 }
 
 function printResult(result: VerificationResult): void {

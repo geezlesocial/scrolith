@@ -4,7 +4,7 @@
 
 ## Intended evidence chain
 
-Approved source SHA → dedicated verifier Dockerfile → reviewed build/provenance workflow → immutable ACR digest → dedicated Container Apps Job definition → independently approved read-only PostgreSQL principal → private Key Vault/Container Apps secret references → separately reviewed execution authorization → one manual execution → sanitized PASS/FAIL evidence.
+Approved source SHA → dedicated verifier Dockerfile → reviewed build/provenance workflow → immutable ACR digest → dedicated Container Apps Job definition → independently approved read-only PostgreSQL principal → private Key Vault/Container Apps secret references → separately reviewed execution authorization → one manual execution → fixed, non-identifying stdout and a separately protected result channel for authorized reviewers.
 
 The workflow sketch is deliberately under `docs/templates/g1-readonly-verifier-provenance.yml`. It is not an active GitHub Actions workflow. Do not move it into `.github/workflows` without separate written authorization. The Dockerfile is only a source definition; it has not been built. No image digest is established for this verifier.
 
@@ -35,7 +35,11 @@ Do not proceed if any of these are unresolved:
 3. Database/schema/table mapping, role ownership, effective privileges, RLS, SECURITY DEFINER exposure, or role memberships are unknown or broader than intended.
 4. Selector secret creation, access, rotation, retention, and deletion are not approved and documented. Selectors must never enter source, image layers, command-line arguments, workflow inputs, or logs.
 5. Execution authorization does not prevent unauthorized users from invoking a Job that has access to the database and selectors.
-6. Output handling has not been verified to emit only the six sanitized PASS/FAIL lines and to prevent selector values, IDs, records, or exception text from appearing in logs.
+6. The source renderer is specified to emit only this fixed line, independent of verification result, but deployed Job output and access controls have not been verified. Stdout/stderr must not reveal account existence, selector values, email addresses, IDs, records, database information, environment values, or exception text:
+   ```text
+   G1 synthetic Member verification completed; account-level results withheld.
+   ```
+   This redacts stdout/stderr only. The process exit code remains `0` when all checks pass and `1` otherwise; a successful Job status therefore implies both selected records exist, are distinct, have role `USER`, and are active. This repository does not define or prove who can read Container Apps execution status or logs: the Bicep template declares no role assignments, and the provenance workflow sketch is not active. Before any execution, the infrastructure owner must provide evidence that execution metadata and logs are restricted to the specifically authorized G1 reviewers. If that boundary cannot be verified, do not execute this Job; design a separately protected result channel and non-disclosing public execution status first.
 7. A reviewer has not separately approved the exact source SHA, workflow, image digest, staging target, identities, secret references, one-run scope, and evidence retention plan.
 
 The existing `job-scrolith-stg-identities` and image `sha256:33b69ff35549901120a7434d90cf3c94b4b04b5122a38831c7cbfbf51cb860a3` are explicitly prohibited for this verification because that image/job path includes database-mutating seed behavior. Do not reuse it.
