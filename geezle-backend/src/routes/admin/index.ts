@@ -1194,12 +1194,12 @@ router.get(
 );
 router.patch(
   '/security/human-verification/settings',
-  requireAnyPermission('settings.enterprise_change', 'settings.read'),
+  requirePermission('settings.enterprise_change'),
   updateHumanVerificationSettings
 );
 router.put(
   '/security/human-verification/settings',
-  requireAnyPermission('settings.enterprise_change', 'settings.read'),
+  requirePermission('settings.enterprise_change'),
   updateHumanVerificationSettings
 );
 router.get(
